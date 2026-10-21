@@ -1,5 +1,5 @@
 import type { Env } from './index';
-import { saveDraft, validateDraft, type DraftInput } from './drafts';
+import { applyPostgame, saveDraft, validateDraft, type DraftInput } from './drafts';
 import { logActivity } from './db';
 import { HttpError, json, sha256Hex } from './http';
 
@@ -91,6 +91,30 @@ async function route(req: Request, env: Env, url: URL): Promise<Response> {
     const pgBytes = body.postgame_image_b64 ? Uint8Array.from(atob(body.postgame_image_b64), (c) => c.charCodeAt(0)) : null;
     if (bytes.length > MAX_IMAGE_BYTES || (pgBytes?.length ?? 0) > MAX_IMAGE_BYTES) {
       throw new HttpError(413, 'too_large', 'Image too large');
+    }
+
+    // The same champ select read again (rescan): update instead of creating a duplicate game.
+    const existing = await db
+      .prepare(
+        `SELECT id, match_id, status FROM draft_frames WHERE vod_id = ? AND ABS(ts_s - ?) <= 90
+          ORDER BY ABS(ts_s - ?) LIMIT 1`,
+      )
+      .bind(body.vod_id, Math.round(body.ts_s), Math.round(body.ts_s))
+      .first<{ id: number; match_id: number | null; status: string }>();
+    if (existing) {
+      const pg = (body.reading as { postgame?: Parameters<typeof applyPostgame>[2] } | undefined)?.postgame;
+      let updated = false;
+      if (existing.match_id && pg) updated = await applyPostgame(env, existing.match_id, pg);
+      if (existing.status === 'review' && body.reading) {
+        await db.prepare('UPDATE draft_frames SET reading = ?, image = ?, confidence = ? WHERE id = ?')
+          .bind(JSON.stringify(body.reading), bytes.buffer, body.confidence ?? null, existing.id)
+          .run();
+        updated = true;
+      }
+      if (pgBytes) {
+        await db.prepare('UPDATE draft_frames SET postgame_image = ? WHERE id = ?').bind(pgBytes.buffer, existing.id).run();
+      }
+      return json({ ok: true, duplicate: true, updated, frame_id: existing.id, match_id: existing.match_id });
     }
 
     const ins = await db

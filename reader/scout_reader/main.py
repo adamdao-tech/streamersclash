@@ -124,7 +124,10 @@ def process_job(app: AppClient, db: ChampionDB, job: dict, auto_accept: bool, ev
             postgame_jpeg=res.postgame_jpeg,
         )
         found += 1
-        state = "saved" if r.get("match_id") else f"for review ({r.get('reason')})"
+        if r.get("duplicate"):
+            state = "already saved, updated" if r.get("updated") else "already saved"
+        else:
+            state = "saved" if r.get("match_id") else f"for review ({r.get('reason')})"
         log.info("  %s: %s → %s", S.fmt(res.ts), summary(res.reading), state)
         if res.postgame:
             log.info("  %s", postgame_summary(res.postgame))

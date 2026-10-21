@@ -375,3 +375,45 @@ export function summarizeGames(games: PlayerGame[]) {
       })),
   };
 }
+
+/** Adds a post-game scoreboard (result, K/D/A, lanes, names) to an already saved draft, e.g. after a rescan. */
+export async function applyPostgame(env: Env, matchId: number, pg: PostGameInput): Promise<boolean> {
+  const db = env.DB;
+  const champions = await getChampions(env);
+  const raw = String(pg.result ?? '').toUpperCase();
+  const result = raw === 'WIN' || raw === 'VICTORY' ? 'WIN' : raw === 'LOSS' || raw === 'DEFEAT' ? 'LOSS' : null;
+  const { results: actions } = await db
+    .prepare(`SELECT id, side, champion, player_id FROM draft_actions WHERE match_id = ? AND action = 'PICK'`)
+    .bind(matchId)
+    .all<{ id: number; side: string; champion: string; player_id: number | null }>();
+  if (!actions.length) return false;
+  const players = await loadPlayerNames(db);
+
+  const stmts: D1PreparedStatement[] = [
+    db
+      .prepare(
+        `UPDATE matches SET result = COALESCE(?, result), game_type = COALESCE(?, game_type),
+                duration_s = COALESCE(?, duration_s), postgame_ts = COALESCE(?, postgame_ts) WHERE id = ?`,
+      )
+      .bind(result, pg.game_type ? String(pg.game_type).slice(0, 40) : null, num(pg.duration_s, 6 * 3600), num(pg.ts_s, 24 * 3600), matchId),
+  ];
+  for (const [side, rows] of [['ALLY', pg.ally], ['ENEMY', pg.enemy]] as const) {
+    for (const row of rows ?? []) {
+      const champ = resolveChampion(champions, String(row?.champion ?? ''));
+      const action = actions.find((a) => a.side === side && a.champion === champ);
+      if (!action) continue;
+      const name = row.player_name ? String(row.player_name).slice(0, 60) : null;
+      stmts.push(
+        db
+          .prepare(
+            `UPDATE draft_actions SET kills = ?, deaths = ?, assists = ?, lane = ?, role = COALESCE(?, role),
+                    player_name = COALESCE(player_name, ?), player_id = COALESCE(player_id, ?) WHERE id = ?`,
+          )
+          .bind(num(row.kills), num(row.deaths), num(row.assists), num(row.lane, 4), normRole(row.role), name,
+            name ? matchPlayer(players, name) : null, action.id),
+      );
+    }
+  }
+  await db.batch(stmts);
+  return true;
+}

@@ -89,23 +89,8 @@ export async function saveDraft(
     }
   }
 
-  // Link named players to our database by nickname or Riot game name.
-  const names = [...draft.ally, ...draft.enemy].map((s) => s.player_name).filter((n): n is string => !!n);
-  const playerIds = new Map<string, number>();
-  if (names.length) {
-    const { results } = await db
-      .prepare(
-        `SELECT id, lower(nickname) AS nick, lower(riot_game_name) AS riot FROM players
-          WHERE lower(nickname) IN (${names.map(() => '?').join(',')}) OR lower(riot_game_name) IN (${names.map(() => '?').join(',')})`,
-      )
-      .bind(...names.map((n) => n.toLowerCase()), ...names.map((n) => n.toLowerCase()))
-      .all<{ id: number; nick: string; riot: string | null }>();
-    for (const r of results) {
-      playerIds.set(r.nick, r.id);
-      if (r.riot) playerIds.set(r.riot, r.id);
-    }
-  }
-
+  // Link named players to our database (nickname or Riot game name, tolerant to OCR mistakes).
+  const players = await loadPlayerNames(db);
   const match = await db
     .prepare(
       `INSERT INTO matches (played_at, source, vod_id, vod_timestamp_s, notes, created_by_kind, pov_player_id)
@@ -118,7 +103,7 @@ export async function saveDraft(
   const stmts: D1PreparedStatement[] = [];
   let seq = 0;
   const insert = (side: string, action: string, slot: number, champion: string, playerName: string | null, role: string | null) => {
-    const pid = playerName ? playerIds.get(playerName.toLowerCase()) ?? null : null;
+    const pid = playerName ? matchPlayer(players, playerName) : null;
     stmts.push(
       db
         .prepare(
@@ -181,4 +166,71 @@ export async function listDrafts(
     .bind(...matches.map((m) => m.id))
     .all<Record<string, unknown> & { match_id: number }>();
   return matches.map((m) => ({ ...m, actions: actions.filter((a) => a.match_id === m.id) }));
+}
+
+// --- player name matching ---------------------------------------------------------
+
+interface PlayerNames {
+  id: number;
+  keys: string[];
+}
+
+function nameKey(s: string): string {
+  return s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]/g, '');
+}
+
+function levenshtein(a: string, b: string): number {
+  const row = Array.from({ length: b.length + 1 }, (_, i) => i);
+  for (let i = 1; i <= a.length; i++) {
+    let prev = row[0];
+    row[0] = i;
+    for (let j = 1; j <= b.length; j++) {
+      const tmp = row[j];
+      row[j] = Math.min(row[j] + 1, row[j - 1] + 1, prev + (a[i - 1] === b[j - 1] ? 0 : 1));
+      prev = tmp;
+    }
+  }
+  return row[b.length];
+}
+
+async function loadPlayerNames(db: D1Database): Promise<PlayerNames[]> {
+  const { results } = await db
+    .prepare('SELECT id, nickname, riot_game_name FROM players')
+    .all<{ id: number; nickname: string; riot_game_name: string | null }>();
+  return results.map((p) => ({ id: p.id, keys: [p.nickname, p.riot_game_name].filter((n): n is string => !!n).map(nameKey) }));
+}
+
+/** Best player for a name read by OCR: exact match, or up to 1–2 wrong letters for longer names. */
+function matchPlayer(players: PlayerNames[], name: string): number | null {
+  const key = nameKey(name);
+  if (key.length < 3) return null;
+  let best: { id: number; d: number } | null = null;
+  for (const p of players) {
+    for (const k of p.keys) {
+      if (!k) continue;
+      const d = levenshtein(key, k);
+      const allowed = Math.max(key.length, k.length) >= 6 ? 2 : Math.max(key.length, k.length) >= 4 ? 1 : 0;
+      if (d <= allowed && (!best || d < best.d)) best = { id: p.id, d };
+    }
+  }
+  return best?.id ?? null;
+}
+
+/** Links draft picks that were saved before the player existed (or before their Riot ID was filled in). */
+export async function relinkDraftPlayers(env: Env): Promise<number> {
+  const db = env.DB;
+  const { results } = await db
+    .prepare('SELECT id, player_name FROM draft_actions WHERE player_id IS NULL AND player_name IS NOT NULL')
+    .all<{ id: number; player_name: string }>();
+  if (!results.length) return 0;
+  const players = await loadPlayerNames(db);
+  const updates = results
+    .map((r) => ({ id: r.id, pid: matchPlayer(players, r.player_name) }))
+    .filter((u): u is { id: number; pid: number } => u.pid !== null);
+  for (let i = 0; i < updates.length; i += 50) {
+    await db.batch(
+      updates.slice(i, i + 50).map((u) => db.prepare('UPDATE draft_actions SET player_id = ? WHERE id = ?').bind(u.pid, u.id)),
+    );
+  }
+  return updates.length;
 }

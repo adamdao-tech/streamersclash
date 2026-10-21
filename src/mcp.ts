@@ -1,7 +1,7 @@
 import type { Env } from './index';
 import { insert, parsePlayer, playerFields, teamFields } from './api';
 import { logActivity, type User } from './db';
-import { listDrafts, saveDraft, validateDraft, type DraftInput } from './drafts';
+import { listDrafts, relinkDraftPlayers, saveDraft, validateDraft, type DraftInput } from './drafts';
 import { HttpError, json } from './http';
 import { userFromBearer } from './oauth';
 import { syncTwitchVods } from './vods';
@@ -371,6 +371,7 @@ const TOOLS: Tool[] = [
       const fields = playerFields(a, false);
       const id = await insert(env.DB, 'players', { ...fields, team_id: teamId });
       await logActivity(env.DB, { kind: 'claude', userId: user.id }, 'player.create', 'player', id, { nickname: fields.nickname, team_id: teamId });
+      await relinkDraftPlayers(env);
       if (fields.twitch_login) await syncTwitchVods(env, [String(fields.twitch_login)]).catch(() => {});
       return text({ ok: true, player_id: id });
     },

@@ -100,3 +100,79 @@ export function timeAgo(sqlDate) {
   if (s < 86400) return `před ${Math.floor(s / 3600)} h`;
   return d.toLocaleDateString('cs-CZ');
 }
+
+// --- champions & drafts ----------------------------------------------------
+
+let championsPromise = null;
+/** Map of champion name → icon URL (Riot Data Dragon). */
+export function loadChampions() {
+  championsPromise ??= api('/api/champions')
+    .then(({ version, champions }) => {
+      const map = new Map();
+      for (const c of champions) map.set(c.name, `https://ddragon.leagueoflegends.com/cdn/${version}/img/champion/${c.id}.png`);
+      return map;
+    })
+    .catch(() => new Map());
+  return championsPromise;
+}
+
+export function champIcon(icons, name, size = 'md') {
+  const src = icons.get(name);
+  return `<span class="champ champ-${size}" title="${esc(name)}">${src ? `<img src="${esc(src)}" alt="${esc(name)}" loading="lazy">` : esc(String(name).slice(0, 2))}</span>`;
+}
+
+export function vodLink(url, seconds) {
+  if (!url) return null;
+  if (!seconds) return url;
+  const s = Math.max(0, seconds - 60); // start a minute before the draft ended
+  const t = `${Math.floor(s / 3600)}h${Math.floor((s % 3600) / 60)}m${s % 60}s`;
+  return `${url}${url.includes('?') ? '&' : '?'}t=${t}`;
+}
+
+const SOURCE = { sync: 'Čtečka', claude: 'Claude', user: 'Ručně' };
+
+export function draftHtml(d, icons, highlightPlayerIds = new Set()) {
+  const side = (s) => d.actions.filter((a) => a.side === s);
+  const picks = (s) =>
+    side(s)
+      .filter((a) => a.action === 'PICK')
+      .map((a) => {
+        const mine = a.player_id && highlightPlayerIds.has(a.player_id);
+        return `<div class="pick${mine ? ' mine' : ''}">${champIcon(icons, a.champion)}<div><b>${esc(a.champion)}</b>${a.player_name ? `<small>${esc(a.player_name)}</small>` : ''}</div></div>`;
+      })
+      .join('');
+  const bans = (s) => side(s).filter((a) => a.action === 'BAN').map((a) => champIcon(icons, a.champion, 'sm')).join('');
+  const when = d.played_at ? new Date(d.played_at).toLocaleString('cs-CZ', { day: 'numeric', month: 'numeric', hour: '2-digit', minute: '2-digit' }) : '';
+  const link = vodLink(d.vod_url, d.vod_timestamp_s);
+  return `
+    <article class="draft">
+      <div class="draft-meta">
+        <span>${esc(when)}</span>
+        ${d.pov_nickname ? `<span>POV: <b>${esc(d.pov_nickname)}</b></span>` : ''}
+        <span class="badge">${SOURCE[d.created_by_kind] || esc(d.created_by_kind)}</span>
+        ${link ? `<a href="${esc(link)}" target="_blank" rel="noopener">▶ Champ select ve VODce</a>` : ''}
+      </div>
+      <div class="draft-body">
+        <div class="draft-side ally">
+          <div class="side-label">Spoluhráči ${bans('ALLY') ? `<span class="bans">${bans('ALLY')}</span>` : ''}</div>
+          ${picks('ALLY')}
+        </div>
+        <div class="draft-vs">VS</div>
+        <div class="draft-side enemy">
+          <div class="side-label">Soupeři ${bans('ENEMY') ? `<span class="bans">${bans('ENEMY')}</span>` : ''}</div>
+          ${picks('ENEMY')}
+        </div>
+      </div>
+    </article>`;
+}
+
+/** Champion pool of one player from saved drafts: [{champion, games}] sorted by games. */
+export function championPool(drafts, playerId) {
+  const counts = new Map();
+  for (const d of drafts) {
+    for (const a of d.actions) {
+      if (a.action === 'PICK' && a.player_id === playerId) counts.set(a.champion, (counts.get(a.champion) || 0) + 1);
+    }
+  }
+  return [...counts.entries()].map(([champion, games]) => ({ champion, games })).sort((a, b) => b.games - a.games);
+}

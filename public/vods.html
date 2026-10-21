@@ -43,7 +43,7 @@
 
     await initPage('vods');
 
-    const SCAN = { pending: 'Čeká na čtečku', scanning: 'Čte se', done: 'Draft přečten', skipped: 'Bez draftu', failed: 'Chyba čtení' };
+    const SCAN = { pending: 'Čeká na čtečku', scanning: 'Čte se', done: 'Přečteno', skipped: 'Bez draftu', failed: 'Nelze přečíst' };
     const teamFilter = document.getElementById('team-filter');
     let live = {};
 
@@ -89,6 +89,11 @@
                 <div class="title">${esc(v.title || 'Bez názvu')}</div>
                 <div class="sub">${who}</div>
                 <div class="sub">${timeAgo(v.started_at?.replace('T', ' ').replace('Z', ''))} · <span class="scan scan-${esc(v.scan_status)}">${SCAN[v.scan_status] || esc(v.scan_status)}</span></div>
+                <div class="actions-row">
+                  ${v.draft_count ? `<span class="badge" style="color:var(--green)">${v.draft_count} ${v.draft_count === 1 ? 'draft' : v.draft_count < 5 ? 'drafty' : 'draftů'}</span>` : ''}
+                  ${v.review_count ? `<span class="badge" style="color:var(--gold-2)">${v.review_count} ke kontrole</span>` : ''}
+                  ${v.scan_status !== 'pending' ? `<button class="btn btn-small" data-rescan="${v.id}">Skenovat znovu</button>` : ''}
+                </div>
               </div>
             </a>`;
           }).join('')
@@ -137,6 +142,14 @@
     });
 
     teamFilter.addEventListener('change', loadVods);
+
+    document.getElementById('vods').addEventListener('click', async (e) => {
+      const id = e.target.dataset.rescan;
+      if (!id) return;
+      e.preventDefault();
+      await api(`/api/vods/${id}/rescan`, { method: 'POST', body: {} });
+      await loadVods();
+    });
 
     await loadTeams();
     await loadLive();

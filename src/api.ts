@@ -2,7 +2,8 @@ import type { Env } from './index';
 import { logActivity, type User } from './db';
 import { HttpError, json } from './http';
 import { getLiveChannels, syncTwitchVods } from './vods';
-import { listDrafts } from './drafts';
+import { listDrafts, relinkDraftPlayers } from './drafts';
+import { getChampionData } from './champions';
 
 const ROLES = ['TOP', 'JUNGLE', 'MID', 'ADC', 'SUPPORT', 'SUB'] as const;
 const REGIONS = ['EUNE', 'EUW'] as const;
@@ -119,6 +120,7 @@ async function route(req: Request, env: Env, url: URL, user: User): Promise<Resp
     const fields = playerFields(await readBody(req), false);
     const id = await insert(db, 'players', { region: team.region, ...fields, team_id: teamId });
     await logActivity(db, actor, 'player.create', 'player', id, { nickname: fields.nickname, team_id: teamId });
+    await relinkDraftPlayers(env);
     // Pull the new player's VODs right away.
     if (fields.twitch_login) await syncTwitchVods(env, [String(fields.twitch_login)]).catch(() => {});
     return json({ id }, 201);
@@ -134,6 +136,7 @@ async function route(req: Request, env: Env, url: URL, user: User): Promise<Resp
       const fields = playerFields(await readBody(req), true);
       await update(db, 'players', id, fields);
       await logActivity(db, actor, 'player.update', 'player', id, fields);
+      await relinkDraftPlayers(env);
       if (fields.twitch_login) await syncTwitchVods(env, [String(fields.twitch_login)]).catch(() => {});
       return json({ ok: true });
     }
@@ -158,6 +161,8 @@ async function route(req: Request, env: Env, url: URL, user: User): Promise<Resp
     const { results } = await db
       .prepare(
         `SELECT v.*, p.nickname AS player_nickname, p.role AS player_role, p.team_id,
+                (SELECT COUNT(*) FROM matches m WHERE m.vod_id = v.id) AS draft_count,
+                (SELECT COUNT(*) FROM draft_frames f WHERE f.vod_id = v.id AND f.status = 'review') AS review_count,
                 t.name AS team_name, t.accent_color AS team_color, c.label AS channel_label
            FROM vods v
            LEFT JOIN players p ON p.id = v.player_id
@@ -224,6 +229,14 @@ async function route(req: Request, env: Env, url: URL, user: User): Promise<Resp
   }
 
   // --- drafts & reader frames ---------------------------------------------
+  if (path === '/api/champions' && method === 'GET') {
+    try {
+      return json(await getChampionData(env), 200, { 'Cache-Control': 'private, max-age=3600' });
+    } catch {
+      throw new HttpError(502, 'ddragon_unavailable', 'Seznam championů teď není dostupný.');
+    }
+  }
+
   if (path === '/api/drafts' && method === 'GET') {
     const num = (k: string) => (url.searchParams.get(k) ? Number(url.searchParams.get(k)) : undefined);
     const drafts = await listDrafts(env, {

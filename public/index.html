@@ -64,6 +64,12 @@
       'channel.add': 'začal(a) sledovat kanál',
       'channel.remove': 'přestal(a) sledovat kanál',
       'vods.sync': 'stáhl nové VODky',
+      'draft.create': 'uložil(a) draft',
+      'frame.review': 'poslala draft ke kontrole',
+      'frame.discard': 'zahodil(a) snímek draftu',
+      'vod.rescan': 'poslal(a) VODku znovu ke skenování',
+      'note.add': 'přidal(a) poznámku',
+      'mcp.authorize': 'připojil(a) Clauda',
     };
 
     async function load() {
@@ -88,7 +94,7 @@
 
       document.getElementById('activity').innerHTML = activity.length
         ? activity.slice(0, 15).map((a) => {
-            const who = a.actor_kind === 'claude' ? 'Claude' : a.actor_kind === 'sync' ? 'Sync' : a.actor_name || 'Někdo';
+            const who = a.actor_kind === 'claude' ? 'Claude' : a.actor_kind === 'sync' ? (a.action.startsWith('vods') ? 'Sync' : 'Čtečka') : a.actor_name || 'Někdo';
             let what = '';
             try { const d = JSON.parse(a.details || '{}'); what = d.name || d.nickname || d.label || d.login || (d.new ? `(${d.new})` : ''); } catch {}
             return `<li><span><b>${esc(who)}</b> ${ACTIONS[a.action] || esc(a.action)} ${what ? `<b>${esc(what)}</b>` : ''}</span><span>${timeAgo(a.created_at)}</span></li>`;

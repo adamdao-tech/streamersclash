@@ -20,6 +20,12 @@
     <section id="roster" class="roster"></section>
 
     <div class="section-head" style="margin-top:36px">
+      <h2>Drafty</h2>
+      <span id="draft-count" style="color:var(--muted)"></span>
+    </div>
+    <section id="drafts" class="drafts"></section>
+
+    <div class="section-head" style="margin-top:36px">
       <h2>Poslední VODky</h2>
       <a href="/vods">Všechny VODky →</a>
     </div>
@@ -73,11 +79,11 @@
   </dialog>
 
   <script type="module">
-    import { api, esc, initPage, formDialog, logoHtml, ROLE_LABELS } from '/app.js';
+    import { api, esc, initPage, formDialog, logoHtml, ROLE_LABELS, loadChampions, champIcon, draftHtml, championPool } from '/app.js';
 
     await initPage('teams');
     const teamId = new URLSearchParams(location.search).get('id');
-    let team, players, editingPlayer = null, live = {};
+    let team, players, editingPlayer = null, live = {}, drafts = [], icons = new Map();
     api('/api/live').then((r) => { live = r.twitch; renderRoster(); }).catch(() => {});
 
     async function load() {
@@ -111,6 +117,17 @@
 
       renderRoster();
       loadVods();
+      loadDrafts();
+    }
+
+    async function loadDrafts() {
+      [{ drafts }, icons] = await Promise.all([api(`/api/drafts?team_id=${teamId}&limit=50`), loadChampions()]);
+      const ours = new Set(players.map((p) => p.id));
+      document.getElementById('draft-count').textContent = drafts.length ? `${drafts.length} uložených` : '';
+      document.getElementById('drafts').innerHTML = drafts.length
+        ? drafts.map((d) => draftHtml(d, icons, ours)).join('')
+        : '<div class="empty">Zatím žádné drafty. Čtečka je doplní z VODek hráčů, nebo je přidá Claude přes konektor.</div>';
+      renderRoster();
     }
 
     async function loadVods() {
@@ -141,6 +158,12 @@
                 ${p.twitch_login ? `<a class="chip chip-twitch" href="https://twitch.tv/${esc(p.twitch_login)}" target="_blank" rel="noopener">${live[p.twitch_login] ? '<span class="live-dot"></span>LIVE · ' : '<span class="dot"></span>'}${esc(p.twitch_login)}</a>` : ''}
                 ${p.kick_slug ? `<a class="chip chip-kick" href="https://kick.com/${esc(p.kick_slug)}" target="_blank" rel="noopener"><span class="dot"></span>${esc(p.kick_slug)}</a>` : ''}
               </div>
+              ${(() => {
+                const pool = championPool(drafts, p.id).slice(0, 8);
+                return pool.length
+                  ? `<div class="pool">${pool.map((c) => `<span class="pool-item" title="${esc(c.champion)}: ${c.games}×">${champIcon(icons, c.champion, 'pool')}<span class="n">${c.games}</span></span>`).join('')}</div>`
+                  : '';
+              })()}
               ${p.tags.length ? `<div class="tags">${p.tags.map((t) => `<span class="badge">${esc(t)}</span>`).join('')}</div>` : ''}
               ${p.notes ? `<div class="pnotes">${esc(p.notes)}</div>` : ''}
             </div>

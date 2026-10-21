@@ -1,0 +1,291 @@
+import type { Env } from './index';
+import { logActivity, type User } from './db';
+import { HttpError, json } from './http';
+
+const ROLES = ['TOP', 'JUNGLE', 'MID', 'ADC', 'SUPPORT', 'SUB'] as const;
+const REGIONS = ['EUNE', 'EUW'] as const;
+
+export async function handleApi(req: Request, env: Env, url: URL, user: User): Promise<Response> {
+  try {
+    return await route(req, env, url, user);
+  } catch (err) {
+    if (err instanceof HttpError) return json({ error: err.code, message: err.message }, err.status);
+    console.error('API error', err);
+    return json({ error: 'internal_error' }, 500);
+  }
+}
+
+async function route(req: Request, env: Env, url: URL, user: User): Promise<Response> {
+  const db = env.DB;
+  const method = req.method;
+  const path = url.pathname.replace(/\/+$/, '');
+  const actor = { kind: 'user' as const, userId: user.id };
+  let m: RegExpMatchArray | null;
+
+  if (method !== 'GET' && method !== 'DELETE' && !req.headers.get('Content-Type')?.includes('application/json')) {
+    throw new HttpError(415, 'json_required', 'Expected application/json');
+  }
+
+  // --- me ---------------------------------------------------------------
+  if (path === '/api/me' && method === 'GET') return json({ user });
+
+  // --- users (allowlist, admin only) -------------------------------------
+  if (path === '/api/users') {
+    requireAdmin(user);
+    if (method === 'GET') {
+      const { results } = await db
+        .prepare(
+          'SELECT id, twitch_login, display_name, avatar_url, role, created_at, last_login_at FROM users ORDER BY role, twitch_login',
+        )
+        .all();
+      return json({ users: results });
+    }
+    if (method === 'POST') {
+      const body = await readBody(req);
+      const login = normalizeChannel(body.twitch_login, 'twitch.tv');
+      if (!login) throw new HttpError(400, 'invalid', 'Zadej Twitch login.');
+      const role = body.role === 'admin' ? 'admin' : 'member';
+      const res = await db
+        .prepare('INSERT INTO users (twitch_login, role, added_by) VALUES (?, ?, ?) ON CONFLICT(twitch_login) DO NOTHING')
+        .bind(login, role, user.id)
+        .run();
+      if (!res.meta.changes) throw new HttpError(409, 'exists', 'Tenhle uživatel už v seznamu je.');
+      await logActivity(db, actor, 'user.add', 'user', res.meta.last_row_id, { login, role });
+      return json({ ok: true }, 201);
+    }
+  }
+  if ((m = path.match(/^\/api\/users\/(\d+)$/)) && method === 'DELETE') {
+    requireAdmin(user);
+    const id = Number(m[1]);
+    if (id === user.id) throw new HttpError(400, 'self', 'Sám sebe odebrat nemůžeš.');
+    await db.prepare('DELETE FROM users WHERE id = ?').bind(id).run();
+    await logActivity(db, actor, 'user.remove', 'user', id);
+    return json({ ok: true });
+  }
+
+  // --- teams -------------------------------------------------------------
+  if (path === '/api/teams') {
+    if (method === 'GET') {
+      const { results } = await db
+        .prepare(
+          `SELECT t.*, (SELECT COUNT(*) FROM players p WHERE p.team_id = t.id) AS player_count
+             FROM teams t ORDER BY t.is_own_team DESC, t.name COLLATE NOCASE`,
+        )
+        .all();
+      return json({ teams: results });
+    }
+    if (method === 'POST') {
+      const fields = teamFields(await readBody(req), false);
+      const id = await insert(db, 'teams', { ...fields, created_by: user.id });
+      await logActivity(db, actor, 'team.create', 'team', id, { name: fields.name });
+      return json({ id }, 201);
+    }
+  }
+  if ((m = path.match(/^\/api\/teams\/(\d+)$/))) {
+    const id = Number(m[1]);
+    if (method === 'GET') {
+      const team = await db.prepare('SELECT * FROM teams WHERE id = ?').bind(id).first();
+      if (!team) throw new HttpError(404, 'not_found', 'Tým neexistuje.');
+      const { results: players } = await db
+        .prepare(
+          `SELECT * FROM players WHERE team_id = ?
+            ORDER BY CASE role WHEN 'TOP' THEN 1 WHEN 'JUNGLE' THEN 2 WHEN 'MID' THEN 3
+                               WHEN 'ADC' THEN 4 WHEN 'SUPPORT' THEN 5 ELSE 6 END, nickname COLLATE NOCASE`,
+        )
+        .bind(id)
+        .all();
+      return json({ team, players: players.map(parsePlayer) });
+    }
+    if (method === 'PUT') {
+      const fields = teamFields(await readBody(req), true);
+      await update(db, 'teams', id, fields);
+      await logActivity(db, actor, 'team.update', 'team', id, fields);
+      return json({ ok: true });
+    }
+    if (method === 'DELETE') {
+      await db.prepare('DELETE FROM teams WHERE id = ?').bind(id).run();
+      await logActivity(db, actor, 'team.delete', 'team', id);
+      return json({ ok: true });
+    }
+  }
+
+  // --- players -----------------------------------------------------------
+  if ((m = path.match(/^\/api\/teams\/(\d+)\/players$/)) && method === 'POST') {
+    const teamId = Number(m[1]);
+    const team = await db.prepare('SELECT region FROM teams WHERE id = ?').bind(teamId).first<{ region: string }>();
+    if (!team) throw new HttpError(404, 'not_found', 'Tým neexistuje.');
+    const fields = playerFields(await readBody(req), false);
+    const id = await insert(db, 'players', { region: team.region, ...fields, team_id: teamId });
+    await logActivity(db, actor, 'player.create', 'player', id, { nickname: fields.nickname, team_id: teamId });
+    return json({ id }, 201);
+  }
+  if ((m = path.match(/^\/api\/players\/(\d+)$/))) {
+    const id = Number(m[1]);
+    if (method === 'GET') {
+      const player = await db.prepare('SELECT * FROM players WHERE id = ?').bind(id).first();
+      if (!player) throw new HttpError(404, 'not_found', 'Hráč neexistuje.');
+      return json({ player: parsePlayer(player) });
+    }
+    if (method === 'PUT') {
+      const fields = playerFields(await readBody(req), true);
+      await update(db, 'players', id, fields);
+      await logActivity(db, actor, 'player.update', 'player', id, fields);
+      return json({ ok: true });
+    }
+    if (method === 'DELETE') {
+      await db.prepare('DELETE FROM players WHERE id = ?').bind(id).run();
+      await logActivity(db, actor, 'player.delete', 'player', id);
+      return json({ ok: true });
+    }
+  }
+
+  // --- activity ----------------------------------------------------------
+  if (path === '/api/activity' && method === 'GET') {
+    const { results } = await db
+      .prepare(
+        `SELECT a.*, u.display_name AS actor_name FROM activity_log a
+           LEFT JOIN users u ON u.id = a.actor_user_id
+          ORDER BY a.id DESC LIMIT 50`,
+      )
+      .all();
+    return json({ activity: results });
+  }
+
+  throw new HttpError(404, 'not_found', 'Unknown endpoint');
+}
+
+// --- helpers ---------------------------------------------------------------
+
+function requireAdmin(user: User): void {
+  if (user.role !== 'admin') throw new HttpError(403, 'forbidden', 'Jen pro admina.');
+}
+
+async function readBody(req: Request): Promise<Record<string, unknown>> {
+  try {
+    const body = await req.json();
+    if (body && typeof body === 'object' && !Array.isArray(body)) return body as Record<string, unknown>;
+  } catch {}
+  throw new HttpError(400, 'invalid_json', 'Neplatný JSON.');
+}
+
+type Row = Record<string, string | number | null>;
+
+/** Trimmed string or null; throws if too long. */
+function str(v: unknown, label: string, max: number): string | null {
+  if (v === undefined || v === null) return null;
+  const s = String(v).trim();
+  if (s.length > max) throw new HttpError(400, 'invalid', `${label}: max ${max} znaků.`);
+  return s || null;
+}
+
+function oneOf<T extends string>(v: unknown, allowed: readonly T[], label: string): T | null {
+  if (v === undefined || v === null || v === '') return null;
+  const s = String(v).toUpperCase() as T;
+  if (!allowed.includes(s)) throw new HttpError(400, 'invalid', `${label}: neplatná hodnota.`);
+  return s;
+}
+
+/** Accepts "name", "@name" or a full channel URL and returns the bare channel name. */
+function normalizeChannel(v: unknown, host: string): string | null {
+  const s = str(v, 'Kanál', 200);
+  if (!s) return null;
+  let name = s.replace(/^@/, '');
+  const i = name.toLowerCase().indexOf(host);
+  if (i >= 0) name = name.slice(i + host.length).replace(/^\/+/, '').split(/[/?#]/)[0];
+  if (!/^[A-Za-z0-9_.-]{1,50}$/.test(name)) throw new HttpError(400, 'invalid', `Neplatný kanál: ${s}`);
+  return name.toLowerCase();
+}
+
+function teamFields(body: Record<string, unknown>, partial: boolean): Row {
+  const out: Row = {};
+  const has = (k: string) => !partial || k in body;
+  if (has('name')) {
+    const name = str(body.name, 'Název', 80);
+    if (!name) throw new HttpError(400, 'invalid', 'Název týmu je povinný.');
+    out.name = name;
+  }
+  if (has('tag')) out.tag = str(body.tag, 'Tag', 10);
+  if (has('logo_url')) {
+    const u = str(body.logo_url, 'Logo URL', 500);
+    if (u && !/^https:\/\//i.test(u)) throw new HttpError(400, 'invalid', 'Logo URL musí začínat https://');
+    out.logo_url = u;
+  }
+  if (has('accent_color')) {
+    const c = str(body.accent_color, 'Barva', 7);
+    if (c && !/^#[0-9a-f]{6}$/i.test(c)) throw new HttpError(400, 'invalid', 'Barva musí být ve tvaru #rrggbb.');
+    out.accent_color = c;
+  }
+  if (has('is_own_team')) out.is_own_team = body.is_own_team ? 1 : 0;
+  if (has('tournament')) out.tournament = str(body.tournament, 'Turnaj', 100);
+  if (has('region')) out.region = oneOf(body.region, REGIONS, 'Region') ?? 'EUNE';
+  if (has('notes')) out.notes = str(body.notes, 'Poznámky', 5000);
+  return out;
+}
+
+function playerFields(body: Record<string, unknown>, partial: boolean): Row {
+  const out: Row = {};
+  const has = (k: string) => !partial || k in body;
+  if (has('nickname')) {
+    const n = str(body.nickname, 'Přezdívka', 60);
+    if (!n) throw new HttpError(400, 'invalid', 'Přezdívka je povinná.');
+    out.nickname = n;
+  }
+  if (has('role')) out.role = oneOf(body.role, ROLES, 'Role');
+  if (has('riot_id')) {
+    const r = str(body.riot_id, 'Riot ID', 60);
+    if (r) {
+      const [name, tag] = r.split('#');
+      if (!name?.trim() || !tag?.trim()) throw new HttpError(400, 'invalid', 'Riot ID musí být ve tvaru Jméno#TAG.');
+      out.riot_game_name = name.trim();
+      out.riot_tag_line = tag.trim();
+    } else {
+      out.riot_game_name = null;
+      out.riot_tag_line = null;
+    }
+    out.riot_puuid = null; // re-resolved on the next Riot sync
+  }
+  if ('region' in body) out.region = oneOf(body.region, REGIONS, 'Region') ?? 'EUNE';
+  if (has('twitch_login')) out.twitch_login = normalizeChannel(body.twitch_login, 'twitch.tv');
+  if (has('kick_slug')) out.kick_slug = normalizeChannel(body.kick_slug, 'kick.com');
+  if (has('tags')) {
+    const tags = Array.isArray(body.tags) ? body.tags : String(body.tags ?? '').split(',');
+    out.tags = JSON.stringify(
+      tags
+        .map((t) => String(t).trim())
+        .filter(Boolean)
+        .slice(0, 20)
+        .map((t) => t.slice(0, 40)),
+    );
+  }
+  if (has('notes')) out.notes = str(body.notes, 'Poznámky', 5000);
+  return out;
+}
+
+function parsePlayer(p: Record<string, unknown>) {
+  let tags: string[] = [];
+  try {
+    tags = JSON.parse(String(p.tags ?? '[]'));
+  } catch {}
+  const riot_id = p.riot_game_name && p.riot_tag_line ? `${p.riot_game_name}#${p.riot_tag_line}` : null;
+  return { ...p, tags, riot_id };
+}
+
+// Table/column names below come from our own code, never from user input.
+async function insert(db: D1Database, table: string, row: Row): Promise<number> {
+  const cols = Object.keys(row);
+  const res = await db
+    .prepare(`INSERT INTO ${table} (${cols.join(', ')}) VALUES (${cols.map(() => '?').join(', ')})`)
+    .bind(...cols.map((c) => row[c]))
+    .run();
+  return res.meta.last_row_id;
+}
+
+async function update(db: D1Database, table: string, id: number, row: Row): Promise<void> {
+  const cols = Object.keys(row);
+  if (!cols.length) return;
+  const res = await db
+    .prepare(`UPDATE ${table} SET ${cols.map((c) => `${c} = ?`).join(', ')}, updated_at = datetime('now') WHERE id = ?`)
+    .bind(...cols.map((c) => row[c]), id)
+    .run();
+  if (!res.meta.changes) throw new HttpError(404, 'not_found', 'Záznam neexistuje.');
+}

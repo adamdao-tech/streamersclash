@@ -1,0 +1,175 @@
+<!doctype html>
+<html lang="cs">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Tým · SC Scouting</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/app.css">
+</head>
+<body>
+  <main>
+    <p><a href="/">← Všechny týmy</a></p>
+    <section id="hero" class="team-hero"></section>
+    <div id="notes" class="notes" hidden></div>
+
+    <div class="section-head">
+      <h2>Soupiska</h2>
+      <button class="btn btn-primary" id="add-player">+ Přidat hráče</button>
+    </div>
+    <section id="roster" class="roster"></section>
+  </main>
+
+  <dialog id="team-dialog">
+    <form>
+      <h2>Upravit tým</h2>
+      <div class="form-grid">
+        <div class="full"><label>Název *</label><input name="name" required maxlength="80"></div>
+        <div><label>Tag</label><input name="tag" maxlength="10"></div>
+        <div><label>Region</label><select name="region"><option>EUNE</option><option>EUW</option></select></div>
+        <div><label>Turnaj / sezóna</label><input name="tournament" maxlength="100"></div>
+        <div><label>Barva týmu</label><input name="accent_color" type="color"></div>
+        <div class="full"><label>Logo URL</label><input name="logo_url" type="url" placeholder="https://…"></div>
+        <div class="full"><label class="check"><input type="checkbox" name="is_own_team"> Tohle je náš tým</label></div>
+        <div class="full"><label>Poznámky</label><textarea name="notes"></textarea></div>
+      </div>
+      <p class="form-error"></p>
+      <div class="dialog-actions">
+        <button type="button" class="btn" data-cancel>Zrušit</button>
+        <button type="submit" class="btn btn-primary">Uložit</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="player-dialog">
+    <form>
+      <h2 data-title>Hráč</h2>
+      <div class="form-grid">
+        <div><label>Přezdívka *</label><input name="nickname" required maxlength="60"></div>
+        <div><label>Role</label>
+          <select name="role">
+            <option value="">—</option>
+            <option value="TOP">Top</option><option value="JUNGLE">Jungle</option><option value="MID">Mid</option>
+            <option value="ADC">ADC</option><option value="SUPPORT">Support</option><option value="SUB">Náhradník</option>
+          </select>
+        </div>
+        <div><label>Riot ID</label><input name="riot_id" placeholder="Jméno#EUNE"></div>
+        <div><label>Region</label><select name="region"><option>EUNE</option><option>EUW</option></select></div>
+        <div><label>Twitch</label><input name="twitch_login" placeholder="login nebo odkaz"></div>
+        <div><label>Kick</label><input name="kick_slug" placeholder="kanál nebo odkaz"></div>
+        <div class="full"><label>Štítky (oddělené čárkou)</label><input name="tags" placeholder="comfort picks, agresivní, tiltuje"></div>
+        <div class="full"><label>Poznámky</label><textarea name="notes"></textarea></div>
+      </div>
+      <p class="form-error"></p>
+      <div class="dialog-actions">
+        <button type="button" class="btn" data-cancel>Zrušit</button>
+        <button type="submit" class="btn btn-primary">Uložit</button>
+      </div>
+    </form>
+  </dialog>
+
+  <script type="module">
+    import { api, esc, initPage, formDialog, logoHtml, ROLE_LABELS } from '/app.js';
+
+    await initPage('teams');
+    const teamId = new URLSearchParams(location.search).get('id');
+    let team, players, editingPlayer = null;
+
+    async function load() {
+      ({ team, players } = await api(`/api/teams/${teamId}`));
+      document.title = `${team.name} · SC Scouting`;
+      document.body.style.setProperty('--accent', team.accent_color || '#c8a64b');
+
+      document.getElementById('hero').innerHTML = `
+        ${logoHtml(team, true)}
+        <div class="info">
+          <h1>${esc(team.name)} ${team.is_own_team ? '<span class="badge badge-own">Náš tým</span>' : ''}</h1>
+          <div class="meta">
+            ${team.tag ? `<span>[${esc(team.tag)}]</span>` : ''}
+            <span>${esc(team.region)}</span>
+            ${team.tournament ? `<span>${esc(team.tournament)}</span>` : ''}
+          </div>
+        </div>
+        <div class="actions">
+          <button class="btn" id="edit-team">Upravit</button>
+          <button class="btn btn-danger" id="delete-team">Smazat</button>
+        </div>`;
+      document.getElementById('edit-team').onclick = () => teamDialog.open({ ...team, accent_color: team.accent_color || '#c8a64b' });
+      document.getElementById('delete-team').onclick = async () => {
+        if (!confirm(`Smazat tým ${team.name}? Hráči zůstanou v databázi bez týmu.`)) return;
+        await api(`/api/teams/${teamId}`, { method: 'DELETE' });
+        location.href = '/';
+      };
+
+      const notes = document.getElementById('notes');
+      notes.hidden = !team.notes;
+      notes.textContent = team.notes || '';
+
+      const roster = document.getElementById('roster');
+      roster.innerHTML = players.length
+        ? players.map((p) => `
+          <article class="player">
+            <div class="role role-${esc(p.role || '')}">${ROLE_LABELS[p.role] || '—'}</div>
+            <div>
+              <h3>${esc(p.nickname)}</h3>
+              <div class="riot">${p.riot_id ? `${esc(p.riot_id)} · ${esc(p.region)}` : 'Riot ID nevyplněné'}</div>
+              <div class="links">
+                ${p.twitch_login ? `<a class="chip chip-twitch" href="https://twitch.tv/${esc(p.twitch_login)}" target="_blank" rel="noopener"><span class="dot"></span>${esc(p.twitch_login)}</a>` : ''}
+                ${p.kick_slug ? `<a class="chip chip-kick" href="https://kick.com/${esc(p.kick_slug)}" target="_blank" rel="noopener"><span class="dot"></span>${esc(p.kick_slug)}</a>` : ''}
+              </div>
+              ${p.tags.length ? `<div class="tags">${p.tags.map((t) => `<span class="badge">${esc(t)}</span>`).join('')}</div>` : ''}
+              ${p.notes ? `<div class="pnotes">${esc(p.notes)}</div>` : ''}
+            </div>
+            <div class="tools">
+              <button class="btn btn-small" data-edit="${p.id}">Upravit</button>
+              <button class="btn btn-small btn-danger" data-delete="${p.id}">Smazat</button>
+            </div>
+          </article>`).join('')
+        : '<div class="empty" style="grid-column:1/-1">Tým zatím nemá žádné hráče.</div>';
+    }
+
+    const teamDialog = formDialog(document.getElementById('team-dialog'), {
+      async onSubmit(values) {
+        await api(`/api/teams/${teamId}`, { method: 'PUT', body: values });
+        await load();
+      },
+    });
+
+    const playerDialogEl = document.getElementById('player-dialog');
+    const playerDialog = formDialog(playerDialogEl, {
+      async onSubmit(values) {
+        if (editingPlayer) await api(`/api/players/${editingPlayer}`, { method: 'PUT', body: values });
+        else await api(`/api/teams/${teamId}/players`, { method: 'POST', body: values });
+        await load();
+      },
+    });
+
+    document.getElementById('add-player').onclick = () => {
+      editingPlayer = null;
+      playerDialogEl.querySelector('[data-title]').textContent = 'Nový hráč';
+      playerDialog.open({ region: team.region });
+    };
+
+    document.getElementById('roster').addEventListener('click', async (e) => {
+      const editId = e.target.dataset.edit;
+      const deleteId = e.target.dataset.delete;
+      if (editId) {
+        const p = players.find((x) => String(x.id) === editId);
+        editingPlayer = p.id;
+        playerDialogEl.querySelector('[data-title]').textContent = `Upravit: ${p.nickname}`;
+        playerDialog.open({ ...p, tags: p.tags.join(', ') });
+      }
+      if (deleteId) {
+        const p = players.find((x) => String(x.id) === deleteId);
+        if (!confirm(`Smazat hráče ${p.nickname}?`)) return;
+        await api(`/api/players/${deleteId}`, { method: 'DELETE' });
+        await load();
+      }
+    });
+
+    load().catch((err) => {
+      document.querySelector('main').innerHTML = `<div class="empty">${esc(err.message)}<br><br><a href="/">Zpět na týmy</a></div>`;
+    });
+  </script>
+</body>
+</html>

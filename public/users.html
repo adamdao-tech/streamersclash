@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="cs">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Uživatelé · SC Scouting</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/app.css">
+</head>
+<body>
+  <main>
+    <div class="page-head">
+      <div>
+        <h1>Uživatelé</h1>
+        <p>Kdo se může přihlásit. Přidej Twitch login člověka a pak se může přihlásit přes Twitch.</p>
+      </div>
+    </div>
+
+    <form id="add-user" class="inline-form">
+      <input name="twitch_login" placeholder="Twitch login nebo odkaz na kanál" required>
+      <select name="role"><option value="member">Člen</option><option value="admin">Admin</option></select>
+      <button class="btn btn-primary" type="submit">Přidat</button>
+    </form>
+    <p class="form-error" id="error"></p>
+
+    <table class="table">
+      <thead><tr><th>Uživatel</th><th>Role</th><th>Poslední přihlášení</th><th></th></tr></thead>
+      <tbody id="users"></tbody>
+    </table>
+  </main>
+
+  <script type="module">
+    import { api, esc, initPage, timeAgo } from '/app.js';
+
+    const me = await initPage('users');
+    if (me.role !== 'admin') location.href = '/';
+
+    async function load() {
+      const { users } = await api('/api/users');
+      document.getElementById('users').innerHTML = users.map((u) => `
+        <tr>
+          <td><div class="user-cell">
+            ${u.avatar_url ? `<img src="${esc(u.avatar_url)}" alt="">` : ''}
+            <div><b>${esc(u.display_name || u.twitch_login)}</b><br><small style="color:var(--muted)">${esc(u.twitch_login)}</small></div>
+          </div></td>
+          <td>${u.role === 'admin' ? '<span class="badge badge-admin">Admin</span>' : '<span class="badge">Člen</span>'}</td>
+          <td>${u.last_login_at ? timeAgo(u.last_login_at) : '<span style="color:var(--muted)">ještě ne</span>'}</td>
+          <td style="text-align:right">${u.id === me.id ? '' : `<button class="btn btn-small btn-danger" data-delete="${u.id}">Odebrat</button>`}</td>
+        </tr>`).join('');
+    }
+
+    const form = document.getElementById('add-user');
+    const error = document.getElementById('error');
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      error.textContent = '';
+      try {
+        await api('/api/users', { method: 'POST', body: { twitch_login: form.twitch_login.value, role: form.role.value } });
+        form.reset();
+        await load();
+      } catch (err) {
+        error.textContent = err.message;
+      }
+    });
+
+    document.getElementById('users').addEventListener('click', async (e) => {
+      const id = e.target.dataset.delete;
+      if (!id || !confirm('Odebrat přístup tomuto uživateli?')) return;
+      await api(`/api/users/${id}`, { method: 'DELETE' });
+      await load();
+    });
+
+    load();
+  </script>
+</body>
+</html>

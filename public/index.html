@@ -3,24 +3,107 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Streamers Clash Scouting</title>
-  <style>
-    :root { color-scheme: dark; }
-    body {
-      margin: 0; min-height: 100vh; display: grid; place-items: center;
-      background: radial-gradient(circle at 50% 30%, #1b2440 0%, #0a0d16 70%);
-      color: #e8ecf5; font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
-      text-align: center; padding: 16px;
-    }
-    h1 { font-size: clamp(1.8rem, 5vw, 3rem); margin: 0 0 .4em; letter-spacing: .02em; }
-    h1 span { color: #c8a64b; }
-    p { color: #9aa4bd; margin: 0; }
-  </style>
+  <title>Týmy · SC Scouting</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/app.css">
 </head>
 <body>
   <main>
-    <h1>Streamers Clash <span>Scouting</span></h1>
-    <p>Připravujeme. Drafty, champion pooly a VODky brzy tady.</p>
+    <div class="page-head">
+      <div>
+        <h1>Týmy</h1>
+        <p>Náš tým a soupeři ze Streamers Clash.</p>
+      </div>
+      <button class="btn btn-primary" id="add-team">+ Přidat tým</button>
+    </div>
+
+    <div class="layout">
+      <section id="teams" class="grid"></section>
+      <aside>
+        <div class="section-head"><h2>Aktivita</h2></div>
+        <ul id="activity" class="activity"></ul>
+      </aside>
+    </div>
   </main>
+
+  <dialog id="team-dialog">
+    <form>
+      <h2>Nový tým</h2>
+      <div class="form-grid">
+        <div class="full"><label>Název *</label><input name="name" required maxlength="80"></div>
+        <div><label>Tag</label><input name="tag" maxlength="10" placeholder="např. SGB"></div>
+        <div><label>Region</label><select name="region"><option>EUNE</option><option>EUW</option></select></div>
+        <div><label>Turnaj / sezóna</label><input name="tournament" maxlength="100" placeholder="Streamers Clash"></div>
+        <div><label>Barva týmu</label><input name="accent_color" type="color" value="#c8a64b"></div>
+        <div class="full"><label>Logo URL</label><input name="logo_url" type="url" placeholder="https://…"></div>
+        <div class="full"><label class="check"><input type="checkbox" name="is_own_team"> Tohle je náš tým</label></div>
+        <div class="full"><label>Poznámky</label><textarea name="notes"></textarea></div>
+      </div>
+      <p class="form-error"></p>
+      <div class="dialog-actions">
+        <button type="button" class="btn" data-cancel>Zrušit</button>
+        <button type="submit" class="btn btn-primary">Uložit</button>
+      </div>
+    </form>
+  </dialog>
+
+  <script type="module">
+    import { api, esc, initPage, formDialog, logoHtml, timeAgo } from '/app.js';
+
+    await initPage('teams');
+
+    const ACTIONS = {
+      'login': 'se přihlásil(a)',
+      'team.create': 'přidal(a) tým',
+      'team.update': 'upravil(a) tým',
+      'team.delete': 'smazal(a) tým',
+      'player.create': 'přidal(a) hráče',
+      'player.update': 'upravil(a) hráče',
+      'player.delete': 'smazal(a) hráče',
+      'user.add': 'přidal(a) uživatele',
+      'user.remove': 'odebral(a) uživatele',
+    };
+
+    async function load() {
+      const [{ teams }, { activity }] = await Promise.all([api('/api/teams'), api('/api/activity')]);
+      const el = document.getElementById('teams');
+      el.innerHTML = teams.length
+        ? teams.map((t) => `
+          <a class="team-card" href="/team?id=${t.id}" style="--accent:${esc(t.accent_color || '#c8a64b')}">
+            <div class="row">
+              ${logoHtml(t)}
+              <div>
+                <h3>${esc(t.name)}</h3>
+                ${t.is_own_team ? '<span class="badge badge-own">Náš tým</span>' : ''}
+              </div>
+            </div>
+            <div class="meta">
+              <span>${t.player_count} ${t.player_count === 1 ? 'hráč' : t.player_count >= 2 && t.player_count <= 4 ? 'hráči' : 'hráčů'}</span>
+              <span>${esc(t.region)}</span>
+              ${t.tournament ? `<span>${esc(t.tournament)}</span>` : ''}
+            </div>
+          </a>`).join('')
+        : '<div class="empty" style="grid-column:1/-1">Zatím tu nejsou žádné týmy. Začni přidáním vašeho týmu.</div>';
+
+      document.getElementById('activity').innerHTML = activity.length
+        ? activity.slice(0, 15).map((a) => {
+            const who = a.actor_kind === 'claude' ? 'Claude' : a.actor_kind === 'sync' ? 'Sync' : a.actor_name || 'Někdo';
+            let what = '';
+            try { const d = JSON.parse(a.details || '{}'); what = d.name || d.nickname || d.login || ''; } catch {}
+            return `<li><span><b>${esc(who)}</b> ${ACTIONS[a.action] || esc(a.action)} ${what ? `<b>${esc(what)}</b>` : ''}</span><span>${timeAgo(a.created_at)}</span></li>`;
+          }).join('')
+        : '<li>Zatím žádná aktivita.</li>';
+    }
+
+    const dialog = formDialog(document.getElementById('team-dialog'), {
+      async onSubmit(values) {
+        const { id } = await api('/api/teams', { method: 'POST', body: values });
+        location.href = `/team?id=${id}`;
+      },
+    });
+    document.getElementById('add-team').addEventListener('click', () => dialog.open({ accent_color: '#c8a64b', tournament: 'Streamers Clash' }));
+
+    load();
+  </script>
 </body>
 </html>

@@ -1,8 +1,27 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "streamersclash",
+  "main": "src/index.ts",
   "compatibility_date": "2026-10-01",
   "assets": {
-    "directory": "./public"
+    "directory": "./public",
+    "binding": "ASSETS",
+    // Every request goes through the Worker first so pages can be gated behind login.
+    "run_worker_first": true
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "streamersclash",
+      "database_id": "2e9b8b77-93a5-49a9-ae2f-628c85894f26"
+    }
+  ],
+  "vars": {
+    "TWITCH_CLIENT_ID": "jfq4y3dpmayp3srqtylgpjtz7hn9oa"
+  },
+  // TWITCH_CLIENT_SECRET is a secret: set it in the Cloudflare dashboard
+  // (Worker → Settings → Variables and Secrets) or in .dev.vars locally.
+  "observability": {
+    "enabled": true
   }
 }

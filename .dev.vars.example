@@ -1,0 +1,2 @@
+# Copy to .dev.vars for local development (wrangler dev). Never commit .dev.vars.
+TWITCH_CLIENT_SECRET=your-twitch-client-secret

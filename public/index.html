@@ -32,7 +32,6 @@
       <div class="form-grid">
         <div class="full"><label>Název *</label><input name="name" required maxlength="80"></div>
         <div><label>Tag</label><input name="tag" maxlength="10" placeholder="např. SGB"></div>
-        <div><label>Region</label><select name="region"><option>EUNE</option><option>EUW</option></select></div>
         <div><label>Turnaj / sezóna</label><input name="tournament" maxlength="100" placeholder="Streamers Clash"></div>
         <div><label>Barva týmu</label><input name="accent_color" type="color" value="#c8a64b"></div>
         <div class="full"><label>Logo URL</label><input name="logo_url" type="url" placeholder="https://…"></div>
@@ -79,7 +78,6 @@
             </div>
             <div class="meta">
               <span>${t.player_count} ${t.player_count === 1 ? 'hráč' : t.player_count >= 2 && t.player_count <= 4 ? 'hráči' : 'hráčů'}</span>
-              <span>${esc(t.region)}</span>
               ${t.tournament ? `<span>${esc(t.tournament)}</span>` : ''}
             </div>
           </a>`).join('')

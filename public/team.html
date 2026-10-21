@@ -26,7 +26,6 @@
       <div class="form-grid">
         <div class="full"><label>Název *</label><input name="name" required maxlength="80"></div>
         <div><label>Tag</label><input name="tag" maxlength="10"></div>
-        <div><label>Region</label><select name="region"><option>EUNE</option><option>EUW</option></select></div>
         <div><label>Turnaj / sezóna</label><input name="tournament" maxlength="100"></div>
         <div><label>Barva týmu</label><input name="accent_color" type="color"></div>
         <div class="full"><label>Logo URL</label><input name="logo_url" type="url" placeholder="https://…"></div>
@@ -53,8 +52,7 @@
             <option value="ADC">ADC</option><option value="SUPPORT">Support</option><option value="SUB">Náhradník</option>
           </select>
         </div>
-        <div><label>Riot ID</label><input name="riot_id" placeholder="Jméno#EUNE"></div>
-        <div><label>Region</label><select name="region"><option>EUNE</option><option>EUW</option></select></div>
+        <div class="full"><label>Riot ID</label><input name="riot_id" placeholder="Jméno#TAG"></div>
         <div><label>Twitch</label><input name="twitch_login" placeholder="login nebo odkaz"></div>
         <div><label>Kick</label><input name="kick_slug" placeholder="kanál nebo odkaz"></div>
         <div class="full"><label>Štítky (oddělené čárkou)</label><input name="tags" placeholder="comfort picks, agresivní, tiltuje"></div>
@@ -86,7 +84,6 @@
           <h1>${esc(team.name)} ${team.is_own_team ? '<span class="badge badge-own">Náš tým</span>' : ''}</h1>
           <div class="meta">
             ${team.tag ? `<span>[${esc(team.tag)}]</span>` : ''}
-            <span>${esc(team.region)}</span>
             ${team.tournament ? `<span>${esc(team.tournament)}</span>` : ''}
           </div>
         </div>
@@ -112,7 +109,7 @@
             <div class="role role-${esc(p.role || '')}">${ROLE_LABELS[p.role] || '—'}</div>
             <div>
               <h3>${esc(p.nickname)}</h3>
-              <div class="riot">${p.riot_id ? `${esc(p.riot_id)} · ${esc(p.region)}` : 'Riot ID nevyplněné'}</div>
+              <div class="riot">${p.riot_id ? esc(p.riot_id) : 'Riot ID nevyplněné'}</div>
               <div class="links">
                 ${p.twitch_login ? `<a class="chip chip-twitch" href="https://twitch.tv/${esc(p.twitch_login)}" target="_blank" rel="noopener"><span class="dot"></span>${esc(p.twitch_login)}</a>` : ''}
                 ${p.kick_slug ? `<a class="chip chip-kick" href="https://kick.com/${esc(p.kick_slug)}" target="_blank" rel="noopener"><span class="dot"></span>${esc(p.kick_slug)}</a>` : ''}
@@ -147,7 +144,7 @@
     document.getElementById('add-player').onclick = () => {
       editingPlayer = null;
       playerDialogEl.querySelector('[data-title]').textContent = 'Nový hráč';
-      playerDialog.open({ region: team.region });
+      playerDialog.open({});
     };
 
     document.getElementById('roster').addEventListener('click', async (e) => {

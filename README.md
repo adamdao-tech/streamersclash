@@ -21,6 +21,9 @@ Twitch OAuth. Only users on the allowlist can log in. The **first person who log
 In claude.ai: Settings → Connectors → Add custom connector, URL `https://sc.daotech.dev/mcp`.
 Claude logs in through the normal Twitch login and a consent page; its changes show up in the activity log as "Claude".
 
+## Claude skill
+[`skills/sc-scouting/SKILL.md`](skills/sc-scouting/SKILL.md) teaches Claude how to use the connector: reviewing drafts, scouting reports, adding players, checking the reader.
+
 ## Draft reader
 See [`reader/README.md`](reader/README.md). Needs the `READER_TOKEN` secret in Cloudflare.
 

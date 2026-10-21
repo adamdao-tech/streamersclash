@@ -16,7 +16,12 @@ class AppClient:
     def _check(self, r: requests.Response) -> dict:
         if r.status_code == 401:
             raise RuntimeError("App rejected READER_TOKEN (401). Is it set the same in Cloudflare and in .env?")
-        r.raise_for_status()
+        if not r.ok:
+            try:
+                msg = r.json().get("message") or r.text
+            except ValueError:
+                msg = r.text
+            raise RuntimeError(f"App error {r.status_code}: {msg}")
         return r.json()
 
     def claim_jobs(self, limit: int = 1) -> list[dict]:
@@ -32,14 +37,15 @@ class AppClient:
         )
 
     def upload_frame(
-        self, vod_id: int, ts: float, jpeg: bytes, width: int, height: int, reading: dict, confidence: float, auto: bool,
-        postgame_jpeg: bytes | None = None,
+        self, vod_id: int | None, ts: float, jpeg: bytes, width: int, height: int, reading: dict, confidence: float, auto: bool,
+        postgame_jpeg: bytes | None = None, vod_url: str | None = None,
     ) -> dict:
         return self._check(
             self.s.post(
                 f"{self.base}/api/reader/frames",
                 json={
                     "vod_id": vod_id,
+                    "vod_url": vod_url,
                     "ts_s": int(ts),
                     "image_b64": base64.b64encode(jpeg).decode(),
                     "width": width,

@@ -69,9 +69,11 @@ def cmd_test(args) -> None:
     if not got:
         print("Champion select not found at this moment (try a few seconds earlier/later).")
         return
-    reading, _ = got
+    reading, crop = got
     print(summary(reading))
-    print(json.dumps(reading.to_payload(include_unsure_bans=True), indent=2, ensure_ascii=False))
+    if args.verbose:
+        print(json.dumps(reading.to_payload(include_unsure_bans=True), indent=2, ensure_ascii=False))
+    postgame, pg_jpeg = None, None
     if args.postgame:
         ally = [s.champion for s in reading.ally if s.champion]
         enemy = [s.champion for s in reading.enemy if s.champion]
@@ -80,7 +82,27 @@ def cmd_test(args) -> None:
             print("Post-game screen not found at this moment.")
         else:
             print(postgame_summary(pg[0]))
+            if pg[0]:
+                postgame = {**pg[0], "ts_s": int(parse_time(args.postgame))}
+                pg_jpeg = S._jpeg(pg[1])[0]
     print(f"Debug images: {debug}")
+
+    if args.upload:
+        app = AppClient(env("APP_URL"), env("READER_TOKEN"))
+        payload = reading.to_payload()
+        if postgame:
+            payload["postgame"] = postgame
+        jpg, w, h = S._jpeg(crop)
+        r = app.upload_frame(
+            None, parse_time(args.at), jpg, w, h, payload, reading.confidence, reading.picks_confident,
+            postgame_jpeg=pg_jpeg, vod_url=args.url,
+        )
+        if r.get("duplicate"):
+            print("Uploaded: this game was already in the app" + (", updated it." if r.get("updated") else "."))
+        elif r.get("match_id"):
+            print(f"Uploaded: saved as game #{r['match_id']}.")
+        else:
+            print(f"Uploaded for review: {r.get('reason')}")
 
 
 def cmd_scan(args) -> None:
@@ -169,6 +191,8 @@ def main() -> None:
     t.add_argument("url")
     t.add_argument("at", help="time of the finished draft in the VOD, e.g. 27:00 or 1:27:00")
     t.add_argument("--postgame", help="time of the post-game scoreboard, e.g. 1:00:00")
+    t.add_argument("--upload", action="store_true", help="save the result to the app")
+    t.add_argument("-v", "--verbose", action="store_true", help="print the full reading as JSON")
     sc = sub.add_parser("scan")
     sc.add_argument("url")
     sc.add_argument("--start")

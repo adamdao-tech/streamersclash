@@ -74,7 +74,8 @@ async function route(req: Request, env: Env, url: URL): Promise<Response> {
   // otherwise the frame waits for review (Claude via MCP, or a person).
   if (path === '/api/reader/frames' && req.method === 'POST') {
     const body = (await req.json()) as {
-      vod_id: number;
+      vod_id?: number;
+      vod_url?: string;
       ts_s: number;
       image_b64: string;
       width?: number;
@@ -84,9 +85,22 @@ async function route(req: Request, env: Env, url: URL): Promise<Response> {
       auto?: boolean;
       postgame_image_b64?: string | null;
     };
+    if (!body.vod_id && body.vod_url) {
+      // Manual uploads (reader `test --upload`) name the VOD by its URL.
+      const twitchId = /twitch\.tv\/videos\/(\d+)/.exec(body.vod_url)?.[1];
+      const vod = await db
+        .prepare(`SELECT id FROM vods WHERE url = ? OR (platform = 'twitch' AND external_id = ?) LIMIT 1`)
+        .bind(body.vod_url, twitchId ?? '')
+        .first<{ id: number }>();
+      if (!vod) {
+        throw new HttpError(404, 'vod_not_found', 'Tahle VODka v appce není. Přidej hráči nebo do „Další kanály“ jeho Twitch kanál a dej Synchronizovat.');
+      }
+      body.vod_id = vod.id;
+    }
     if (!body.vod_id || typeof body.ts_s !== 'number' || !body.image_b64) {
       throw new HttpError(400, 'invalid', 'vod_id, ts_s and image_b64 are required');
     }
+    const vodId = body.vod_id;
     const bytes = Uint8Array.from(atob(body.image_b64), (c) => c.charCodeAt(0));
     const pgBytes = body.postgame_image_b64 ? Uint8Array.from(atob(body.postgame_image_b64), (c) => c.charCodeAt(0)) : null;
     if (bytes.length > MAX_IMAGE_BYTES || (pgBytes?.length ?? 0) > MAX_IMAGE_BYTES) {
@@ -99,7 +113,7 @@ async function route(req: Request, env: Env, url: URL): Promise<Response> {
         `SELECT id, match_id, status FROM draft_frames WHERE vod_id = ? AND ABS(ts_s - ?) <= 90
           ORDER BY ABS(ts_s - ?) LIMIT 1`,
       )
-      .bind(body.vod_id, Math.round(body.ts_s), Math.round(body.ts_s))
+      .bind(vodId, Math.round(body.ts_s), Math.round(body.ts_s))
       .first<{ id: number; match_id: number | null; status: string }>();
     if (existing) {
       const pg = (body.reading as { postgame?: Parameters<typeof applyPostgame>[2] } | undefined)?.postgame;
@@ -124,7 +138,7 @@ async function route(req: Request, env: Env, url: URL): Promise<Response> {
          ON CONFLICT(vod_id, ts_s) DO NOTHING`,
       )
       .bind(
-        body.vod_id,
+        vodId,
         Math.round(body.ts_s),
         bytes.buffer,
         body.width ?? null,
@@ -141,7 +155,7 @@ async function route(req: Request, env: Env, url: URL): Promise<Response> {
     let reviewReason: string | null = body.auto ? null : 'low confidence';
     if (body.auto && body.reading) {
       try {
-        const draft = await validateDraft(env, { ...body.reading, vod_id: body.vod_id, ts_s: Math.round(body.ts_s) });
+        const draft = await validateDraft(env, { ...body.reading, vod_id: vodId, ts_s: Math.round(body.ts_s) });
         matchId = await saveDraft(env, draft, { kind: 'sync' });
         await db
           .prepare(`UPDATE draft_frames SET status = 'accepted', match_id = ? WHERE id = ?`)
@@ -153,7 +167,7 @@ async function route(req: Request, env: Env, url: URL): Promise<Response> {
       }
     }
     if (!matchId) {
-      await logActivity(db, { kind: 'sync' }, 'frame.review', 'frame', frameId, { vod_id: body.vod_id });
+      await logActivity(db, { kind: 'sync' }, 'frame.review', 'frame', frameId, { vod_id: vodId });
     }
     return json({ ok: true, frame_id: frameId, match_id: matchId, review: !matchId, reason: reviewReason }, 201);
   }

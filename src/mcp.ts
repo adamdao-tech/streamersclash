@@ -1,0 +1,558 @@
+import type { Env } from './index';
+import { insert, parsePlayer, playerFields, teamFields } from './api';
+import { logActivity, type User } from './db';
+import { listDrafts, saveDraft, validateDraft, type DraftInput } from './drafts';
+import { HttpError, json } from './http';
+import { userFromBearer } from './oauth';
+import { syncTwitchVods } from './vods';
+
+// Remote MCP server (Streamable HTTP transport, JSON responses only).
+// Claude connects through the OAuth flow in oauth.ts and acts as the user who approved it;
+// everything it writes is logged as actor "claude".
+
+const PROTOCOL_VERSIONS = ['2025-06-18', '2025-03-26', '2024-11-05'];
+
+const INSTRUCTIONS = `SC Scouting: scouting tool for the Czech League of Legends tournament Streamers Clash.
+Data: teams (one is ours, is_own_team), players with Riot ID and Twitch/Kick channels, their stream VODs,
+and drafts read from those VODs. Drafts are seen from one player's stream (POV): "ally" = that player's team
+(left column of the client), "enemy" = the opponents (right column).
+Draft review workflow: list_drafts_for_review → get_draft_frame (look at the image) → save_draft with the
+correct champions, or discard_draft_frame if it isn't a finished draft (dodge, lobby, unreadable).
+Reply to the user in Czech.`;
+
+type Json = Record<string, unknown>;
+type ToolResult = { content: Json[]; isError?: boolean };
+
+interface Tool {
+  name: string;
+  description: string;
+  inputSchema: Json;
+  annotations?: Json;
+  run: (args: Json, ctx: { env: Env; user: User }) => Promise<ToolResult>;
+}
+
+const text = (value: unknown): ToolResult => ({
+  content: [{ type: 'text', text: typeof value === 'string' ? value : JSON.stringify(value, null, 2) }],
+});
+
+const int = (v: unknown, name: string): number => {
+  const n = Number(v);
+  if (!Number.isInteger(n) || n <= 0) throw new HttpError(400, 'invalid', `${name} must be a positive integer`);
+  return n;
+};
+
+const slotSchema = {
+  type: 'object',
+  properties: {
+    champion: { type: 'string', description: 'Champion name, e.g. "Xin Zhao"' },
+    player_name: { type: 'string', description: 'Summoner/player name shown under the champion (ally side only)' },
+    role: { type: 'string', enum: ['TOP', 'JUNGLE', 'MID', 'ADC', 'SUPPORT'] },
+  },
+  required: ['champion'],
+};
+
+const TOOLS: Tool[] = [
+  {
+    name: 'list_teams',
+    description: 'All teams with player counts. Our own team has is_own_team = 1.',
+    inputSchema: { type: 'object', properties: {} },
+    annotations: { readOnlyHint: true },
+    async run(_a, { env }) {
+      const { results } = await env.DB.prepare(
+        `SELECT t.id, t.name, t.tag, t.is_own_team, t.tournament, t.notes,
+                (SELECT COUNT(*) FROM players p WHERE p.team_id = t.id) AS player_count
+           FROM teams t ORDER BY t.is_own_team DESC, t.name COLLATE NOCASE`,
+      ).all();
+      return text(results);
+    },
+  },
+  {
+    name: 'get_team',
+    description: "A team's roster, notes and recent drafts involving its players.",
+    inputSchema: { type: 'object', properties: { team_id: { type: 'integer' } }, required: ['team_id'] },
+    annotations: { readOnlyHint: true },
+    async run(a, { env }) {
+      const id = int(a.team_id, 'team_id');
+      const team = await env.DB.prepare('SELECT * FROM teams WHERE id = ?').bind(id).first();
+      if (!team) throw new HttpError(404, 'not_found', 'Team not found');
+      const { results } = await env.DB.prepare('SELECT * FROM players WHERE team_id = ? ORDER BY role, nickname').bind(id).all();
+      const drafts = await listDrafts(env, { teamId: id, limit: 15 });
+      return text({ team, players: results.map(parsePlayer), recent_drafts: drafts.map(compactDraft) });
+    },
+  },
+  {
+    name: 'get_player',
+    description: "A player's details, champion pool from recorded drafts, recent drafts and VODs.",
+    inputSchema: { type: 'object', properties: { player_id: { type: 'integer' } }, required: ['player_id'] },
+    annotations: { readOnlyHint: true },
+    async run(a, { env }) {
+      const id = int(a.player_id, 'player_id');
+      const player = await env.DB.prepare('SELECT * FROM players WHERE id = ?').bind(id).first();
+      if (!player) throw new HttpError(404, 'not_found', 'Player not found');
+      const { results: pool } = await env.DB.prepare(
+        `SELECT champion, COUNT(*) AS games FROM draft_actions
+          WHERE player_id = ? AND action = 'PICK' GROUP BY champion ORDER BY games DESC`,
+      )
+        .bind(id)
+        .all();
+      const { results: vods } = await env.DB.prepare(
+        'SELECT id, title, url, started_at, duration_s, scan_status FROM vods WHERE player_id = ? ORDER BY started_at DESC LIMIT 10',
+      )
+        .bind(id)
+        .all();
+      const drafts = await listDrafts(env, { playerId: id, limit: 15 });
+      return text({ player: parsePlayer(player), champion_pool: pool, recent_drafts: drafts.map(compactDraft), vods });
+    },
+  },
+  {
+    name: 'search',
+    description: 'Find teams and players by (part of) name, nickname, Riot ID or channel.',
+    inputSchema: { type: 'object', properties: { query: { type: 'string' } }, required: ['query'] },
+    annotations: { readOnlyHint: true },
+    async run(a, { env }) {
+      const q = `%${String(a.query ?? '').trim().toLowerCase()}%`;
+      const [teams, players] = await Promise.all([
+        env.DB.prepare('SELECT id, name, tag FROM teams WHERE lower(name) LIKE ? OR lower(tag) LIKE ? LIMIT 20').bind(q, q).all(),
+        env.DB.prepare(
+          `SELECT p.id, p.nickname, p.role, p.riot_game_name, p.riot_tag_line, p.twitch_login, p.kick_slug, t.name AS team
+             FROM players p LEFT JOIN teams t ON t.id = p.team_id
+            WHERE lower(p.nickname) LIKE ? OR lower(p.riot_game_name) LIKE ? OR lower(p.twitch_login) LIKE ? OR lower(p.kick_slug) LIKE ?
+            LIMIT 20`,
+        )
+          .bind(q, q, q, q)
+          .all(),
+      ]);
+      return text({ teams: teams.results, players: players.results });
+    },
+  },
+  {
+    name: 'list_vods',
+    description: 'Recent stream VODs, optionally for one team or player. scan_status tells whether the draft reader processed it.',
+    inputSchema: {
+      type: 'object',
+      properties: { team_id: { type: 'integer' }, player_id: { type: 'integer' }, limit: { type: 'integer', maximum: 50 } },
+    },
+    annotations: { readOnlyHint: true },
+    async run(a, { env }) {
+      const where: string[] = [];
+      const params: number[] = [];
+      if (a.team_id) (where.push('p.team_id = ?'), params.push(int(a.team_id, 'team_id')));
+      if (a.player_id) (where.push('v.player_id = ?'), params.push(int(a.player_id, 'player_id')));
+      const limit = Math.min(Number(a.limit) || 20, 50);
+      const { results } = await env.DB.prepare(
+        `SELECT v.id, v.title, v.url, v.started_at, v.duration_s, v.channel_login, v.scan_status, p.nickname AS player
+           FROM vods v LEFT JOIN players p ON p.id = v.player_id
+          ${where.length ? `WHERE ${where.join(' AND ')}` : ''} ORDER BY v.started_at DESC LIMIT ${limit}`,
+      )
+        .bind(...params)
+        .all();
+      return text(results);
+    },
+  },
+  {
+    name: 'list_drafts',
+    description: 'Saved drafts (picks and bans), newest first, optionally for a team, player or VOD.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        team_id: { type: 'integer' },
+        player_id: { type: 'integer' },
+        vod_id: { type: 'integer' },
+        limit: { type: 'integer', maximum: 50 },
+      },
+    },
+    annotations: { readOnlyHint: true },
+    async run(a, { env }) {
+      const drafts = await listDrafts(env, {
+        teamId: a.team_id ? int(a.team_id, 'team_id') : undefined,
+        playerId: a.player_id ? int(a.player_id, 'player_id') : undefined,
+        vodId: a.vod_id ? int(a.vod_id, 'vod_id') : undefined,
+        limit: Number(a.limit) || 20,
+      });
+      return text(drafts.map(compactDraft));
+    },
+  },
+  {
+    name: 'list_drafts_for_review',
+    description:
+      'Draft screenshots the reader could not read with confidence. Each has the reader\'s best guess; open one with get_draft_frame.',
+    inputSchema: { type: 'object', properties: { limit: { type: 'integer', maximum: 30 } } },
+    annotations: { readOnlyHint: true },
+    async run(a, { env }) {
+      const limit = Math.min(Number(a.limit) || 10, 30);
+      const { results } = await env.DB.prepare(
+        `SELECT f.id AS frame_id, f.vod_id, f.ts_s, f.confidence, f.note, f.reading, v.title AS vod_title, v.url AS vod_url,
+                p.nickname AS pov_player
+           FROM draft_frames f JOIN vods v ON v.id = f.vod_id LEFT JOIN players p ON p.id = v.player_id
+          WHERE f.status = 'review' ORDER BY f.created_at LIMIT ${limit}`,
+      ).all<Json & { reading: string | null }>();
+      const { count } = (await env.DB.prepare(`SELECT COUNT(*) AS count FROM draft_frames WHERE status = 'review'`).first<{
+        count: number;
+      }>())!;
+      return text({
+        waiting_total: count,
+        frames: results.map((r) => ({ ...r, reading: undefined, reader_guess: guessSummary(r.reading) })),
+      });
+    },
+  },
+  {
+    name: 'get_draft_frame',
+    description:
+      "Shows a champion select screenshot from a VOD with the reader's guess. Left column = ally (streamer's team), right = enemy; bans are the small icons top-left (ally) and top-right (enemy).",
+    inputSchema: { type: 'object', properties: { frame_id: { type: 'integer' } }, required: ['frame_id'] },
+    annotations: { readOnlyHint: true },
+    async run(a, { env }) {
+      const id = int(a.frame_id, 'frame_id');
+      const row = await env.DB.prepare(
+        `SELECT f.image, f.vod_id, f.ts_s, f.reading, f.status, f.note, v.url AS vod_url, p.nickname AS pov_player
+           FROM draft_frames f JOIN vods v ON v.id = f.vod_id LEFT JOIN players p ON p.id = v.player_id WHERE f.id = ?`,
+      )
+        .bind(id)
+        .first<{ image: number[]; vod_id: number; ts_s: number; reading: string | null; status: string; note: string | null; vod_url: string; pov_player: string | null }>();
+      if (!row) throw new HttpError(404, 'not_found', 'Frame not found');
+      const b64 = toBase64(new Uint8Array(row.image));
+      const t = row.ts_s;
+      const at = `${Math.floor(t / 3600)}h${Math.floor((t % 3600) / 60)}m${t % 60}s`;
+      return {
+        content: [
+          { type: 'image', data: b64, mimeType: 'image/jpeg' },
+          {
+            type: 'text',
+            text: JSON.stringify(
+              {
+                frame_id: id,
+                status: row.status,
+                vod_id: row.vod_id,
+                vod_link: `${row.vod_url}?t=${at}`,
+                pov_player: row.pov_player,
+                reader_guess: guessSummary(row.reading),
+                reader_note: row.note,
+              },
+              null,
+              2,
+            ),
+          },
+        ],
+      };
+    },
+  },
+  {
+    name: 'save_draft',
+    description:
+      'Saves a draft. Give frame_id when it comes from a review frame (VOD and time are taken from it). Champions must be real champion names; ally = left column, enemy = right column, in top-to-bottom order.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        frame_id: { type: 'integer' },
+        vod_id: { type: 'integer', description: 'Only when not using frame_id' },
+        ts_s: { type: 'integer', description: 'Seconds into the VOD, only when not using frame_id' },
+        ally: { type: 'array', items: slotSchema, minItems: 1, maxItems: 5 },
+        enemy: { type: 'array', items: slotSchema, minItems: 1, maxItems: 5 },
+        ally_bans: { type: 'array', items: { type: 'string' }, maxItems: 5 },
+        enemy_bans: { type: 'array', items: { type: 'string' }, maxItems: 5 },
+        notes: { type: 'string' },
+      },
+      required: ['ally', 'enemy'],
+    },
+    async run(a, { env, user }) {
+      let vodId = a.vod_id ? int(a.vod_id, 'vod_id') : null;
+      let ts = typeof a.ts_s === 'number' ? Math.round(a.ts_s) : null;
+      let frameId: number | null = null;
+      if (a.frame_id) {
+        frameId = int(a.frame_id, 'frame_id');
+        const f = await env.DB.prepare('SELECT vod_id, ts_s, status FROM draft_frames WHERE id = ?')
+          .bind(frameId)
+          .first<{ vod_id: number; ts_s: number; status: string }>();
+        if (!f) throw new HttpError(404, 'not_found', 'Frame not found');
+        if (f.status === 'accepted') throw new HttpError(409, 'already_saved', 'This frame already has a saved draft');
+        vodId = f.vod_id;
+        ts = f.ts_s;
+      }
+      const draft = await validateDraft(env, { ...(a as unknown as DraftInput), vod_id: vodId, ts_s: ts });
+      const matchId = await saveDraft(env, draft, { kind: 'claude', userId: user.id });
+      if (frameId) {
+        await env.DB.prepare(`UPDATE draft_frames SET status = 'accepted', match_id = ? WHERE id = ?`).bind(matchId, frameId).run();
+      }
+      return text({ ok: true, match_id: matchId });
+    },
+  },
+  {
+    name: 'discard_draft_frame',
+    description: "Marks a review frame as not a usable draft (dodge, lobby, wrong screen, unreadable).",
+    inputSchema: {
+      type: 'object',
+      properties: { frame_id: { type: 'integer' }, reason: { type: 'string' } },
+      required: ['frame_id', 'reason'],
+    },
+    annotations: { destructiveHint: false },
+    async run(a, { env, user }) {
+      const id = int(a.frame_id, 'frame_id');
+      const res = await env.DB.prepare(`UPDATE draft_frames SET status = 'discarded', note = ? WHERE id = ? AND status = 'review'`)
+        .bind(String(a.reason ?? '').slice(0, 500), id)
+        .run();
+      if (!res.meta.changes) throw new HttpError(404, 'not_found', 'No frame waiting for review with this id');
+      await logActivity(env.DB, { kind: 'claude', userId: user.id }, 'frame.discard', 'frame', id, { reason: a.reason });
+      return text({ ok: true });
+    },
+  },
+  {
+    name: 'add_scouting_note',
+    description: 'Adds a scouting note to a team, player or saved draft (match).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        target_type: { type: 'string', enum: ['team', 'player', 'match'] },
+        target_id: { type: 'integer' },
+        text: { type: 'string' },
+      },
+      required: ['target_type', 'target_id', 'text'],
+    },
+    async run(a, { env, user }) {
+      const type = String(a.target_type);
+      if (!['team', 'player', 'match'].includes(type)) throw new HttpError(400, 'invalid', 'target_type must be team, player or match');
+      const id = int(a.target_id, 'target_id');
+      const body = String(a.text ?? '').trim().slice(0, 5000);
+      if (!body) throw new HttpError(400, 'invalid', 'text is empty');
+      const table = type === 'match' ? 'matches' : `${type}s`;
+      if (!(await env.DB.prepare(`SELECT 1 FROM ${table} WHERE id = ?`).bind(id).first())) {
+        throw new HttpError(404, 'not_found', `${type} ${id} not found`);
+      }
+      const res = await env.DB.prepare(
+        `INSERT INTO notes (target_type, target_id, body, author_kind, author_user_id) VALUES (?, ?, ?, 'claude', ?)`,
+      )
+        .bind(type, id, body, user.id)
+        .run();
+      await logActivity(env.DB, { kind: 'claude', userId: user.id }, 'note.add', type, id);
+      return text({ ok: true, note_id: res.meta.last_row_id });
+    },
+  },
+  {
+    name: 'add_team',
+    description: 'Creates a team.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        name: { type: 'string' },
+        tag: { type: 'string' },
+        is_own_team: { type: 'boolean' },
+        tournament: { type: 'string' },
+        notes: { type: 'string' },
+      },
+      required: ['name'],
+    },
+    async run(a, { env, user }) {
+      const fields = teamFields(a, false);
+      const id = await insert(env.DB, 'teams', { ...fields, created_by: user.id });
+      await logActivity(env.DB, { kind: 'claude', userId: user.id }, 'team.create', 'team', id, { name: fields.name });
+      return text({ ok: true, team_id: id });
+    },
+  },
+  {
+    name: 'add_player',
+    description: "Adds a player to a team. Twitch/Kick accept a channel name or link; the player's Twitch VODs are fetched right away.",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        team_id: { type: 'integer' },
+        nickname: { type: 'string' },
+        role: { type: 'string', enum: ['TOP', 'JUNGLE', 'MID', 'ADC', 'SUPPORT', 'SUB'] },
+        riot_id: { type: 'string', description: 'GameName#TAG' },
+        twitch_login: { type: 'string' },
+        kick_slug: { type: 'string' },
+        notes: { type: 'string' },
+      },
+      required: ['team_id', 'nickname'],
+    },
+    async run(a, { env, user }) {
+      const teamId = int(a.team_id, 'team_id');
+      if (!(await env.DB.prepare('SELECT 1 FROM teams WHERE id = ?').bind(teamId).first())) {
+        throw new HttpError(404, 'not_found', 'Team not found');
+      }
+      const fields = playerFields(a, false);
+      const id = await insert(env.DB, 'players', { ...fields, team_id: teamId });
+      await logActivity(env.DB, { kind: 'claude', userId: user.id }, 'player.create', 'player', id, { nickname: fields.nickname, team_id: teamId });
+      if (fields.twitch_login) await syncTwitchVods(env, [String(fields.twitch_login)]).catch(() => {});
+      return text({ ok: true, player_id: id });
+    },
+  },
+  {
+    name: 'rescan_vod',
+    description: 'Queues a VOD to be scanned by the draft reader again.',
+    inputSchema: { type: 'object', properties: { vod_id: { type: 'integer' } }, required: ['vod_id'] },
+    async run(a, { env, user }) {
+      const id = int(a.vod_id, 'vod_id');
+      const res = await env.DB.prepare(`UPDATE vods SET scan_status = 'pending', scanned_at = NULL WHERE id = ?`).bind(id).run();
+      if (!res.meta.changes) throw new HttpError(404, 'not_found', 'VOD not found');
+      await logActivity(env.DB, { kind: 'claude', userId: user.id }, 'vod.rescan', 'vod', id);
+      return text({ ok: true });
+    },
+  },
+  {
+    name: 'get_activity',
+    description: 'Recent changes in the app (who added or changed what), newest first.',
+    inputSchema: { type: 'object', properties: { limit: { type: 'integer', maximum: 100 } } },
+    annotations: { readOnlyHint: true },
+    async run(a, { env }) {
+      const limit = Math.min(Number(a.limit) || 30, 100);
+      const { results } = await env.DB.prepare(
+        `SELECT a.created_at, a.actor_kind, u.display_name AS actor, a.action, a.target_type, a.target_id, a.details
+           FROM activity_log a LEFT JOIN users u ON u.id = a.actor_user_id ORDER BY a.id DESC LIMIT ${limit}`,
+      ).all();
+      return text(results);
+    },
+  },
+];
+
+function compactDraft(d: Json & { actions?: Json[] }) {
+  const acts = (d.actions ?? []) as { side: string; action: string; champion: string; player_name: string | null; role: string | null }[];
+  const pick = (side: string) =>
+    acts.filter((x) => x.side === side && x.action === 'PICK').map((x) => (x.player_name ? `${x.champion} (${x.player_name})` : x.champion));
+  const ban = (side: string) => acts.filter((x) => x.side === side && x.action === 'BAN').map((x) => x.champion);
+  return {
+    match_id: d.id,
+    played_at: d.played_at,
+    pov_player: d.pov_nickname,
+    source: d.created_by_kind,
+    vod: d.vod_url ? `${d.vod_url}${d.vod_timestamp_s ? `?t=${d.vod_timestamp_s}s` : ''}` : null,
+    ally: pick('ALLY'),
+    enemy: pick('ENEMY'),
+    ally_bans: ban('ALLY'),
+    enemy_bans: ban('ENEMY'),
+    notes: d.notes,
+  };
+}
+
+function guessSummary(reading: string | null) {
+  if (!reading) return null;
+  try {
+    const r = JSON.parse(reading) as {
+      ocr?: { ally?: { champion: string | null; score: number }[]; enemy?: { champion: string | null; score: number }[] };
+      ally?: { champion: string; player_name?: string | null }[];
+      ally_bans?: string[];
+      enemy_bans?: string[];
+    };
+    const fmt = (l?: { champion: string | null; score: number }[]) =>
+      (l ?? []).map((s) => (s.champion ? `${s.champion} (${Math.round(s.score)}%)` : '?'));
+    return {
+      ally: fmt(r.ocr?.ally),
+      enemy: fmt(r.ocr?.enemy),
+      ally_players: (r.ally ?? []).map((s) => s.player_name ?? null),
+      ally_bans: r.ally_bans ?? [],
+      enemy_bans: r.enemy_bans ?? [],
+    };
+  } catch {
+    return null;
+  }
+}
+
+function toBase64(bytes: Uint8Array): string {
+  let s = '';
+  for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  return btoa(s);
+}
+
+// --- JSON-RPC over HTTP -----------------------------------------------------------
+
+interface RpcRequest {
+  jsonrpc: '2.0';
+  id?: string | number | null;
+  method: string;
+  params?: Json;
+}
+
+function rpcResult(id: RpcRequest['id'], result: unknown) {
+  return { jsonrpc: '2.0', id, result };
+}
+function rpcError(id: RpcRequest['id'], code: number, message: string) {
+  return { jsonrpc: '2.0', id: id ?? null, error: { code, message } };
+}
+
+async function dispatch(msg: RpcRequest, env: Env, user: User): Promise<unknown | null> {
+  const isNotification = msg.id === undefined;
+  switch (msg.method) {
+    case 'initialize': {
+      const requested = String(msg.params?.protocolVersion ?? '');
+      return rpcResult(msg.id, {
+        protocolVersion: PROTOCOL_VERSIONS.includes(requested) ? requested : PROTOCOL_VERSIONS[0],
+        capabilities: { tools: { listChanged: false } },
+        serverInfo: { name: 'sc-scouting', title: 'SC Scouting', version: '0.1.0' },
+        instructions: INSTRUCTIONS,
+      });
+    }
+    case 'ping':
+      return rpcResult(msg.id, {});
+    case 'tools/list':
+      return rpcResult(msg.id, {
+        tools: TOOLS.map(({ name, description, inputSchema, annotations }) => ({ name, description, inputSchema, annotations })),
+      });
+    case 'tools/call': {
+      const name = String(msg.params?.name ?? '');
+      const tool = TOOLS.find((t) => t.name === name);
+      if (!tool) return rpcError(msg.id, -32602, `Unknown tool: ${name}`);
+      try {
+        const args = (msg.params?.arguments ?? {}) as Json;
+        return rpcResult(msg.id, await tool.run(args, { env, user }));
+      } catch (err) {
+        // Tool errors go back to the model as a result it can read and fix, not as a protocol error.
+        const message = err instanceof HttpError ? err.message : 'Internal error';
+        if (!(err instanceof HttpError)) console.error('MCP tool error', name, err);
+        return rpcResult(msg.id, { content: [{ type: 'text', text: `Error: ${message}` }], isError: true });
+      }
+    }
+    default:
+      if (isNotification) return null; // notifications/initialized etc.
+      return rpcError(msg.id, -32601, `Method not found: ${msg.method}`);
+  }
+}
+
+export async function handleMcp(req: Request, env: Env, url: URL): Promise<Response> {
+  const cors = {
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization, Mcp-Session-Id, MCP-Protocol-Version',
+    'Access-Control-Allow-Methods': 'POST, GET, DELETE, OPTIONS',
+    'Access-Control-Expose-Headers': 'WWW-Authenticate, Mcp-Session-Id',
+  };
+  if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: cors });
+
+  const user = await userFromBearer(req, env);
+  if (!user) {
+    return new Response(JSON.stringify({ error: 'unauthorized' }), {
+      status: 401,
+      headers: {
+        ...cors,
+        'Content-Type': 'application/json',
+        'WWW-Authenticate': `Bearer resource_metadata="${url.origin}/.well-known/oauth-protected-resource"`,
+      },
+    });
+  }
+
+  // No server-initiated streams: GET (SSE) isn't offered, sessions are stateless.
+  if (req.method === 'GET') return new Response('Method Not Allowed', { status: 405, headers: { ...cors, Allow: 'POST' } });
+  if (req.method === 'DELETE') return new Response(null, { status: 204, headers: cors });
+  if (req.method !== 'POST') return new Response('Method Not Allowed', { status: 405, headers: cors });
+
+  let body: unknown;
+  try {
+    body = await req.json();
+  } catch {
+    return withHeaders(json(rpcError(null, -32700, 'Parse error'), 400), cors);
+  }
+
+  const messages = (Array.isArray(body) ? body : [body]) as RpcRequest[];
+  const responses = [];
+  for (const msg of messages) {
+    if (!msg || msg.jsonrpc !== '2.0' || typeof msg.method !== 'string') {
+      // Responses from the client (to our requests) or junk: nothing to answer.
+      continue;
+    }
+    const out = await dispatch(msg, env, user);
+    if (out) responses.push(out);
+  }
+  if (!responses.length) return new Response(null, { status: 202, headers: cors });
+  return withHeaders(json(Array.isArray(body) ? responses : responses[0]), cors);
+}
+
+function withHeaders(res: Response, headers: Record<string, string>): Response {
+  for (const [k, v] of Object.entries(headers)) res.headers.set(k, v);
+  return res;
+}

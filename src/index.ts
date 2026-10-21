@@ -1,7 +1,9 @@
 import { handleApi } from './api';
-import { getSessionUser, handleAuth } from './auth';
+import { getSessionUser, handleAuth, safeNext } from './auth';
 import { ensureSchema } from './db';
 import { json, redirect } from './http';
+import { handleMcp } from './mcp';
+import { handleOAuth, isOAuthPath } from './oauth';
 import { handleReader } from './reader';
 import { syncTwitchVods } from './vods';
 
@@ -23,6 +25,8 @@ export default {
 
     if (url.pathname.startsWith('/auth/')) return handleAuth(req, env, url);
     if (url.pathname.startsWith('/api/reader/')) return handleReader(req, env, url);
+    if (isOAuthPath(url.pathname)) return handleOAuth(req, env, url);
+    if (url.pathname === '/mcp' || url.pathname === '/mcp/') return handleMcp(req, env, url);
 
     const user = await getSessionUser(req, env);
 
@@ -32,7 +36,9 @@ export default {
     }
 
     if (!user && !PUBLIC_PATHS.has(url.pathname)) return redirect('/login');
-    if (user && (url.pathname === '/login' || url.pathname === '/login.html')) return redirect('/');
+    if (user && (url.pathname === '/login' || url.pathname === '/login.html')) {
+      return redirect(safeNext(url.searchParams.get('next')));
+    }
 
     const res = await env.ASSETS.fetch(req);
     // Pages behind login must not be cached by the browser or shared caches.

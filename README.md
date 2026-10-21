@@ -17,8 +17,16 @@ Twitch OAuth. Only users on the allowlist can log in. The **first person who log
 2. Secret `TWITCH_CLIENT_SECRET` in Cloudflare: Worker → Settings → Variables and Secrets.
 3. Local dev: `npm install`, copy `.dev.vars.example` to `.dev.vars`, `npm run dev`.
 
+## MCP connector (Claude)
+In claude.ai: Settings → Connectors → Add custom connector, URL `https://sc.daotech.dev/mcp`.
+Claude logs in through the normal Twitch login and a consent page; its changes show up in the activity log as "Claude".
+
+## Draft reader
+See [`reader/README.md`](reader/README.md). Needs the `READER_TOKEN` secret in Cloudflare.
+
 ## Roadmap
 1. ~~DB schema, Twitch login, teams & players~~
-2. Twitch/Kick VOD sync, live status
-3. Remote MCP connector (OAuth) for Claude
-4. Riot API sync, draft editor, champion pools, compare view
+2. ~~Twitch VOD sync, live status~~ (Kick later)
+3. ~~Remote MCP connector (OAuth) for Claude~~
+4. ~~Draft reader (VOD → champ select → draft)~~, tuning on real VODs
+5. Drafts in the web UI, Riot API sync, champion pools, compare view

@@ -4,6 +4,12 @@ import { cookie, parseCookies, randomToken, redirect, sha256Hex } from './http';
 
 const SESSION_COOKIE = 'sc_session';
 const STATE_COOKIE = 'sc_oauth_state';
+const NEXT_COOKIE = 'sc_next';
+
+/** Only same-site paths are allowed as a post-login destination. */
+export function safeNext(next: string | null | undefined): string {
+  return next && next.startsWith('/') && !next.startsWith('//') && !next.startsWith('/\\') ? next : '/';
+}
 const SESSION_DAYS = 30;
 
 interface TwitchUser {
@@ -40,7 +46,10 @@ export async function handleAuth(req: Request, env: Env, url: URL): Promise<Resp
         scope: '',
         state,
       }).toString();
-      return redirect(authorize.toString(), [cookie(STATE_COOKIE, state, { maxAge: 600, path: '/auth' })]);
+      return redirect(authorize.toString(), [
+        cookie(STATE_COOKIE, state, { maxAge: 600, path: '/auth' }),
+        cookie(NEXT_COOKIE, safeNext(url.searchParams.get('next')), { maxAge: 600, path: '/auth' }),
+      ]);
     }
 
     case '/auth/callback': {
@@ -79,7 +88,12 @@ export async function handleAuth(req: Request, env: Env, url: URL): Promise<Resp
       await env.DB.prepare(`DELETE FROM sessions WHERE expires_at <= datetime('now')`).run();
       await logActivity(env.DB, { kind: 'user', userId: user.id }, 'login', 'user', user.id);
 
-      return redirect('/', [clearState, cookie(SESSION_COOKIE, token, { maxAge: SESSION_DAYS * 86400 })]);
+      const next = safeNext(parseCookies(req)[NEXT_COOKIE]);
+      return redirect(next, [
+        clearState,
+        cookie(NEXT_COOKIE, '', { maxAge: 0, path: '/auth' }),
+        cookie(SESSION_COOKIE, token, { maxAge: SESSION_DAYS * 86400 }),
+      ]);
     }
 
     case '/auth/logout': {

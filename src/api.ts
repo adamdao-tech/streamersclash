@@ -321,7 +321,7 @@ function normalizeChannel(v: unknown, host: string): string | null {
   return name.toLowerCase();
 }
 
-function teamFields(body: Record<string, unknown>, partial: boolean): Row {
+export function teamFields(body: Record<string, unknown>, partial: boolean): Row {
   const out: Row = {};
   const has = (k: string) => !partial || k in body;
   if (has('name')) {
@@ -347,7 +347,7 @@ function teamFields(body: Record<string, unknown>, partial: boolean): Row {
   return out;
 }
 
-function playerFields(body: Record<string, unknown>, partial: boolean): Row {
+export function playerFields(body: Record<string, unknown>, partial: boolean): Row {
   const out: Row = {};
   const has = (k: string) => !partial || k in body;
   if (has('nickname')) {
@@ -386,7 +386,7 @@ function playerFields(body: Record<string, unknown>, partial: boolean): Row {
   return out;
 }
 
-function parsePlayer(p: Record<string, unknown>) {
+export function parsePlayer(p: Record<string, unknown>) {
   let tags: string[] = [];
   try {
     tags = JSON.parse(String(p.tags ?? '[]'));
@@ -396,7 +396,7 @@ function parsePlayer(p: Record<string, unknown>) {
 }
 
 // Table/column names below come from our own code, never from user input.
-async function insert(db: D1Database, table: string, row: Row): Promise<number> {
+export async function insert(db: D1Database, table: string, row: Row): Promise<number> {
   const cols = Object.keys(row);
   const res = await db
     .prepare(`INSERT INTO ${table} (${cols.join(', ')}) VALUES (${cols.map(() => '?').join(', ')})`)

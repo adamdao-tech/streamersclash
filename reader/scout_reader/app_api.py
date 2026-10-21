@@ -31,7 +31,10 @@ class AppClient:
             )
         )
 
-    def upload_frame(self, vod_id: int, ts: float, jpeg: bytes, width: int, height: int, reading: dict, confidence: float, auto: bool) -> dict:
+    def upload_frame(
+        self, vod_id: int, ts: float, jpeg: bytes, width: int, height: int, reading: dict, confidence: float, auto: bool,
+        postgame_jpeg: bytes | None = None,
+    ) -> dict:
         return self._check(
             self.s.post(
                 f"{self.base}/api/reader/frames",
@@ -44,6 +47,7 @@ class AppClient:
                     "reading": reading,
                     "confidence": confidence,
                     "auto": auto,
+                    "postgame_image_b64": base64.b64encode(postgame_jpeg).decode() if postgame_jpeg else None,
                 },
                 timeout=60,
             )

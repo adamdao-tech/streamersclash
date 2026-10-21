@@ -129,50 +129,80 @@ export function vodLink(url, seconds) {
   return `${url}${url.includes('?') ? '&' : '?'}t=${t}`;
 }
 
-const SOURCE = { sync: 'Čtečka', claude: 'Claude', user: 'Ručně' };
+// --- compact draft rows & player helpers ------------------------------------------
 
-export function draftHtml(d, icons, highlightPlayerIds = new Set()) {
-  const side = (s) => d.actions.filter((a) => a.side === s);
-  const picks = (s) =>
-    side(s)
-      .filter((a) => a.action === 'PICK')
-      .map((a) => {
-        const mine = a.player_id && highlightPlayerIds.has(a.player_id);
-        return `<div class="pick${mine ? ' mine' : ''}">${champIcon(icons, a.champion)}<div><b>${esc(a.champion)}</b>${a.player_name ? `<small>${esc(a.player_name)}</small>` : ''}</div></div>`;
-      })
-      .join('');
-  const bans = (s) => side(s).filter((a) => a.action === 'BAN').map((a) => champIcon(icons, a.champion, 'sm')).join('');
-  const when = d.played_at ? new Date(d.played_at).toLocaleString('cs-CZ', { day: 'numeric', month: 'numeric', hour: '2-digit', minute: '2-digit' }) : '';
-  const link = vodLink(d.vod_url, d.vod_timestamp_s);
-  return `
-    <article class="draft">
-      <div class="draft-meta">
-        <span>${esc(when)}</span>
-        ${d.pov_nickname ? `<span>POV: <b>${esc(d.pov_nickname)}</b></span>` : ''}
-        <span class="badge">${SOURCE[d.created_by_kind] || esc(d.created_by_kind)}</span>
-        ${link ? `<a href="${esc(link)}" target="_blank" rel="noopener">▶ Champ select ve VODce</a>` : ''}
-      </div>
-      <div class="draft-body">
-        <div class="draft-side ally">
-          <div class="side-label">Spoluhráči ${bans('ALLY') ? `<span class="bans">${bans('ALLY')}</span>` : ''}</div>
-          ${picks('ALLY')}
-        </div>
-        <div class="draft-vs">VS</div>
-        <div class="draft-side enemy">
-          <div class="side-label">Soupeři ${bans('ENEMY') ? `<span class="bans">${bans('ENEMY')}</span>` : ''}</div>
-          ${picks('ENEMY')}
-        </div>
-      </div>
-    </article>`;
+export function fmtDuration(s) {
+  if (!s && s !== 0) return '';
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 }
 
-/** Champion pool of one player from saved drafts: [{champion, games}] sorted by games. */
-export function championPool(drafts, playerId) {
-  const counts = new Map();
-  for (const d of drafts) {
-    for (const a of d.actions) {
-      if (a.action === 'PICK' && a.player_id === playerId) counts.set(a.champion, (counts.get(a.champion) || 0) + 1);
-    }
+export function kdaText(a) {
+  return a.kills === null || a.kills === undefined ? '' : `${a.kills}/${a.deaths}/${a.assists}`;
+}
+
+/** Result badge from a given side's point of view ('ALLY' = streamer's team). */
+export function resultBadge(result, side = 'ALLY') {
+  if (!result) return '<span class="res res-none" title="Výsledek neznámý">–</span>';
+  const win = (side === 'ALLY') === (result === 'WIN');
+  return win ? '<span class="res res-win">V</span>' : '<span class="res res-loss">P</span>';
+}
+
+function shortDate(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  return `${d.getDate()}. ${d.getMonth() + 1}. ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+}
+
+/** One draft as a single line; click to expand lane-by-lane details. */
+export function draftRow(d, icons, ours = new Set()) {
+  const picks = (side) => d.actions.filter((a) => a.side === side && a.action === 'PICK');
+  const bans = (side) => d.actions.filter((a) => a.side === side && a.action === 'BAN');
+  const ally = picks('ALLY'), enemy = picks('ENEMY');
+  // From our team's perspective: if one of our players is on the enemy side, flip the result.
+  const oursOnEnemy = enemy.some((a) => ours.has(a.player_id)) && !ally.some((a) => ours.has(a.player_id));
+  const strip = (list) =>
+    list.map((a) => `<span class="${ours.has(a.player_id) ? 'mine' : ''}">${champIcon(icons, a.champion, 'row')}</span>`).join('');
+  const link = vodLink(d.vod_url, d.vod_timestamp_s);
+  const pgLink = d.postgame_ts ? vodLink(d.vod_url, d.postgame_ts + 60) : null;
+
+  const byLane = ally.every((a) => a.lane !== null && a.lane !== undefined) && enemy.every((a) => a.lane !== null && a.lane !== undefined);
+  const line = (a) =>
+    a
+      ? `<div class="pl">${champIcon(icons, a.champion, 'md')}<div><b>${esc(a.champion)}</b><small>${a.player_id ? `<a href="/player?id=${a.player_id}" title="Přečteno: ${esc(a.player_name || '')}">${esc(a.player_nickname || a.player_name || '')}</a>` : esc(a.player_name || '')}</small></div><span class="kda">${kdaText(a)}</span></div>`
+      : '<div></div>';
+  const ROLE = { TOP: 'TOP', JUNGLE: 'JNG', MID: 'MID', ADC: 'ADC', SUPPORT: 'SUP' };
+  let rows;
+  if (byLane) {
+    const sorted = (l) => [...l].sort((x, y) => x.lane - y.lane);
+    const A = sorted(ally), E = sorted(enemy);
+    rows = A.map((a, i) => `<div class="lane"><div class="side-a">${line(a)}</div><span class="lane-role">${ROLE[a.role] || ''}</span><div class="side-e">${line(E[i])}</div></div>`).join('');
+  } else {
+    rows = Array.from({ length: Math.max(ally.length, enemy.length) }, (_, i) =>
+      `<div class="lane"><div class="side-a">${line(ally[i])}</div><span class="lane-role"></span><div class="side-e">${line(enemy[i])}</div></div>`).join('');
   }
-  return [...counts.entries()].map(([champion, games]) => ({ champion, games })).sort((a, b) => b.games - a.games);
+  const banList = (l) => l.map((a) => champIcon(icons, a.champion, 'sm')).join('') || '<span class="muted">–</span>';
+
+  return `
+    <details class="drow">
+      <summary>
+        ${resultBadge(d.result, oursOnEnemy ? 'ENEMY' : 'ALLY')}
+        <span class="when">${shortDate(d.played_at)}</span>
+        <span class="strip ally-strip">${strip(oursOnEnemy ? enemy : ally)}</span>
+        <span class="vs">vs</span>
+        <span class="strip">${strip(oursOnEnemy ? ally : enemy)}</span>
+        <span class="meta">${[d.game_type, fmtDuration(d.duration_s), d.pov_nickname ? `POV ${esc(d.pov_nickname)}` : ''].filter(Boolean).map(esc).join(' · ')}</span>
+        ${link ? `<a class="play" href="${esc(link)}" target="_blank" rel="noopener" title="Champ select ve VODce">▶</a>` : ''}
+      </summary>
+      <div class="drow-detail">
+        <div class="lanes">
+          <div class="lane head"><div class="side-a">Spoluhráči (POV)</div><span></span><div class="side-e">Soupeři</div></div>
+          ${rows}
+        </div>
+        <div class="drow-foot">
+          <span>Bany: ${banList(bans('ALLY'))} <span class="muted">vs</span> ${banList(bans('ENEMY'))}</span>
+          <span class="badge">${{ sync: 'Čtečka', claude: 'Claude', user: 'Ručně' }[d.created_by_kind] || esc(d.created_by_kind)}</span>
+          ${pgLink ? `<a href="${esc(pgLink)}" target="_blank" rel="noopener">Konec hry ve VODce</a>` : ''}
+        </div>
+      </div>
+    </details>`;
 }

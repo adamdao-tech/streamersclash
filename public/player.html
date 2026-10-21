@@ -1,0 +1,161 @@
+<!doctype html>
+<html lang="cs">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Hráč · SC Scouting</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/app.css">
+</head>
+<body>
+  <main>
+    <p style="margin:0 0 10px" id="back"><a href="/">← Týmy</a></p>
+    <section id="hero" class="team-hero compact"></section>
+    <section id="tiles" class="stat-tiles"></section>
+
+    <div class="two-col">
+      <div style="display:grid;gap:18px">
+        <section class="card">
+          <h2>Champion pool</h2>
+          <div id="pool"></div>
+        </section>
+        <section class="card">
+          <h2>Poznámky</h2>
+          <form id="note-form" style="display:grid;gap:8px">
+            <textarea name="body" placeholder="Co hraje, jak hraje, na co si dát pozor…" style="min-height:60px"></textarea>
+            <button class="btn btn-small btn-primary" style="justify-self:end">Přidat poznámku</button>
+          </form>
+          <div id="notes" class="notes-list"></div>
+        </section>
+      </div>
+      <section class="card">
+        <h2>Odehrané hry</h2>
+        <div id="games" class="games"></div>
+      </section>
+    </div>
+
+    <div class="section-head" style="margin-top:22px"><h2>VODky</h2></div>
+    <div id="vods" class="vod-grid"></div>
+  </main>
+
+  <script type="module">
+    import { api, esc, initPage, ROLE_LABELS, loadChampions, champIcon, vodLink, fmtDuration, timeAgo } from '/app.js';
+
+    await initPage('teams');
+    const id = new URLSearchParams(location.search).get('id');
+    let icons = new Map();
+
+    const wrClass = (wr) => (wr === null ? '' : wr >= 55 ? 'good' : wr < 45 ? 'bad' : '');
+
+    function render({ player: p, team, stats, games, notes, vods }, live) {
+      document.title = `${p.nickname} · SC Scouting`;
+      if (team) {
+        document.body.style.setProperty('--accent', team.accent_color || '#c8a64b');
+        document.getElementById('back').innerHTML = `<a href="/team?id=${team.id}">← ${esc(team.name)}</a>`;
+      }
+      const isLive = p.twitch_login && live[p.twitch_login];
+      document.getElementById('hero').innerHTML = `
+        <div class="role role-${esc(p.role || '')}" style="width:56px;height:56px;font-size:1rem">${ROLE_LABELS[p.role] || '—'}</div>
+        <div class="info">
+          <h1>${esc(p.nickname)}</h1>
+          <div class="meta">
+            ${team ? `<a href="/team?id=${team.id}">${esc(team.name)}</a>` : '<span>Bez týmu</span>'}
+            <span>${p.riot_id ? esc(p.riot_id) : 'Riot ID nevyplněné'}</span>
+            ${p.tags.map((t) => `<span class="badge">${esc(t)}</span>`).join('')}
+          </div>
+        </div>
+        <div class="actions">
+          ${p.twitch_login ? `<a class="chip chip-twitch" href="https://twitch.tv/${esc(p.twitch_login)}" target="_blank" rel="noopener">${isLive ? '<span class="live-dot"></span>LIVE · ' : '<span class="dot"></span>'}${esc(p.twitch_login)}</a>` : ''}
+          ${p.kick_slug ? `<a class="chip chip-kick" href="https://kick.com/${esc(p.kick_slug)}" target="_blank" rel="noopener"><span class="dot"></span>${esc(p.kick_slug)}</a>` : ''}
+        </div>`;
+
+      const tile = (label, value, hint = '') => `<div class="tile"><div class="label">${label}</div><div class="value">${value}</div><div class="hint">${hint}</div></div>`;
+      document.getElementById('tiles').innerHTML = [
+        tile('Hry', stats.games, `${stats.champions.length} championů`),
+        tile('Výhry / prohry', `<span style="color:var(--green)">${stats.wins}</span> / <span style="color:#ff8f93">${stats.losses}</span>`, stats.games - stats.wins - stats.losses ? `${stats.games - stats.wins - stats.losses} bez výsledku` : ''),
+        tile('Winrate', stats.winrate === null ? '–' : `<span class="wr ${wrClass(stats.winrate)}">${stats.winrate} %</span>`),
+        tile('KDA', stats.kda === null ? '–' : stats.kda, stats.avg ? `${stats.avg.kills} / ${stats.avg.deaths} / ${stats.avg.assists}` : ''),
+      ].join('');
+
+      document.getElementById('pool').innerHTML = stats.champions.length
+        ? `<table class="pool-table">
+            <thead><tr><th>Champion</th><th class="num">Hry</th><th class="num">V–P</th><th>Winrate</th><th class="num">KDA</th></tr></thead>
+            <tbody>${stats.champions.map((c) => `
+              <tr>
+                <td><span class="champ-cell">${champIcon(icons, c.champion, 'row')}${esc(c.champion)}</span></td>
+                <td class="num">${c.games}</td>
+                <td class="num">${c.wins}–${c.losses}</td>
+                <td>${c.winrate === null ? '<span class="muted">–</span>' : `<div style="display:flex;align-items:center;gap:6px"><div class="bar"><span style="width:${c.winrate}%"></span></div><span class="wr ${wrClass(c.winrate)}">${c.winrate}%</span></div>`}</td>
+                <td class="num">${c.kda ?? '–'}</td>
+              </tr>`).join('')}
+            </tbody></table>`
+        : '<p class="muted">Zatím žádné hry. Doplň Riot ID (herní jméno), ať se hráč spáruje s přečtenými drafty.</p>';
+
+      document.getElementById('games').innerHTML = games.length
+        ? games.map((g) => {
+            const res = g.result === 'WIN' ? '<span class="res res-win">V</span>' : g.result === 'LOSS' ? '<span class="res res-loss">P</span>' : '<span class="res res-none">–</span>';
+            const link = vodLink(g.vod_url, g.vod_timestamp_s);
+            const when = g.played_at ? new Date(g.played_at).toLocaleDateString('cs-CZ', { day: 'numeric', month: 'numeric' }) : '';
+            return `
+            <div class="game">
+              ${res}
+              ${champIcon(icons, g.champion, 'md')}
+              <div class="g-main"><b>${esc(g.champion)}</b><small>${[ROLE_LABELS[g.role], when, g.game_type, fmtDuration(g.duration_s)].filter(Boolean).map(esc).join(' · ')}</small></div>
+              <span class="kda">${g.kills !== null ? `${g.kills}/${g.deaths}/${g.assists}` : ''}</span>
+              <span class="vs-opp">${g.opponent ? `vs <span>${esc(g.opponent.champion)}${g.opponent.player_name ? `<br><small>${g.opponent.player_id ? `<a href="/player?id=${g.opponent.player_id}">${esc(g.opponent.player_name)}</a>` : esc(g.opponent.player_name)}</small>` : ''}</span>${champIcon(icons, g.opponent.champion, 'row')}` : ''}</span>
+              ${link ? `<a class="btn btn-small" href="${esc(link)}" target="_blank" rel="noopener" title="Ve VODce">▶</a>` : ''}
+            </div>`;
+          }).join('')
+        : '<p class="muted">Žádné zaznamenané hry.</p>';
+
+      renderNotes(notes);
+
+      document.getElementById('vods').innerHTML = vods.length
+        ? vods.map((v) => `
+          <a class="vod" href="${esc(v.url)}" target="_blank" rel="noopener">
+            <div class="thumb">${v.thumbnail_url ? `<img src="${esc(v.thumbnail_url)}" alt="" loading="lazy">` : ''}</div>
+            <div class="body"><div class="title">${esc(v.title || 'Bez názvu')}</div><div class="sub">${new Date(v.started_at).toLocaleDateString('cs-CZ')}</div></div>
+          </a>`).join('')
+        : '<div class="empty" style="grid-column:1/-1">Žádné VODky.</div>';
+    }
+
+    function renderNotes(notes) {
+      document.getElementById('notes').innerHTML = notes.length
+        ? notes.map((n) => `
+          <div class="note">${esc(n.body)}
+            <div class="who"><span>${n.author_kind === 'claude' ? 'Claude' : esc(n.author_name || '')} · ${timeAgo(n.created_at)}</span><button class="btn btn-small btn-danger" data-del-note="${n.id}">✕</button></div>
+          </div>`).join('')
+        : '';
+    }
+
+    async function load() {
+      const [data, ic, live] = await Promise.all([
+        api(`/api/players/${id}`),
+        loadChampions(),
+        api('/api/live').then((r) => r.twitch).catch(() => ({})),
+      ]);
+      icons = ic;
+      render(data, live);
+    }
+
+    document.getElementById('note-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const body = e.target.body.value.trim();
+      if (!body) return;
+      await api('/api/notes', { method: 'POST', body: { target_type: 'player', target_id: Number(id), body } });
+      e.target.reset();
+      await load();
+    });
+    document.getElementById('notes').addEventListener('click', async (e) => {
+      const nid = e.target.dataset.delNote;
+      if (!nid || !confirm('Smazat poznámku?')) return;
+      await api(`/api/notes/${nid}`, { method: 'DELETE' });
+      await load();
+    });
+
+    load().catch((err) => {
+      document.querySelector('main').innerHTML = `<div class="empty">${esc(err.message)}<br><br><a href="/">Zpět</a></div>`;
+    });
+  </script>
+</body>
+</html>

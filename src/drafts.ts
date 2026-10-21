@@ -10,6 +10,19 @@ export interface DraftSlot {
   champion: string;
   player_name?: string | null;
   role?: string | null;
+  kills?: number | null;
+  deaths?: number | null;
+  assists?: number | null;
+  lane?: number | null; // 0–4 = row on the post-game scoreboard (top … support); same lane = lane opponent
+}
+
+export interface PostGameInput {
+  result?: string | null; // WIN / LOSS from the ally side
+  game_type?: string | null;
+  duration_s?: number | null;
+  ts_s?: number | null;
+  ally?: DraftSlot[];
+  enemy?: DraftSlot[];
 }
 
 export interface DraftInput {
@@ -20,7 +33,18 @@ export interface DraftInput {
   ally_bans?: string[];
   enemy_bans?: string[];
   notes?: string | null;
+  result?: string | null;
+  game_type?: string | null;
+  duration_s?: number | null;
+  postgame_ts?: number | null;
+  /** Post-game scoreboard as read by the reader; merged into the slots by champion. */
+  postgame?: PostGameInput | null;
 }
+
+const num = (v: unknown, max = 99): number | null => {
+  const n = Number(v);
+  return v === null || v === undefined || v === '' || !Number.isInteger(n) || n < 0 || n > max ? null : n;
+};
 
 const ROLES = new Set(['TOP', 'JUNGLE', 'MID', 'ADC', 'SUPPORT']);
 const ROLE_ALIASES: Record<string, string> = { BOTTOM: 'ADC', BOT: 'ADC', UTILITY: 'SUPPORT', SUP: 'SUPPORT', JNG: 'JUNGLE', MIDDLE: 'MID' };
@@ -41,27 +65,43 @@ export async function validateDraft(env: Env, input: DraftInput): Promise<DraftI
     if (!resolved) unknown.push(String(name));
     return resolved ?? String(name);
   };
-  const slots = (list: DraftSlot[] | undefined, label: string) => {
+  const slots = (list: DraftSlot[] | undefined, label: string, scoreboard?: DraftSlot[]) => {
     if (!Array.isArray(list) || list.length === 0 || list.length > 5) {
       throw new HttpError(400, 'invalid', `${label}: expected 1–5 champions`);
     }
-    return list.map((s) => ({
-      champion: fix(s?.champion),
-      player_name: s?.player_name ? String(s.player_name).slice(0, 60) : null,
-      role: normRole(s?.role),
-    }));
+    return list.map((s) => {
+      const champion = fix(s?.champion);
+      // The same champion's row on the post-game scoreboard, if we have it.
+      const sb = scoreboard?.find((r) => resolveChampion(champions, String(r?.champion ?? '')) === champion);
+      return {
+        champion,
+        player_name: (s?.player_name || sb?.player_name) ? String(s?.player_name || sb?.player_name).slice(0, 60) : null,
+        role: normRole(sb?.role) ?? normRole(s?.role),
+        kills: num(s?.kills ?? sb?.kills),
+        deaths: num(s?.deaths ?? sb?.deaths),
+        assists: num(s?.assists ?? sb?.assists),
+        lane: num(s?.lane ?? sb?.lane, 4),
+      };
+    });
   };
   const bans = (list: string[] | undefined) =>
     (Array.isArray(list) ? list : []).slice(0, 5).filter((b) => b && String(b).toLowerCase() !== 'none').map(fix);
 
+  const pg = input.postgame ?? null;
+  const resultRaw = String(input.result ?? pg?.result ?? '').toUpperCase();
+  const result = resultRaw === 'WIN' || resultRaw === 'VICTORY' ? 'WIN' : resultRaw === 'LOSS' || resultRaw === 'DEFEAT' ? 'LOSS' : null;
   const out: DraftInput = {
     vod_id: input.vod_id ?? null,
     ts_s: input.ts_s ?? null,
-    ally: slots(input.ally, 'ally'),
-    enemy: slots(input.enemy, 'enemy'),
+    ally: slots(input.ally, 'ally', pg?.ally),
+    enemy: slots(input.enemy, 'enemy', pg?.enemy),
     ally_bans: bans(input.ally_bans),
     enemy_bans: bans(input.enemy_bans),
     notes: input.notes ? String(input.notes).slice(0, 2000) : null,
+    result,
+    game_type: (input.game_type ?? pg?.game_type) ? String(input.game_type ?? pg?.game_type).slice(0, 40) : null,
+    duration_s: num(input.duration_s ?? pg?.duration_s, 6 * 3600),
+    postgame_ts: num(input.postgame_ts ?? pg?.ts_s, 24 * 3600),
   };
   if (unknown.length) throw new HttpError(400, 'unknown_champion', `Neznámí championi: ${unknown.join(', ')}`);
   return out;
@@ -93,34 +133,41 @@ export async function saveDraft(
   const players = await loadPlayerNames(db);
   const match = await db
     .prepare(
-      `INSERT INTO matches (played_at, source, vod_id, vod_timestamp_s, notes, created_by_kind, pov_player_id)
-       VALUES (?, 'vod', ?, ?, ?, ?, ?)`,
+      `INSERT INTO matches (played_at, source, vod_id, vod_timestamp_s, notes, created_by_kind, pov_player_id,
+                            result, game_type, duration_s, postgame_ts)
+       VALUES (?, 'vod', ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
-    .bind(playedAt, draft.vod_id ?? null, draft.ts_s ?? null, draft.notes ?? null, actor.kind === 'user' ? 'user' : actor.kind, povPlayerId)
+    .bind(
+      playedAt, draft.vod_id ?? null, draft.ts_s ?? null, draft.notes ?? null, actor.kind === 'user' ? 'user' : actor.kind,
+      povPlayerId, draft.result ?? null, draft.game_type ?? null, draft.duration_s ?? null, draft.postgame_ts ?? null,
+    )
     .run();
   const matchId = match.meta.last_row_id;
 
   const stmts: D1PreparedStatement[] = [];
   let seq = 0;
-  const insert = (side: string, action: string, slot: number, champion: string, playerName: string | null, role: string | null) => {
+  const insert = (side: string, action: string, slot: number, s: DraftSlot) => {
+    const playerName = s.player_name ?? null;
     const pid = playerName ? matchPlayer(players, playerName) : null;
     stmts.push(
       db
         .prepare(
-          `INSERT INTO draft_actions (match_id, seq, side, action, slot, champion, player_id, player_name, role)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          `INSERT INTO draft_actions (match_id, seq, side, action, slot, champion, player_id, player_name, role, kills, deaths, assists, lane)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         )
-        .bind(matchId, ++seq, side, action, slot, champion, pid, playerName, role),
+        .bind(matchId, ++seq, side, action, slot, s.champion, pid, playerName, s.role ?? null,
+          s.kills ?? null, s.deaths ?? null, s.assists ?? null, s.lane ?? null),
     );
   };
-  draft.ally_bans?.forEach((c, i) => insert('ALLY', 'BAN', i, c, null, null));
-  draft.enemy_bans?.forEach((c, i) => insert('ENEMY', 'BAN', i, c, null, null));
-  draft.ally.forEach((s, i) => insert('ALLY', 'PICK', i, s.champion, s.player_name ?? null, s.role ?? null));
-  draft.enemy.forEach((s, i) => insert('ENEMY', 'PICK', i, s.champion, s.player_name ?? null, s.role ?? null));
+  draft.ally_bans?.forEach((c, i) => insert('ALLY', 'BAN', i, { champion: c }));
+  draft.enemy_bans?.forEach((c, i) => insert('ENEMY', 'BAN', i, { champion: c }));
+  draft.ally.forEach((s, i) => insert('ALLY', 'PICK', i, s));
+  draft.enemy.forEach((s, i) => insert('ENEMY', 'PICK', i, s));
   await db.batch(stmts);
 
   await logActivity(db, actor, 'draft.create', 'match', matchId, {
     name: `${draft.ally.map((s) => s.champion).join(', ')} vs ${draft.enemy.map((s) => s.champion).join(', ')}`,
+    result: draft.result ?? undefined,
   });
   return matchId;
 }
@@ -161,7 +208,8 @@ export async function listDrafts(
 
   const { results: actions } = await db
     .prepare(
-      `SELECT * FROM draft_actions WHERE match_id IN (${matches.map(() => '?').join(',')}) ORDER BY match_id, seq`,
+      `SELECT a.*, p.nickname AS player_nickname FROM draft_actions a LEFT JOIN players p ON p.id = a.player_id
+        WHERE a.match_id IN (${matches.map(() => '?').join(',')}) ORDER BY a.match_id, a.seq`,
     )
     .bind(...matches.map((m) => m.id))
     .all<Record<string, unknown> & { match_id: number }>();
@@ -233,4 +281,97 @@ export async function relinkDraftPlayers(env: Env): Promise<number> {
     );
   }
   return updates.length;
+}
+
+// --- player statistics -------------------------------------------------------------
+
+export interface PlayerGame {
+  match_id: number;
+  played_at: string | null;
+  result: 'WIN' | 'LOSS' | null; // from this player's point of view
+  champion: string;
+  role: string | null;
+  kills: number | null;
+  deaths: number | null;
+  assists: number | null;
+  opponent: { champion: string; player_name: string | null; player_id: number | null } | null;
+  duration_s: number | null;
+  game_type: string | null;
+  vod_url: string | null;
+  vod_timestamp_s: number | null;
+}
+
+/** Every recorded game of a player, newest first, with result and lane opponent from their side. */
+export async function playerGames(env: Env, playerId: number, limit = 200): Promise<PlayerGame[]> {
+  const { results } = await env.DB.prepare(
+    `SELECT a.match_id, a.side, a.champion, a.role, a.kills, a.deaths, a.assists, a.lane,
+            m.played_at, m.result, m.duration_s, m.game_type, m.vod_timestamp_s, v.url AS vod_url,
+            o.champion AS opp_champion, o.player_name AS opp_name, o.player_id AS opp_player_id
+       FROM draft_actions a
+       JOIN matches m ON m.id = a.match_id
+       LEFT JOIN vods v ON v.id = m.vod_id
+       LEFT JOIN draft_actions o ON o.match_id = a.match_id AND o.action = 'PICK' AND o.side <> a.side
+                                AND a.lane IS NOT NULL AND o.lane = a.lane
+      WHERE a.player_id = ? AND a.action = 'PICK'
+      ORDER BY COALESCE(m.played_at, m.created_at) DESC
+      LIMIT ?`,
+  )
+    .bind(playerId, limit)
+    .all<Record<string, unknown>>();
+  return results.map((r) => {
+    const raw = r.result as string | null;
+    const result = raw ? ((r.side === 'ALLY') === (raw === 'WIN') ? 'WIN' : 'LOSS') : null;
+    return {
+      match_id: r.match_id as number,
+      played_at: r.played_at as string | null,
+      result,
+      champion: r.champion as string,
+      role: r.role as string | null,
+      kills: r.kills as number | null,
+      deaths: r.deaths as number | null,
+      assists: r.assists as number | null,
+      opponent: r.opp_champion
+        ? { champion: r.opp_champion as string, player_name: r.opp_name as string | null, player_id: r.opp_player_id as number | null }
+        : null,
+      duration_s: r.duration_s as number | null,
+      game_type: r.game_type as string | null,
+      vod_url: r.vod_url as string | null,
+      vod_timestamp_s: r.vod_timestamp_s as number | null,
+    };
+  });
+}
+
+export function summarizeGames(games: PlayerGame[]) {
+  const pool = new Map<string, { champion: string; games: number; wins: number; losses: number; k: number; d: number; a: number; kdaGames: number }>();
+  let wins = 0, losses = 0, k = 0, d = 0, a = 0, kdaGames = 0;
+  for (const g of games) {
+    const p = pool.get(g.champion) ?? { champion: g.champion, games: 0, wins: 0, losses: 0, k: 0, d: 0, a: 0, kdaGames: 0 };
+    p.games++;
+    if (g.result === 'WIN') (p.wins++, wins++);
+    if (g.result === 'LOSS') (p.losses++, losses++);
+    if (g.kills !== null && g.deaths !== null && g.assists !== null) {
+      p.k += g.kills; p.d += g.deaths; p.a += g.assists; p.kdaGames++;
+      k += g.kills; d += g.deaths; a += g.assists; kdaGames++;
+    }
+    pool.set(g.champion, p);
+  }
+  const kda = (k: number, d: number, a: number) => Math.round(((k + a) / Math.max(d, 1)) * 100) / 100;
+  return {
+    games: games.length,
+    wins,
+    losses,
+    winrate: wins + losses ? Math.round((wins / (wins + losses)) * 100) : null,
+    kda: kdaGames ? kda(k, d, a) : null,
+    avg: kdaGames ? { kills: +(k / kdaGames).toFixed(1), deaths: +(d / kdaGames).toFixed(1), assists: +(a / kdaGames).toFixed(1) } : null,
+    champions: [...pool.values()]
+      .sort((x, y) => y.games - x.games || y.wins - x.wins)
+      .map((p) => ({
+        champion: p.champion,
+        games: p.games,
+        wins: p.wins,
+        losses: p.losses,
+        winrate: p.wins + p.losses ? Math.round((p.wins / (p.wins + p.losses)) * 100) : null,
+        kda: p.kdaGames ? kda(p.k, p.d, p.a) : null,
+      })),
+  };
 }

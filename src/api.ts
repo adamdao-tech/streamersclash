@@ -2,7 +2,7 @@ import type { Env } from './index';
 import { logActivity, type User } from './db';
 import { HttpError, json } from './http';
 import { getLiveChannels, syncTwitchVods } from './vods';
-import { listDrafts, relinkDraftPlayers } from './drafts';
+import { listDrafts, playerGames, relinkDraftPlayers, summarizeGames } from './drafts';
 import { getChampionData } from './champions';
 
 const ROLES = ['TOP', 'JUNGLE', 'MID', 'ADC', 'SUPPORT', 'SUB'] as const;
@@ -128,9 +128,20 @@ async function route(req: Request, env: Env, url: URL, user: User): Promise<Resp
   if ((m = path.match(/^\/api\/players\/(\d+)$/))) {
     const id = Number(m[1]);
     if (method === 'GET') {
-      const player = await db.prepare('SELECT * FROM players WHERE id = ?').bind(id).first();
+      const player = await db.prepare('SELECT * FROM players WHERE id = ?').bind(id).first<Record<string, unknown>>();
       if (!player) throw new HttpError(404, 'not_found', 'Hráč neexistuje.');
-      return json({ player: parsePlayer(player) });
+      const [team, games, notes, vods] = await Promise.all([
+        player.team_id ? db.prepare('SELECT id, name, tag, accent_color, logo_url, is_own_team FROM teams WHERE id = ?').bind(player.team_id).first() : null,
+        playerGames(env, id),
+        db.prepare(
+          `SELECT n.*, u.display_name AS author_name FROM notes n LEFT JOIN users u ON u.id = n.author_user_id
+            WHERE n.target_type = 'player' AND n.target_id = ? ORDER BY n.id DESC LIMIT 50`,
+        ).bind(id).all(),
+        db.prepare(
+          `SELECT id, title, url, started_at, duration_s, thumbnail_url, scan_status FROM vods WHERE player_id = ? ORDER BY started_at DESC LIMIT 8`,
+        ).bind(id).all(),
+      ]);
+      return json({ player: parsePlayer(player), team, stats: summarizeGames(games), games, notes: notes.results, vods: vods.results });
     }
     if (method === 'PUT') {
       const fields = playerFields(await readBody(req), true);
@@ -274,6 +285,26 @@ async function route(req: Request, env: Env, url: URL, user: User): Promise<Resp
     const id = Number(m[1]);
     await db.prepare(`UPDATE vods SET scan_status = 'pending', scanned_at = NULL WHERE id = ?`).bind(id).run();
     await logActivity(db, actor, 'vod.rescan', 'vod', id);
+    return json({ ok: true });
+  }
+
+  // --- notes -------------------------------------------------------------
+  if (path === '/api/notes' && method === 'POST') {
+    const body = await readBody(req);
+    const type = String(body.target_type);
+    if (!['team', 'player', 'match'].includes(type)) throw new HttpError(400, 'invalid', 'Neplatný cíl poznámky.');
+    const targetId = Number(body.target_id);
+    const text = str(body.body, 'Poznámka', 5000);
+    if (!text || !Number.isInteger(targetId)) throw new HttpError(400, 'invalid', 'Poznámka je prázdná.');
+    const res = await db
+      .prepare(`INSERT INTO notes (target_type, target_id, body, author_kind, author_user_id) VALUES (?, ?, ?, 'user', ?)`)
+      .bind(type, targetId, text, user.id)
+      .run();
+    await logActivity(db, actor, 'note.add', type, targetId);
+    return json({ id: res.meta.last_row_id }, 201);
+  }
+  if ((m = path.match(/^\/api\/notes\/(\d+)$/)) && method === 'DELETE') {
+    await db.prepare('DELETE FROM notes WHERE id = ?').bind(Number(m[1])).run();
     return json({ ok: true });
   }
 

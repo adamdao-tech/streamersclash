@@ -82,17 +82,21 @@ async function route(req: Request, env: Env, url: URL): Promise<Response> {
       reading?: DraftInput & { [k: string]: unknown };
       confidence?: number;
       auto?: boolean;
+      postgame_image_b64?: string | null;
     };
     if (!body.vod_id || typeof body.ts_s !== 'number' || !body.image_b64) {
       throw new HttpError(400, 'invalid', 'vod_id, ts_s and image_b64 are required');
     }
     const bytes = Uint8Array.from(atob(body.image_b64), (c) => c.charCodeAt(0));
-    if (bytes.length > MAX_IMAGE_BYTES) throw new HttpError(413, 'too_large', 'Image too large');
+    const pgBytes = body.postgame_image_b64 ? Uint8Array.from(atob(body.postgame_image_b64), (c) => c.charCodeAt(0)) : null;
+    if (bytes.length > MAX_IMAGE_BYTES || (pgBytes?.length ?? 0) > MAX_IMAGE_BYTES) {
+      throw new HttpError(413, 'too_large', 'Image too large');
+    }
 
     const ins = await db
       .prepare(
-        `INSERT INTO draft_frames (vod_id, ts_s, image, width, height, reading, confidence)
-         VALUES (?, ?, ?, ?, ?, ?, ?)
+        `INSERT INTO draft_frames (vod_id, ts_s, image, width, height, reading, confidence, postgame_image)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(vod_id, ts_s) DO NOTHING`,
       )
       .bind(
@@ -103,6 +107,7 @@ async function route(req: Request, env: Env, url: URL): Promise<Response> {
         body.height ?? null,
         body.reading ? JSON.stringify(body.reading) : null,
         body.confidence ?? null,
+        pgBytes ? pgBytes.buffer : null,
       )
       .run();
     if (!ins.meta.changes) return json({ ok: true, duplicate: true });

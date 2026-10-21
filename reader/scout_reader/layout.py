@@ -7,20 +7,39 @@ size; detect.py finds its rectangle, and these coordinates are relative to it.
 
 from pathlib import Path
 
-REFERENCE_PATH = Path(__file__).parent / "reference" / "champselect.png"
+REF_DIR = Path(__file__).parent / "reference"
 
 # Canonical size the client crop is resized to before reading.
 CANON_W, CANON_H = 1600, 900
 
-# UI parts that look the same in every champion select phase (picking, banning,
-# loadout). Only these are compared during detection; champions, names and the
-# centre art are ignored.
-STATIC_REGIONS = [
-    (0.015, 0.915, 0.275, 0.985),  # chat input box, bottom left
-    (0.775, 0.915, 0.985, 0.985),  # QUIT button + buttons, bottom right
-    (0.000, 0.105, 0.300, 0.115),  # divider under our bans
-    (0.700, 0.105, 1.000, 0.115),  # divider under enemy bans
-]
+# For each screen: a reference screenshot of the client and the UI parts that
+# look the same every time. Only those parts are compared during detection;
+# champions, names and art are ignored.
+SCREENS = {
+    "champselect": {
+        "reference": REF_DIR / "champselect.png",
+        "threshold": 0.74,
+        "min_hits": 3,  # a real champ select lasts at least ~15 s
+        "regions": [
+            (0.015, 0.915, 0.275, 0.985),  # chat input box, bottom left
+            (0.775, 0.915, 0.985, 0.985),  # QUIT button + buttons, bottom right
+            (0.000, 0.105, 0.300, 0.115),  # divider under our bans
+            (0.700, 0.105, 1.000, 0.115),  # divider under enemy bans
+        ],
+    },
+    "postgame": {
+        "reference": REF_DIR / "postgame.png",
+        "threshold": 0.65,
+        "min_hits": 2,
+        "regions": [
+            (0.030, 0.140, 0.105, 0.166),  # "SCOREBOARD" label
+            (0.620, 0.042, 0.800, 0.088),  # "VIEW ADVANCED DETAILS" button
+            (0.340, 0.905, 0.488, 0.975),  # "PLAY AGAIN" button
+            (0.030, 0.915, 0.280, 0.965),  # chat input box
+        ],
+    },
+}
+STATIC_REGIONS = SCREENS["champselect"]["regions"]
 
 # Ban icons: centres of the five icons on each side, and the icon size.
 BAN_Y = 0.069
@@ -44,3 +63,15 @@ def px(rect, w, h):
     """Normalised (x0, y0, x1, y1) → integer pixel box for an image of size w×h."""
     x0, y0, x1, y1 = rect
     return int(x0 * w), int(y0 * h), int(round(x1 * w)), int(round(y1 * h))
+
+
+# --- post-game scoreboard ---------------------------------------------------------
+RESULT_BOX = (0.050, 0.022, 0.215, 0.088)  # "VICTORY" / "DEFEAT"
+SUBTITLE_BOX = (0.050, 0.072, 0.320, 0.102)  # "Custom · W:0 - L:0 · 31:01 · GameID"
+# Centre of the player-name line in each scoreboard row; the champion name is just below.
+TEAM1_NAME_Y = [0.239 + 0.0565 * i for i in range(5)]
+TEAM2_NAME_Y = [0.569 + 0.0567 * i for i in range(5)]
+SB_NAME_X = (0.150, 0.305)
+SB_KDA_X = (0.548, 0.632)
+SB_LINE_H = 0.024  # height of one text line
+SB_CHAMP_DY = 0.021  # champion line below the name line

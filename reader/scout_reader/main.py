@@ -45,6 +45,15 @@ def load_champions() -> ChampionDB:
     return ChampionDB.load(cache, Path(offline) if offline else None)
 
 
+def postgame_summary(pg: dict | None) -> str:
+    if not pg:
+        return "post-game: scoreboard doesn't match this draft"
+    def side(rows):
+        return ", ".join(f"{r['champion']} {r['player_name'] or '?'} {r['kills']}/{r['deaths']}/{r['assists']}" for r in rows)
+    return (f"post-game: {pg['result']} · {pg['game_type']} · {pg['duration_s']}s (fit {pg['fit']})\n"
+            f"  ally:  {side(pg['ally'])}\n  enemy: {side(pg['enemy'])}")
+
+
 def summary(reading) -> str:
     def side(slots):
         return ", ".join(f"{s.champion or '?'}({s.score:.0f})" for s in slots)
@@ -63,6 +72,14 @@ def cmd_test(args) -> None:
     reading, _ = got
     print(summary(reading))
     print(json.dumps(reading.to_payload(include_unsure_bans=True), indent=2, ensure_ascii=False))
+    if args.postgame:
+        ally = [s.champion for s in reading.ally if s.champion]
+        enemy = [s.champion for s in reading.enemy if s.champion]
+        pg = S.read_postgame_at(streams, parse_time(args.postgame), ally, enemy, debug)
+        if not pg:
+            print("Post-game screen not found at this moment.")
+        else:
+            print(postgame_summary(pg[0]))
     print(f"Debug images: {debug}")
 
 
@@ -70,18 +87,17 @@ def cmd_scan(args) -> None:
     db = load_champions()
     streams = video.resolve(args.url)
     every = float(env("SAMPLE_SECONDS", "5"))
-    episodes = S.find_episodes(
-        streams, every, float(env("DETECT_THRESHOLD", "0.74")),
-        parse_time(args.start) if args.start else 0, parse_time(args.end) if args.end else None,
-    )
-    print(f"Found {len(episodes)} champion select(s)")
+    scan = S.find_episodes(streams, every, parse_time(args.start) if args.start else 0, parse_time(args.end) if args.end else None)
+    print(f"Found {len(scan.drafts)} champion select(s), {len(scan.postgames)} post-game screen(s)")
     debug = Path(env("DEBUG_DIR", "/debug"))
-    for ep in episodes:
-        res = S.read_episode(streams, ep, db, debug)
+    for ep in scan.drafts:
+        res = S.read_episode(streams, ep, db, scan, debug)
         print(f"  {S.fmt(ep.start)}–{S.fmt(ep.end)}: " + (summary(res.reading) if res else "could not read"))
+        if res:
+            print("  " + postgame_summary(res.postgame) if res.postgame_ts else "  no post-game screen (dodge or game not finished in VOD)")
 
 
-def process_job(app: AppClient, db: ChampionDB, job: dict, auto_accept: bool, every: float, threshold: float) -> None:
+def process_job(app: AppClient, db: ChampionDB, job: dict, auto_accept: bool, every: float) -> None:
     vod_id = job["id"]
     log.info("VOD %s: %s (%s)", vod_id, job.get("title"), job["url"])
     try:
@@ -91,29 +107,33 @@ def process_job(app: AppClient, db: ChampionDB, job: dict, auto_accept: bool, ev
         app.finish_job(vod_id, "failed", error=str(e)[:500])
         return
 
-    episodes = S.find_episodes(streams, every, threshold)
-    log.info("  %d champion select(s) found", len(episodes))
+    scan = S.find_episodes(streams, every)
+    log.info("  %d champion select(s), %d post-game screen(s) found", len(scan.drafts), len(scan.postgames))
     found = 0
-    for ep in episodes:
-        res = S.read_episode(streams, ep, db)
+    for ep in scan.drafts:
+        res = S.read_episode(streams, ep, db, scan)
         if not res or res.reading.picks_found < 6:
             log.info("  %s: no full draft (dodge or unreadable), skipped", S.fmt(ep.end))
             continue
         auto = auto_accept and res.reading.picks_confident
+        payload = res.reading.to_payload()
+        if res.postgame:
+            payload["postgame"] = {**res.postgame, "ts_s": int(res.postgame_ts or 0)}
         r = app.upload_frame(
-            vod_id, res.ts, res.client_jpeg, res.width, res.height,
-            res.reading.to_payload(), res.reading.confidence, auto,
+            vod_id, res.ts, res.client_jpeg, res.width, res.height, payload, res.reading.confidence, auto,
+            postgame_jpeg=res.postgame_jpeg,
         )
         found += 1
         state = "saved" if r.get("match_id") else f"for review ({r.get('reason')})"
         log.info("  %s: %s → %s", S.fmt(res.ts), summary(res.reading), state)
+        if res.postgame:
+            log.info("  %s", postgame_summary(res.postgame))
     app.finish_job(vod_id, "done" if found else "skipped", drafts_found=found)
 
 
 def cmd_run(_args) -> None:
     app = AppClient(env("APP_URL"), env("READER_TOKEN"))
     every = float(env("SAMPLE_SECONDS", "5"))
-    threshold = float(env("DETECT_THRESHOLD", "0.74"))
     poll = float(env("POLL_SECONDS", "300"))
     auto_accept = env("AUTO_ACCEPT", "true").lower() in ("1", "true", "yes")
     db = load_champions()
@@ -126,7 +146,7 @@ def cmd_run(_args) -> None:
                 continue
             for job in jobs:
                 try:
-                    process_job(app, db, job, auto_accept, every, threshold)
+                    process_job(app, db, job, auto_accept, every)
                 except Exception as e:
                     log.exception("  VOD %s failed", job["id"])
                     app.finish_job(job["id"], "failed", error=str(e)[:500])
@@ -144,7 +164,8 @@ def main() -> None:
     sub.add_parser("run")
     t = sub.add_parser("test")
     t.add_argument("url")
-    t.add_argument("at", help="time in the VOD, e.g. 27:00 or 1:27:00")
+    t.add_argument("at", help="time of the finished draft in the VOD, e.g. 27:00 or 1:27:00")
+    t.add_argument("--postgame", help="time of the post-game scoreboard, e.g. 1:00:00")
     sc = sub.add_parser("scan")
     sc.add_argument("url")
     sc.add_argument("--start")

@@ -237,4 +237,16 @@ CREATE TABLE oauth_tokens (
 );
 CREATE INDEX idx_oauth_tokens_user ON oauth_tokens(user_id);
 `,
+
+  /* 4: game results from the post-game scoreboard */ `
+ALTER TABLE matches ADD COLUMN result TEXT CHECK (result IN ('WIN', 'LOSS'));
+ALTER TABLE matches ADD COLUMN game_type TEXT;
+ALTER TABLE matches ADD COLUMN duration_s INTEGER;
+ALTER TABLE matches ADD COLUMN postgame_ts INTEGER;
+ALTER TABLE draft_actions ADD COLUMN kills INTEGER;
+ALTER TABLE draft_actions ADD COLUMN deaths INTEGER;
+ALTER TABLE draft_actions ADD COLUMN assists INTEGER;
+ALTER TABLE draft_actions ADD COLUMN lane INTEGER;
+ALTER TABLE draft_frames ADD COLUMN postgame_image BLOB;
+`,
 ];

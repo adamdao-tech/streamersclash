@@ -5,6 +5,8 @@ Runs on your PC (Docker in WSL2). It asks the app for finished VODs, scans each 
 - champion names → OCR (Tesseract) + fuzzy match against Riot's champion list
 - bans → matched against Riot's champion icons
 
+- end of the game → the post-game scoreboard in the client: result (VICTORY/DEFEAT), game type, duration, and every player's name, champion and K/D/A in role order (so lane opponents are known)
+
 Confident reads are saved straight away. Anything unsure is uploaded as a frame for review, which Claude goes through via the MCP connector.
 
 ## Setup
@@ -18,10 +20,10 @@ Logs: `docker compose logs -f reader`
 
 ## Trying it on one VOD
 
-Read the draft at a given moment (writes debug images to `./debug`):
+Read the draft at a given moment (writes debug images to `./debug`), optionally with the post-game scoreboard of that game:
 
 ```bash
-docker compose run --rm reader test https://www.twitch.tv/videos/2906053508 27:00
+docker compose run --rm reader test https://www.twitch.tv/videos/2906053508 27:00 --postgame 59:10
 ```
 
 Find and read all champion selects in part of a VOD, without uploading anything:

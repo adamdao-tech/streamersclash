@@ -1,7 +1,7 @@
 import type { Env } from './index';
 import { insert, parsePlayer, playerFields, teamFields } from './api';
 import { logActivity, type User } from './db';
-import { listDrafts, relinkDraftPlayers, saveDraft, validateDraft, type DraftInput } from './drafts';
+import { listDrafts, playerGames, relinkDraftPlayers, saveDraft, summarizeGames, validateDraft, type DraftInput } from './drafts';
 import { HttpError, json } from './http';
 import { userFromBearer } from './oauth';
 import { syncTwitchVods } from './vods';
@@ -45,8 +45,12 @@ const slotSchema = {
   type: 'object',
   properties: {
     champion: { type: 'string', description: 'Champion name, e.g. "Xin Zhao"' },
-    player_name: { type: 'string', description: 'Summoner/player name shown under the champion (ally side only)' },
+    player_name: { type: 'string', description: 'Player name (from champ select for allies, from the post-game scoreboard for both teams)' },
     role: { type: 'string', enum: ['TOP', 'JUNGLE', 'MID', 'ADC', 'SUPPORT'] },
+    kills: { type: 'integer' },
+    deaths: { type: 'integer' },
+    assists: { type: 'integer' },
+    lane: { type: 'integer', minimum: 0, maximum: 4, description: 'Row on the post-game scoreboard (0 = top … 4 = support); same lane = lane opponents' },
   },
   required: ['champion'],
 };
@@ -100,8 +104,19 @@ const TOOLS: Tool[] = [
       )
         .bind(id)
         .all();
-      const drafts = await listDrafts(env, { playerId: id, limit: 15 });
-      return text({ player: parsePlayer(player), champion_pool: pool, recent_drafts: drafts.map(compactDraft), vods });
+      const games = await playerGames(env, id);
+      return text({
+        player: parsePlayer(player),
+        stats: summarizeGames(games),
+        recent_games: games.slice(0, 20).map((g) => ({
+          played_at: g.played_at, result: g.result, champion: g.champion, role: g.role,
+          kda: g.kills !== null ? `${g.kills}/${g.deaths}/${g.assists}` : null,
+          vs: g.opponent ? `${g.opponent.champion}${g.opponent.player_name ? ` (${g.opponent.player_name})` : ''}` : null,
+          game_type: g.game_type,
+        })),
+        champion_pool_all_appearances: pool,
+        vods,
+      });
     },
   },
   {
@@ -198,17 +213,17 @@ const TOOLS: Tool[] = [
   {
     name: 'get_draft_frame',
     description:
-      "Shows a champion select screenshot from a VOD with the reader's guess. Left column = ally (streamer's team), right = enemy; bans are the small icons top-left (ally) and top-right (enemy).",
+      "Shows a champion select screenshot from a VOD with the reader's guess. Left column = ally (streamer's team), right = enemy; bans are the small icons top-left (ally) and top-right (enemy). When the game was played out, a second image shows the post-game scoreboard (VICTORY/DEFEAT, names, champions, K/D/A in role order).",
     inputSchema: { type: 'object', properties: { frame_id: { type: 'integer' } }, required: ['frame_id'] },
     annotations: { readOnlyHint: true },
     async run(a, { env }) {
       const id = int(a.frame_id, 'frame_id');
       const row = await env.DB.prepare(
-        `SELECT f.image, f.vod_id, f.ts_s, f.reading, f.status, f.note, v.url AS vod_url, p.nickname AS pov_player
+        `SELECT f.image, f.postgame_image, f.vod_id, f.ts_s, f.reading, f.status, f.note, v.url AS vod_url, p.nickname AS pov_player
            FROM draft_frames f JOIN vods v ON v.id = f.vod_id LEFT JOIN players p ON p.id = v.player_id WHERE f.id = ?`,
       )
         .bind(id)
-        .first<{ image: number[]; vod_id: number; ts_s: number; reading: string | null; status: string; note: string | null; vod_url: string; pov_player: string | null }>();
+        .first<{ image: number[]; postgame_image: number[] | null; vod_id: number; ts_s: number; reading: string | null; status: string; note: string | null; vod_url: string; pov_player: string | null }>();
       if (!row) throw new HttpError(404, 'not_found', 'Frame not found');
       const b64 = toBase64(new Uint8Array(row.image));
       const t = row.ts_s;
@@ -216,6 +231,7 @@ const TOOLS: Tool[] = [
       return {
         content: [
           { type: 'image', data: b64, mimeType: 'image/jpeg' },
+          ...(row.postgame_image ? [{ type: 'image', data: toBase64(new Uint8Array(row.postgame_image)), mimeType: 'image/jpeg' }] : []),
           {
             type: 'text',
             text: JSON.stringify(
@@ -250,23 +266,32 @@ const TOOLS: Tool[] = [
         enemy: { type: 'array', items: slotSchema, minItems: 1, maxItems: 5 },
         ally_bans: { type: 'array', items: { type: 'string' }, maxItems: 5 },
         enemy_bans: { type: 'array', items: { type: 'string' }, maxItems: 5 },
+        result: { type: 'string', enum: ['WIN', 'LOSS'], description: 'From the ally (streamer) side: VICTORY = WIN, DEFEAT = LOSS' },
+        game_type: { type: 'string', description: 'e.g. Custom, Normal Draft, Ranked Solo/Duo' },
+        duration_s: { type: 'integer' },
         notes: { type: 'string' },
       },
       required: ['ally', 'enemy'],
     },
-    async run(a, { env, user }) {
+    async run(args, { env, user }) {
+      let a = args;
       let vodId = a.vod_id ? int(a.vod_id, 'vod_id') : null;
       let ts = typeof a.ts_s === 'number' ? Math.round(a.ts_s) : null;
       let frameId: number | null = null;
       if (a.frame_id) {
         frameId = int(a.frame_id, 'frame_id');
-        const f = await env.DB.prepare('SELECT vod_id, ts_s, status FROM draft_frames WHERE id = ?')
+        const f = await env.DB.prepare('SELECT vod_id, ts_s, status, reading FROM draft_frames WHERE id = ?')
           .bind(frameId)
-          .first<{ vod_id: number; ts_s: number; status: string }>();
+          .first<{ vod_id: number; ts_s: number; status: string; reading: string | null }>();
         if (!f) throw new HttpError(404, 'not_found', 'Frame not found');
         if (f.status === 'accepted') throw new HttpError(409, 'already_saved', 'This frame already has a saved draft');
         vodId = f.vod_id;
         ts = f.ts_s;
+        // Keep the reader's post-game scoreboard (result, names, K/D/A) unless Claude gave its own.
+        try {
+          const pg = f.reading ? JSON.parse(f.reading).postgame : null;
+          if (pg && a.postgame === undefined) a = { ...a, postgame: pg };
+        } catch {}
       }
       const draft = await validateDraft(env, { ...(a as unknown as DraftInput), vod_id: vodId, ts_s: ts });
       const matchId = await saveDraft(env, draft, { kind: 'claude', userId: user.id });
@@ -405,13 +430,21 @@ const TOOLS: Tool[] = [
 ];
 
 function compactDraft(d: Json & { actions?: Json[] }) {
-  const acts = (d.actions ?? []) as { side: string; action: string; champion: string; player_name: string | null; role: string | null }[];
+  const acts = (d.actions ?? []) as {
+    side: string; action: string; champion: string; player_name: string | null; role: string | null;
+    kills: number | null; deaths: number | null; assists: number | null;
+  }[];
   const pick = (side: string) =>
-    acts.filter((x) => x.side === side && x.action === 'PICK').map((x) => (x.player_name ? `${x.champion} (${x.player_name})` : x.champion));
+    acts
+      .filter((x) => x.side === side && x.action === 'PICK')
+      .map((x) => [x.role, x.champion, x.player_name && `(${x.player_name})`, x.kills !== null && `${x.kills}/${x.deaths}/${x.assists}`].filter(Boolean).join(' '));
   const ban = (side: string) => acts.filter((x) => x.side === side && x.action === 'BAN').map((x) => x.champion);
   return {
     match_id: d.id,
     played_at: d.played_at,
+    result: d.result,
+    game_type: d.game_type,
+    duration_s: d.duration_s,
     pov_player: d.pov_nickname,
     source: d.created_by_kind,
     vod: d.vod_url ? `${d.vod_url}${d.vod_timestamp_s ? `?t=${d.vod_timestamp_s}s` : ''}` : null,
@@ -434,12 +467,14 @@ function guessSummary(reading: string | null) {
     };
     const fmt = (l?: { champion: string | null; score: number }[]) =>
       (l ?? []).map((s) => (s.champion ? `${s.champion} (${Math.round(s.score)}%)` : '?'));
+    const pg = (r as { postgame?: Record<string, unknown> }).postgame;
     return {
       ally: fmt(r.ocr?.ally),
       enemy: fmt(r.ocr?.enemy),
       ally_players: (r.ally ?? []).map((s) => s.player_name ?? null),
       ally_bans: r.ally_bans ?? [],
       enemy_bans: r.enemy_bans ?? [],
+      postgame: pg ?? null,
     };
   } catch {
     return null;

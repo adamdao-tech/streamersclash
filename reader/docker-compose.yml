@@ -1,0 +1,8 @@
+services:
+  reader:
+    build: .
+    env_file: .env
+    restart: unless-stopped
+    volumes:
+      - ./cache:/cache   # champion list + icons
+      - ./debug:/debug   # images from `test` / `scan` runs

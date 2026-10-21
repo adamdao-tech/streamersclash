@@ -2,6 +2,7 @@ import type { Env } from './index';
 import { logActivity, type User } from './db';
 import { HttpError, json } from './http';
 import { getLiveChannels, syncTwitchVods } from './vods';
+import { listDrafts } from './drafts';
 
 const ROLES = ['TOP', 'JUNGLE', 'MID', 'ADC', 'SUPPORT', 'SUB'] as const;
 const REGIONS = ['EUNE', 'EUW'] as const;
@@ -219,6 +220,47 @@ async function route(req: Request, env: Env, url: URL, user: User): Promise<Resp
     const id = Number(m[1]);
     await db.prepare('DELETE FROM channels WHERE id = ?').bind(id).run();
     await logActivity(db, actor, 'channel.remove', 'channel', id);
+    return json({ ok: true });
+  }
+
+  // --- drafts & reader frames ---------------------------------------------
+  if (path === '/api/drafts' && method === 'GET') {
+    const num = (k: string) => (url.searchParams.get(k) ? Number(url.searchParams.get(k)) : undefined);
+    const drafts = await listDrafts(env, {
+      teamId: num('team_id'),
+      playerId: num('player_id'),
+      vodId: num('vod_id'),
+      limit: num('limit'),
+    });
+    return json({ drafts });
+  }
+
+  if (path === '/api/frames' && method === 'GET') {
+    const status = url.searchParams.get('status') ?? 'review';
+    const { results } = await db
+      .prepare(
+        `SELECT f.id, f.vod_id, f.ts_s, f.width, f.height, f.reading, f.confidence, f.status, f.match_id, f.note, f.created_at,
+                v.url AS vod_url, v.title AS vod_title, v.channel_login
+           FROM draft_frames f JOIN vods v ON v.id = f.vod_id
+          WHERE f.status = ? ORDER BY f.created_at DESC LIMIT 100`,
+      )
+      .bind(status)
+      .all();
+    return json({ frames: results });
+  }
+
+  if ((m = path.match(/^\/api\/frames\/(\d+)\/image$/)) && method === 'GET') {
+    const row = await db.prepare('SELECT image FROM draft_frames WHERE id = ?').bind(Number(m[1])).first<{ image: number[] }>();
+    if (!row) throw new HttpError(404, 'not_found', 'Snímek neexistuje.');
+    return new Response(new Uint8Array(row.image), {
+      headers: { 'Content-Type': 'image/jpeg', 'Cache-Control': 'private, max-age=86400' },
+    });
+  }
+
+  if ((m = path.match(/^\/api\/vods\/(\d+)\/rescan$/)) && method === 'POST') {
+    const id = Number(m[1]);
+    await db.prepare(`UPDATE vods SET scan_status = 'pending', scanned_at = NULL WHERE id = ?`).bind(id).run();
+    await logActivity(db, actor, 'vod.rescan', 'vod', id);
     return json({ ok: true });
   }
 

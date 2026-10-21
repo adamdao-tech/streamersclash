@@ -173,4 +173,68 @@ ALTER TABLE vods ADD COLUMN scanned_at TEXT;
 CREATE INDEX idx_vods_channel ON vods(platform, channel_login, started_at);
 CREATE INDEX idx_vods_scan ON vods(scan_status, started_at);
 `,
+
+  /* 3: draft reader + MCP OAuth */ `
+DROP TABLE draft_actions;
+CREATE TABLE draft_actions (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  match_id    INTEGER NOT NULL REFERENCES matches(id) ON DELETE CASCADE,
+  seq         INTEGER NOT NULL,
+  side        TEXT NOT NULL CHECK (side IN ('BLUE', 'RED', 'ALLY', 'ENEMY')),
+  action      TEXT NOT NULL CHECK (action IN ('BAN', 'PICK')),
+  slot        INTEGER,
+  champion    TEXT NOT NULL,
+  player_id   INTEGER REFERENCES players(id) ON DELETE SET NULL,
+  player_name TEXT,
+  role        TEXT,
+  UNIQUE (match_id, seq)
+);
+CREATE INDEX idx_draft_actions_match ON draft_actions(match_id);
+CREATE INDEX idx_draft_actions_player ON draft_actions(player_id);
+
+ALTER TABLE matches ADD COLUMN pov_player_id INTEGER REFERENCES players(id) ON DELETE SET NULL;
+
+CREATE TABLE draft_frames (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  vod_id      INTEGER NOT NULL REFERENCES vods(id) ON DELETE CASCADE,
+  ts_s        INTEGER NOT NULL,
+  image       BLOB NOT NULL,
+  width       INTEGER,
+  height      INTEGER,
+  reading     TEXT,
+  confidence  REAL,
+  status      TEXT NOT NULL DEFAULT 'review' CHECK (status IN ('review', 'accepted', 'discarded')),
+  match_id    INTEGER REFERENCES matches(id) ON DELETE SET NULL,
+  note        TEXT,
+  created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+  UNIQUE (vod_id, ts_s)
+);
+CREATE INDEX idx_draft_frames_status ON draft_frames(status, created_at);
+
+CREATE TABLE oauth_clients (
+  client_id     TEXT PRIMARY KEY,
+  client_name   TEXT,
+  redirect_uris TEXT NOT NULL,
+  created_at    TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE oauth_codes (
+  code_hash      TEXT PRIMARY KEY,
+  client_id      TEXT NOT NULL,
+  user_id        INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  redirect_uri   TEXT NOT NULL,
+  code_challenge TEXT NOT NULL,
+  expires_at     TEXT NOT NULL
+);
+
+CREATE TABLE oauth_tokens (
+  token_hash TEXT PRIMARY KEY,
+  kind       TEXT NOT NULL CHECK (kind IN ('access', 'refresh')),
+  client_id  TEXT NOT NULL,
+  user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  expires_at TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX idx_oauth_tokens_user ON oauth_tokens(user_id);
+`,
 ];

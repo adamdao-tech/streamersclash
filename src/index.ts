@@ -2,6 +2,7 @@ import { handleApi } from './api';
 import { getSessionUser, handleAuth } from './auth';
 import { ensureSchema } from './db';
 import { json, redirect } from './http';
+import { handleReader } from './reader';
 import { syncTwitchVods } from './vods';
 
 export interface Env {
@@ -9,6 +10,7 @@ export interface Env {
   ASSETS: Fetcher;
   TWITCH_CLIENT_ID: string;
   TWITCH_CLIENT_SECRET: string;
+  READER_TOKEN?: string;
 }
 
 /** Paths reachable without logging in. */
@@ -20,6 +22,7 @@ export default {
     await ensureSchema(env.DB);
 
     if (url.pathname.startsWith('/auth/')) return handleAuth(req, env, url);
+    if (url.pathname.startsWith('/api/reader/')) return handleReader(req, env, url);
 
     const user = await getSessionUser(req, env);
 

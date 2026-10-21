@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="cs">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>VODky · SC Scouting</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/app.css">
+</head>
+<body>
+  <main>
+    <div class="page-head">
+      <div>
+        <h1>VODky</h1>
+        <p>Záznamy hráčů a sledovaných kanálů. Nové se stahují samy každých 10 minut.</p>
+      </div>
+      <div style="display:flex;gap:10px;flex-wrap:wrap">
+        <select id="team-filter" style="width:auto"><option value="">Všechny týmy</option></select>
+        <button class="btn" id="sync">Synchronizovat teď</button>
+      </div>
+    </div>
+
+    <div id="live" class="live-strip" hidden></div>
+
+    <div class="layout">
+      <section id="vods" class="vod-grid"></section>
+      <aside>
+        <div class="section-head"><h2>Další kanály</h2></div>
+        <p style="color:var(--muted);font-size:.88rem;margin:-6px 0 12px">Kanály mimo soupisky, třeba oficiální přenos turnaje. Kanály hráčů se sledují automaticky.</p>
+        <form id="add-channel" class="stack-form">
+          <input name="login" placeholder="Twitch kanál nebo odkaz" required>
+          <input name="label" placeholder="Popisek, např. Oficiální přenos">
+          <button class="btn btn-primary" type="submit">Sledovat</button>
+          <p class="form-error"></p>
+        </form>
+        <ul id="channels" class="activity"></ul>
+      </aside>
+    </div>
+  </main>
+
+  <script type="module">
+    import { api, esc, initPage, timeAgo } from '/app.js';
+
+    await initPage('vods');
+
+    const SCAN = { pending: 'Čeká na čtečku', scanning: 'Čte se', done: 'Draft přečten', skipped: 'Bez draftu', failed: 'Chyba čtení' };
+    const teamFilter = document.getElementById('team-filter');
+    let live = {};
+
+    function duration(s) {
+      if (!s) return '';
+      const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60);
+      return h ? `${h} h ${m} min` : `${m} min`;
+    }
+
+    async function loadTeams() {
+      const { teams } = await api('/api/teams');
+      teamFilter.innerHTML += teams.map((t) => `<option value="${t.id}">${esc(t.name)}</option>`).join('');
+    }
+
+    async function loadLive() {
+      try { ({ twitch: live } = await api('/api/live')); } catch { live = {}; }
+      const el = document.getElementById('live');
+      const entries = Object.entries(live);
+      el.hidden = !entries.length;
+      el.innerHTML = entries.map(([login, s]) => `
+        <a class="live-pill" href="https://twitch.tv/${esc(login)}" target="_blank" rel="noopener" title="${esc(s.title)}">
+          <span class="live-dot"></span><b>${esc(login)}</b><span>${esc(s.game || '')} · ${s.viewers} diváků</span>
+        </a>`).join('');
+    }
+
+    async function loadVods() {
+      const q = teamFilter.value ? `?team_id=${teamFilter.value}` : '';
+      const { vods } = await api(`/api/vods${q}`);
+      const el = document.getElementById('vods');
+      el.innerHTML = vods.length
+        ? vods.map((v) => {
+            const isLive = live[v.channel_login] && v === vods.find((x) => x.channel_login === v.channel_login);
+            const who = v.player_nickname
+              ? `<span style="color:${esc(v.team_color || 'var(--gold)')}">${esc(v.player_nickname)}</span>${v.team_name ? ` · ${esc(v.team_name)}` : ''}`
+              : esc(v.channel_label || v.channel_login);
+            return `
+            <a class="vod" href="${esc(v.url)}" target="_blank" rel="noopener">
+              <div class="thumb">
+                ${v.thumbnail_url ? `<img src="${esc(v.thumbnail_url)}" alt="" loading="lazy">` : ''}
+                ${isLive ? '<span class="badge badge-live">Live</span>' : `<span class="dur">${duration(v.duration_s)}</span>`}
+              </div>
+              <div class="body">
+                <div class="title">${esc(v.title || 'Bez názvu')}</div>
+                <div class="sub">${who}</div>
+                <div class="sub">${timeAgo(v.started_at?.replace('T', ' ').replace('Z', ''))} · <span class="scan scan-${esc(v.scan_status)}">${SCAN[v.scan_status] || esc(v.scan_status)}</span></div>
+              </div>
+            </a>`;
+          }).join('')
+        : '<div class="empty" style="grid-column:1/-1">Zatím žádné VODky. Přidej hráčům Twitch kanál nebo sleduj kanál vpravo.</div>';
+    }
+
+    async function loadChannels() {
+      const { channels } = await api('/api/channels');
+      document.getElementById('channels').innerHTML = channels.length
+        ? channels.map((c) => `
+          <li>
+            <span><b>${esc(c.label || c.login)}</b><br><small>${esc(c.login)} · ${c.vod_count} VOD${c.last_error ? ` · <span style="color:#ff9a9d">${esc(c.last_error)}</span>` : ''}</small></span>
+            <button class="btn btn-small btn-danger" data-delete="${c.id}">✕</button>
+          </li>`).join('')
+        : '<li>Žádné další kanály.</li>';
+    }
+
+    const form = document.getElementById('add-channel');
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const err = form.querySelector('.form-error');
+      err.textContent = '';
+      try {
+        await api('/api/channels', { method: 'POST', body: { platform: 'twitch', login: form.login.value, label: form.label.value } });
+        form.reset();
+        await Promise.all([loadChannels(), loadVods()]);
+      } catch (ex) { err.textContent = ex.message; }
+    });
+
+    document.getElementById('channels').addEventListener('click', async (e) => {
+      const id = e.target.dataset.delete;
+      if (!id || !confirm('Přestat sledovat tento kanál? Stažené VODky zůstanou.')) return;
+      await api(`/api/channels/${id}`, { method: 'DELETE' });
+      await loadChannels();
+    });
+
+    document.getElementById('sync').addEventListener('click', async (e) => {
+      const btn = e.currentTarget;
+      btn.disabled = true; btn.textContent = 'Synchronizuji…';
+      try {
+        const r = await api('/api/vods/sync', { method: 'POST', body: {} });
+        btn.textContent = r.errors.length ? `Hotovo, ${r.errors.length} chyb` : `Hotovo, nových: ${r.newVods}`;
+        await Promise.all([loadVods(), loadChannels()]);
+      } catch (ex) { btn.textContent = 'Chyba'; alert(ex.message); }
+      setTimeout(() => { btn.disabled = false; btn.textContent = 'Synchronizovat teď'; }, 2500);
+    });
+
+    teamFilter.addEventListener('change', loadVods);
+
+    await loadTeams();
+    await loadLive();
+    await Promise.all([loadVods(), loadChannels()]);
+  </script>
+</body>
+</html>

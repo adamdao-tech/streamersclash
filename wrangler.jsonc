@@ -21,6 +21,10 @@
   },
   // TWITCH_CLIENT_SECRET is a secret: set it in the Cloudflare dashboard
   // (Worker → Settings → Variables and Secrets) or in .dev.vars locally.
+  // VOD sync: every 10 minutes, a batch of channels at a time.
+  "triggers": {
+    "crons": ["*/10 * * * *"]
+  },
   "observability": {
     "enabled": true
   }

@@ -144,4 +144,33 @@ CREATE TABLE activity_log (
 );
 CREATE INDEX idx_activity_created ON activity_log(created_at);
 `,
+
+  /* 2: VOD sync */ `
+CREATE TABLE kv_cache (
+  key        TEXT PRIMARY KEY,
+  value      TEXT NOT NULL,
+  expires_at TEXT NOT NULL
+);
+
+CREATE TABLE channels (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  platform   TEXT NOT NULL CHECK (platform IN ('twitch', 'kick')),
+  login      TEXT NOT NULL,
+  label      TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  UNIQUE (platform, login)
+);
+
+CREATE TABLE sync_state (
+  key            TEXT PRIMARY KEY,
+  last_synced_at TEXT,
+  last_error     TEXT
+);
+
+ALTER TABLE vods ADD COLUMN channel_login TEXT;
+ALTER TABLE vods ADD COLUMN scan_status TEXT NOT NULL DEFAULT 'pending' CHECK (scan_status IN ('pending', 'scanning', 'done', 'skipped', 'failed'));
+ALTER TABLE vods ADD COLUMN scanned_at TEXT;
+CREATE INDEX idx_vods_channel ON vods(platform, channel_login, started_at);
+CREATE INDEX idx_vods_scan ON vods(scan_status, started_at);
+`,
 ];

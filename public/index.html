@@ -61,6 +61,9 @@
       'player.delete': 'smazal(a) hráče',
       'user.add': 'přidal(a) uživatele',
       'user.remove': 'odebral(a) uživatele',
+      'channel.add': 'začal(a) sledovat kanál',
+      'channel.remove': 'přestal(a) sledovat kanál',
+      'vods.sync': 'stáhl nové VODky',
     };
 
     async function load() {
@@ -87,7 +90,7 @@
         ? activity.slice(0, 15).map((a) => {
             const who = a.actor_kind === 'claude' ? 'Claude' : a.actor_kind === 'sync' ? 'Sync' : a.actor_name || 'Někdo';
             let what = '';
-            try { const d = JSON.parse(a.details || '{}'); what = d.name || d.nickname || d.login || ''; } catch {}
+            try { const d = JSON.parse(a.details || '{}'); what = d.name || d.nickname || d.label || d.login || (d.new ? `(${d.new})` : ''); } catch {}
             return `<li><span><b>${esc(who)}</b> ${ACTIONS[a.action] || esc(a.action)} ${what ? `<b>${esc(what)}</b>` : ''}</span><span>${timeAgo(a.created_at)}</span></li>`;
           }).join('')
         : '<li>Zatím žádná aktivita.</li>';

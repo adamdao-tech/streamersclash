@@ -18,6 +18,12 @@
       <button class="btn btn-primary" id="add-player">+ Přidat hráče</button>
     </div>
     <section id="roster" class="roster"></section>
+
+    <div class="section-head" style="margin-top:36px">
+      <h2>Poslední VODky</h2>
+      <a href="/vods">Všechny VODky →</a>
+    </div>
+    <section id="team-vods" class="vod-grid"></section>
   </main>
 
   <dialog id="team-dialog">
@@ -71,7 +77,8 @@
 
     await initPage('teams');
     const teamId = new URLSearchParams(location.search).get('id');
-    let team, players, editingPlayer = null;
+    let team, players, editingPlayer = null, live = {};
+    api('/api/live').then((r) => { live = r.twitch; renderRoster(); }).catch(() => {});
 
     async function load() {
       ({ team, players } = await api(`/api/teams/${teamId}`));
@@ -102,6 +109,26 @@
       notes.hidden = !team.notes;
       notes.textContent = team.notes || '';
 
+      renderRoster();
+      loadVods();
+    }
+
+    async function loadVods() {
+      const { vods } = await api(`/api/vods?team_id=${teamId}&limit=8`);
+      document.getElementById('team-vods').innerHTML = vods.length
+        ? vods.map((v) => `
+          <a class="vod" href="${esc(v.url)}" target="_blank" rel="noopener">
+            <div class="thumb">${v.thumbnail_url ? `<img src="${esc(v.thumbnail_url)}" alt="" loading="lazy">` : ''}</div>
+            <div class="body">
+              <div class="title">${esc(v.title || 'Bez názvu')}</div>
+              <div class="sub">${esc(v.player_nickname || v.channel_login)} · ${new Date(v.started_at).toLocaleDateString('cs-CZ')}</div>
+            </div>
+          </a>`).join('')
+        : '<div class="empty" style="grid-column:1/-1">Zatím žádné VODky. Doplň hráčům Twitch kanál.</div>';
+    }
+
+    function renderRoster() {
+      if (!players) return;
       const roster = document.getElementById('roster');
       roster.innerHTML = players.length
         ? players.map((p) => `
@@ -111,7 +138,7 @@
               <h3>${esc(p.nickname)}</h3>
               <div class="riot">${p.riot_id ? esc(p.riot_id) : 'Riot ID nevyplněné'}</div>
               <div class="links">
-                ${p.twitch_login ? `<a class="chip chip-twitch" href="https://twitch.tv/${esc(p.twitch_login)}" target="_blank" rel="noopener"><span class="dot"></span>${esc(p.twitch_login)}</a>` : ''}
+                ${p.twitch_login ? `<a class="chip chip-twitch" href="https://twitch.tv/${esc(p.twitch_login)}" target="_blank" rel="noopener">${live[p.twitch_login] ? '<span class="live-dot"></span>LIVE · ' : '<span class="dot"></span>'}${esc(p.twitch_login)}</a>` : ''}
                 ${p.kick_slug ? `<a class="chip chip-kick" href="https://kick.com/${esc(p.kick_slug)}" target="_blank" rel="noopener"><span class="dot"></span>${esc(p.kick_slug)}</a>` : ''}
               </div>
               ${p.tags.length ? `<div class="tags">${p.tags.map((t) => `<span class="badge">${esc(t)}</span>`).join('')}</div>` : ''}

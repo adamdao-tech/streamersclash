@@ -2,6 +2,7 @@ import { handleApi } from './api';
 import { getSessionUser, handleAuth } from './auth';
 import { ensureSchema } from './db';
 import { json, redirect } from './http';
+import { syncTwitchVods } from './vods';
 
 export interface Env {
   DB: D1Database;
@@ -35,5 +36,16 @@ export default {
     const out = new Response(res.body, res);
     if (!PUBLIC_PATHS.has(url.pathname)) out.headers.set('Cache-Control', 'private, no-store');
     return out;
+  },
+
+  // Cron trigger (see wrangler.jsonc): pull new VODs for the next batch of channels.
+  async scheduled(_event, env, ctx): Promise<void> {
+    ctx.waitUntil(
+      (async () => {
+        await ensureSchema(env.DB);
+        const result = await syncTwitchVods(env);
+        console.log('VOD sync', JSON.stringify(result));
+      })(),
+    );
   },
 } satisfies ExportedHandler<Env>;

@@ -1,6 +1,7 @@
 import type { Env } from './index';
 import { logActivity, type User } from './db';
 import { HttpError, json } from './http';
+import { getLiveChannels, syncTwitchVods } from './vods';
 
 const ROLES = ['TOP', 'JUNGLE', 'MID', 'ADC', 'SUPPORT', 'SUB'] as const;
 const REGIONS = ['EUNE', 'EUW'] as const;
@@ -117,6 +118,8 @@ async function route(req: Request, env: Env, url: URL, user: User): Promise<Resp
     const fields = playerFields(await readBody(req), false);
     const id = await insert(db, 'players', { region: team.region, ...fields, team_id: teamId });
     await logActivity(db, actor, 'player.create', 'player', id, { nickname: fields.nickname, team_id: teamId });
+    // Pull the new player's VODs right away.
+    if (fields.twitch_login) await syncTwitchVods(env, [String(fields.twitch_login)]).catch(() => {});
     return json({ id }, 201);
   }
   if ((m = path.match(/^\/api\/players\/(\d+)$/))) {
@@ -130,6 +133,7 @@ async function route(req: Request, env: Env, url: URL, user: User): Promise<Resp
       const fields = playerFields(await readBody(req), true);
       await update(db, 'players', id, fields);
       await logActivity(db, actor, 'player.update', 'player', id, fields);
+      if (fields.twitch_login) await syncTwitchVods(env, [String(fields.twitch_login)]).catch(() => {});
       return json({ ok: true });
     }
     if (method === 'DELETE') {
@@ -137,6 +141,85 @@ async function route(req: Request, env: Env, url: URL, user: User): Promise<Resp
       await logActivity(db, actor, 'player.delete', 'player', id);
       return json({ ok: true });
     }
+  }
+
+  // --- vods & channels ----------------------------------------------------
+  if (path === '/api/vods' && method === 'GET') {
+    const where: string[] = [];
+    const params: (string | number)[] = [];
+    const teamId = url.searchParams.get('team_id');
+    const playerId = url.searchParams.get('player_id');
+    const channel = url.searchParams.get('channel');
+    if (teamId) (where.push('p.team_id = ?'), params.push(Number(teamId)));
+    if (playerId) (where.push('v.player_id = ?'), params.push(Number(playerId)));
+    if (channel) (where.push('v.channel_login = ?'), params.push(channel.toLowerCase()));
+    const limit = Math.min(Math.max(Number(url.searchParams.get('limit')) || 60, 1), 200);
+    const { results } = await db
+      .prepare(
+        `SELECT v.*, p.nickname AS player_nickname, p.role AS player_role, p.team_id,
+                t.name AS team_name, t.accent_color AS team_color, c.label AS channel_label
+           FROM vods v
+           LEFT JOIN players p ON p.id = v.player_id
+           LEFT JOIN teams t ON t.id = p.team_id
+           LEFT JOIN channels c ON c.platform = v.platform AND lower(c.login) = v.channel_login
+          ${where.length ? `WHERE ${where.join(' AND ')}` : ''}
+          ORDER BY v.started_at DESC LIMIT ${limit}`,
+      )
+      .bind(...params)
+      .all();
+    return json({ vods: results });
+  }
+
+  if (path === '/api/vods/sync' && method === 'POST') {
+    const body = await readBody(req);
+    const login = normalizeChannel(body.login, 'twitch.tv');
+    const result = await syncTwitchVods(env, login ? [login] : undefined);
+    return json(result);
+  }
+
+  if (path === '/api/live' && method === 'GET') {
+    try {
+      return json({ twitch: await getLiveChannels(env) });
+    } catch (err) {
+      console.error('live status failed', err);
+      throw new HttpError(502, 'twitch_unavailable', 'Twitch teď neodpovídá.');
+    }
+  }
+
+  if (path === '/api/channels') {
+    if (method === 'GET') {
+      const { results } = await db
+        .prepare(
+          `SELECT c.*, s.last_synced_at, s.last_error,
+                  (SELECT COUNT(*) FROM vods v WHERE v.platform = c.platform AND v.channel_login = lower(c.login)) AS vod_count
+             FROM channels c LEFT JOIN sync_state s ON s.key = c.platform || ':' || lower(c.login)
+            ORDER BY c.label COLLATE NOCASE, c.login`,
+        )
+        .all();
+      return json({ channels: results });
+    }
+    if (method === 'POST') {
+      const body = await readBody(req);
+      const platform = body.platform === 'kick' ? 'kick' : 'twitch';
+      const login = normalizeChannel(body.login, platform === 'kick' ? 'kick.com' : 'twitch.tv');
+      if (!login) throw new HttpError(400, 'invalid', 'Zadej kanál.');
+      const label = str(body.label, 'Popisek', 80);
+      const res = await db
+        .prepare('INSERT INTO channels (platform, login, label) VALUES (?, ?, ?) ON CONFLICT(platform, login) DO NOTHING')
+        .bind(platform, login, label)
+        .run();
+      if (!res.meta.changes) throw new HttpError(409, 'exists', 'Tenhle kanál už sledujeme.');
+      await logActivity(db, actor, 'channel.add', 'channel', res.meta.last_row_id, { login, label });
+      // Fetch its VODs right away so the user sees something.
+      if (platform === 'twitch') await syncTwitchVods(env, [login]).catch(() => {});
+      return json({ id: res.meta.last_row_id }, 201);
+    }
+  }
+  if ((m = path.match(/^\/api\/channels\/(\d+)$/)) && method === 'DELETE') {
+    const id = Number(m[1]);
+    await db.prepare('DELETE FROM channels WHERE id = ?').bind(id).run();
+    await logActivity(db, actor, 'channel.remove', 'channel', id);
+    return json({ ok: true });
   }
 
   // --- activity ----------------------------------------------------------

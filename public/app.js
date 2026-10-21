@@ -36,6 +36,7 @@ export async function initPage(active) {
   const { user } = await api('/api/me');
   const nav = [
     ['/', 'Týmy', 'teams'],
+    ['/vods', 'VODky', 'vods'],
     ...(user.role === 'admin' ? [['/users', 'Uživatelé', 'users']] : []),
   ];
   const header = document.createElement('header');

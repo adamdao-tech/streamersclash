@@ -48,8 +48,6 @@ Make it **visually polished**, esports-broadcast vibe: dark theme, champion icon
 - Secrets via `wrangler secret` (RIOT_API_KEY, TWITCH_CLIENT_ID/SECRET, MCP_TOKEN).
 - Repo on GitHub (adamdao-tech/streamersclash), deploy to a subdomain like `scout.daotech.dev`.
 
-> Alternative backend: the app may instead use **Base44** as the data/auth backend — see [`docs/base44.md`](docs/base44.md). If so, keep the same entities and MCP tools, but implement them on top of the Base44 SDK instead of D1.
-
 ## Delivery plan
 1. Data model + migrations + seed with a demo team.
 2. CRUD for teams/players + Riot sync for one player end-to-end.

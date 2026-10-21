@@ -327,7 +327,7 @@ function escapeHtml(s: string): string {
 function page(title: string, body: string, status = 200): Response {
   const html = `<!doctype html><html lang="cs"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>${escapeHtml(title)} · SC Scouting</title><link rel="icon" href="/favicon.svg"><link rel="stylesheet" href="/app.css">
+<title>${escapeHtml(title)} · SC Scouting</title><link rel="icon" href="/favicon.svg"><link rel="preload" href="/fonts/inter-var.woff2" as="font" type="font/woff2" crossorigin><link rel="preload" href="/fonts/rajdhani-700.woff2" as="font" type="font/woff2" crossorigin><link rel="stylesheet" href="/app.css">
 <style>.muted{color:var(--muted)} .actions{display:flex;gap:10px;justify-content:center;margin-top:24px}</style></head>
 <body><div class="login-wrap"><div class="login-card"><h1>SC <span>Scouting</span></h1><h2 style="margin:18px 0 8px">${escapeHtml(title)}</h2>${body}</div></div></body></html>`;
   return new Response(html, {

@@ -16,11 +16,25 @@ export interface Env {
 }
 
 /** Paths reachable without logging in. */
-const PUBLIC_PATHS = new Set(['/login', '/login.html', '/app.css', '/favicon.svg']);
+const PUBLIC_PATHS = new Set(['/login', '/login.html']);
+
+/** Static files every page needs, login page included: served straight from assets, no DB or session lookup. */
+const STATIC_PATHS = new Set(['/app.css', '/favicon.svg']);
+
+async function serveStatic(req: Request, env: Env, url: URL): Promise<Response> {
+  const res = await env.ASSETS.fetch(req);
+  if (!url.pathname.startsWith('/fonts/') || !res.ok) return res;
+  // Font files never change under the same name: let the browser keep them for a year.
+  const out = new Response(res.body, res);
+  out.headers.set('Cache-Control', 'public, max-age=31536000, immutable');
+  return out;
+}
 
 export default {
   async fetch(req, env): Promise<Response> {
     const url = new URL(req.url);
+    if (STATIC_PATHS.has(url.pathname) || url.pathname.startsWith('/fonts/')) return serveStatic(req, env, url);
+
     await ensureSchema(env.DB);
 
     if (url.pathname.startsWith('/auth/')) return handleAuth(req, env, url);

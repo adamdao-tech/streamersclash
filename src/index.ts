@@ -19,10 +19,16 @@ export interface Env {
 const PUBLIC_PATHS = new Set(['/login', '/login.html']);
 
 /** Static files every page needs, login page included: served straight from assets, no DB or session lookup. */
-const STATIC_PATHS = new Set(['/app.css', '/favicon.svg']);
+const STATIC_PATHS = new Set(['/app.css', '/favicon.svg', '/map-rift.webp']);
 
 async function serveStatic(req: Request, env: Env, url: URL): Promise<Response> {
   const res = await env.ASSETS.fetch(req);
+  if (url.pathname === '/map-rift.webp' && res.ok) {
+    // The built-in map picture: cache it for a day instead of downloading it on every map.
+    const out = new Response(res.body, res);
+    out.headers.set('Cache-Control', 'public, max-age=86400');
+    return out;
+  }
   if (!url.pathname.startsWith('/fonts/') || !res.ok) return res;
   // Font files never change under the same name: let the browser keep them for a year.
   const out = new Response(res.body, res);

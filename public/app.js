@@ -319,11 +319,14 @@ export const MARKERS = {
 
 const DDRAGON_MAP = (v) => `https://ddragon.leagueoflegends.com/cdn/${v || '15.1.1'}/img/map/map11.png`;
 
-/** The uploaded map picture when there is one, otherwise Riot's small minimap. */
+/** Built-in map picture (Summoner's Rift without anything drawn on it). */
+const BUILTIN_MAP = '/map-rift.webp';
+
+/** The uploaded map picture when there is one, otherwise the built-in one; Riot's small minimap if those fail. */
 export function mapImageSrc(mapVersion, ddVersion) {
   return mapVersion
-    ? { src: `/api/coaching/map-image?v=${encodeURIComponent(mapVersion)}`, alt: DDRAGON_MAP(ddVersion) }
-    : { src: DDRAGON_MAP(ddVersion), alt: null };
+    ? { src: `/api/coaching/map-image?v=${encodeURIComponent(mapVersion)}`, alt: BUILTIN_MAP }
+    : { src: BUILTIN_MAP, alt: DDRAGON_MAP(ddVersion) };
 }
 
 // If the uploaded picture can't be loaded, fall back to Riot's minimap.

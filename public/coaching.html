@@ -448,7 +448,7 @@
 
     // --- own map picture (used by all maps) --------------------------------------------------
     function renderMapImageState() {
-      document.getElementById('map-image-state').textContent = data.map_version ? 'Mapa: tvůj obrázek' : 'Mapa: malá od Riotu';
+      document.getElementById('map-image-state').textContent = data.map_version ? 'Mapa: tvůj nahraný obrázek' : 'Mapa: výchozí';
       document.getElementById('map-image-reset').hidden = !data.map_version;
     }
     document.getElementById('map-image-file').addEventListener('change', async (e) => {
@@ -468,7 +468,7 @@
       }
     });
     document.getElementById('map-image-reset').addEventListener('click', async () => {
-      if (!confirm('Smazat nahraný obrázek mapy a vrátit malou minimapu od Riotu?')) return;
+      if (!confirm('Smazat nahraný obrázek mapy a vrátit výchozí mapu?')) return;
       await api('/api/coaching/map-image', { method: 'DELETE' });
       await load();
     });

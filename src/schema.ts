@@ -275,4 +275,50 @@ CREATE INDEX idx_schedule_starts ON schedule(starts_at);
 ALTER TABLE schedule ADD COLUMN kind TEXT NOT NULL DEFAULT 'match' CHECK (kind IN ('match', 'scrim', 'other'));
 ALTER TABLE schedule ADD COLUMN title TEXT;
 `,
+
+  /* 7: coaching - folders per player (or team-wide), rune pages, notes */ `
+CREATE TABLE coaching_folders (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  player_id  INTEGER REFERENCES players(id) ON DELETE CASCADE,
+  name       TEXT NOT NULL,
+  sort       INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX idx_coaching_folders_player ON coaching_folders(player_id);
+
+CREATE TABLE coaching_runes (
+  id              INTEGER PRIMARY KEY AUTOINCREMENT,
+  player_id       INTEGER REFERENCES players(id) ON DELETE CASCADE,
+  folder_id       INTEGER REFERENCES coaching_folders(id) ON DELETE CASCADE,
+  title           TEXT,
+  champion        TEXT,
+  primary_style   INTEGER,
+  secondary_style INTEGER,
+  perks           TEXT NOT NULL DEFAULT '[]',
+  shards          TEXT NOT NULL DEFAULT '[]',
+  summoners       TEXT NOT NULL DEFAULT '[]',
+  notes           TEXT,
+  created_by_kind TEXT NOT NULL DEFAULT 'user' CHECK (created_by_kind IN ('user', 'claude')),
+  created_by      INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at      TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX idx_coaching_runes_player ON coaching_runes(player_id);
+CREATE INDEX idx_coaching_runes_folder ON coaching_runes(folder_id);
+
+CREATE TABLE coaching_notes (
+  id             INTEGER PRIMARY KEY AUTOINCREMENT,
+  player_id      INTEGER REFERENCES players(id) ON DELETE CASCADE,
+  folder_id      INTEGER REFERENCES coaching_folders(id) ON DELETE CASCADE,
+  title          TEXT,
+  body           TEXT NOT NULL,
+  pinned         INTEGER NOT NULL DEFAULT 0,
+  author_kind    TEXT NOT NULL DEFAULT 'user' CHECK (author_kind IN ('user', 'claude')),
+  author_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  created_at     TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at     TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX idx_coaching_notes_player ON coaching_notes(player_id);
+CREATE INDEX idx_coaching_notes_folder ON coaching_notes(folder_id);
+`,
 ];

@@ -5,6 +5,8 @@ import { getLiveChannels, syncTwitchVods } from './vods';
 import { listDrafts, playerGames, relinkDraftPlayers, summarizeGames } from './drafts';
 import { getChampionData } from './champions';
 import { listSchedule, opponentLabel, requireOpponent, scheduleFields } from './schedule';
+import { createFolder, deleteFolder, deleteNote, deleteRunePage, loadCoaching, renameFolder, saveNote, saveRunePage } from './coaching';
+import { getRuneData } from './runes';
 
 const ROLES = ['TOP', 'JUNGLE', 'MID', 'ADC', 'SUPPORT', 'SUB'] as const;
 const REGIONS = ['EUNE', 'EUW'] as const;
@@ -321,6 +323,37 @@ async function route(req: Request, env: Env, url: URL, user: User): Promise<Resp
       await logActivity(db, actor, 'schedule.delete', 'schedule', id, { name: opponentLabel(current), kind: current.kind });
       return json({ ok: true });
     }
+  }
+
+  // --- coaching --------------------------------------------------------------
+  if (path === '/api/runes' && method === 'GET') {
+    try {
+      return json(await getRuneData(env), 200, { 'Cache-Control': 'private, max-age=3600' });
+    } catch {
+      throw new HttpError(502, 'ddragon_unavailable', 'Seznam run teď není dostupný.');
+    }
+  }
+  if (path === '/api/coaching' && method === 'GET') return json(await loadCoaching(env));
+  if (path === '/api/coaching/folders' && method === 'POST') {
+    return json({ id: await createFolder(env, actor, await readBody(req)) }, 201);
+  }
+  if ((m = path.match(/^\/api\/coaching\/folders\/(\d+)$/))) {
+    if (method === 'PUT') return (await renameFolder(env, Number(m[1]), await readBody(req)), json({ ok: true }));
+    if (method === 'DELETE') return (await deleteFolder(env, Number(m[1])), json({ ok: true }));
+  }
+  if (path === '/api/coaching/runes' && method === 'POST') {
+    return json({ id: await saveRunePage(env, actor, await readBody(req)) }, 201);
+  }
+  if ((m = path.match(/^\/api\/coaching\/runes\/(\d+)$/))) {
+    if (method === 'PUT') return json({ id: await saveRunePage(env, actor, await readBody(req), Number(m[1])) });
+    if (method === 'DELETE') return (await deleteRunePage(env, Number(m[1])), json({ ok: true }));
+  }
+  if (path === '/api/coaching/notes' && method === 'POST') {
+    return json({ id: await saveNote(env, actor, await readBody(req)) }, 201);
+  }
+  if ((m = path.match(/^\/api\/coaching\/notes\/(\d+)$/))) {
+    if (method === 'PUT') return json({ id: await saveNote(env, actor, await readBody(req), Number(m[1])) });
+    if (method === 'DELETE') return (await deleteNote(env, Number(m[1])), json({ ok: true }));
   }
 
   // --- notes -------------------------------------------------------------

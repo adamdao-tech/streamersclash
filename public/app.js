@@ -37,6 +37,7 @@ export async function initPage(active) {
   const nav = [
     ['/', 'Týmy', 'teams'],
     ['/schedule', 'Harmonogram', 'schedule'],
+    ['/coaching', 'Koučing', 'coaching'],
     ['/vods', 'VODky', 'vods'],
     ...(user.role === 'admin' ? [['/users', 'Uživatelé', 'users']] : []),
   ];

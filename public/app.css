@@ -423,7 +423,8 @@ dialog h2 { margin-bottom: 16px; }
 }
 @media (max-width: 640px) {
   .topbar { padding: 10px 16px; gap: 12px; flex-wrap: wrap; }
-  .nav { order: 3; width: 100%; }
+  .nav { order: 3; flex: 1 1 100%; overflow-x: auto; scrollbar-width: none; }
+  .nav a { flex: none; padding: 6px 10px; }
   .me span { display: none; }
   main { padding: 24px 16px 48px; }
   .form-grid { grid-template-columns: 1fr; }
@@ -521,4 +522,84 @@ dialog h2 { margin-bottom: 16px; }
 }
 @media (min-width: 641px) {
   .cal-day-list { display: none; }
+}
+
+/* --- coaching --- */
+.coach { display: grid; grid-template-columns: 260px minmax(0, 1fr); gap: 20px; align-items: start; }
+.tree { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 8px; position: sticky; top: 76px; }
+.tree-group + .tree-group { border-top: 1px solid var(--line); margin-top: 6px; padding-top: 6px; }
+.tree-item {
+  display: flex; align-items: center; gap: 8px; width: 100%; text-align: left; cursor: pointer;
+  background: transparent; border: 0; color: var(--text); font: 600 0.92rem var(--font);
+  padding: 7px 8px; border-radius: 8px;
+}
+.tree-item:hover { background: var(--panel-2); }
+.tree-item.active { background: rgba(200, 166, 75, 0.14); box-shadow: inset 2px 0 0 var(--gold); }
+.tree-item .count { margin-left: auto; color: var(--muted); font-size: 0.75rem; font-weight: 500; }
+.tree-item.folder { padding-left: 30px; font-weight: 500; color: var(--muted); font-size: 0.88rem; }
+.tree-item.folder.active, .tree-item.folder:hover { color: var(--text); }
+.tree-item .role { width: 26px; height: 26px; font-size: 0.62rem; flex: none; }
+.tree-item .dot { width: 26px; height: 26px; flex: none; display: grid; place-items: center; color: var(--gold); }
+.tree-add { padding-left: 30px; font-size: 0.82rem; color: var(--gold-2); font-weight: 500; }
+.tree-empty { color: var(--muted); font-size: 0.85rem; padding: 8px; }
+
+.coach-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 14px; }
+.coach-head h2 { flex: 1; min-width: 200px; }
+.coach-head h2 small { color: var(--muted); font: 500 1rem var(--font); }
+.tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--line); margin-bottom: 16px; }
+.tabs button { background: none; border: 0; color: var(--muted); font: 600 0.95rem var(--font); padding: 8px 14px; cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1px; }
+.tabs button.active { color: var(--text); border-bottom-color: var(--gold); }
+.tabs button .count { color: var(--muted); font-weight: 500; margin-left: 4px; }
+
+.rp-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 14px; }
+.rp-card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px; display: flex; flex-direction: column; gap: 12px; }
+.rp-top { display: flex; align-items: center; gap: 10px; }
+.rp-top .t { flex: 1; min-width: 0; }
+.rp-top .t b { display: block; font: 700 1.1rem var(--display); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rp-top .t small { color: var(--muted); }
+.rp-sums { display: flex; gap: 4px; }
+.rp-runes { display: flex; flex-direction: column; gap: 8px; }
+.rp-line { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.ri { display: inline-grid; place-items: center; flex: none; border-radius: 50%; overflow: hidden; background: var(--bg-2); border: 1px solid var(--line); color: var(--muted); font-size: 0.6rem; font-weight: 700; text-align: center; line-height: 1; }
+.ri img { width: 100%; height: 100%; object-fit: cover; }
+.ri-xl { width: 46px; height: 46px; background: #000; }
+.ri-md { width: 30px; height: 30px; }
+.ri-sm { width: 22px; height: 22px; }
+.ri-path { width: 24px; height: 24px; border: 0; background: transparent; }
+.ri-sq { border-radius: 6px; }
+.rp-notes { color: var(--muted); font-size: 0.88rem; white-space: pre-wrap; }
+.rp-foot { display: flex; align-items: center; gap: 8px; margin-top: auto; }
+.rp-foot .spacer { flex: 1; }
+
+/* rune picker */
+dialog.wide { width: min(860px, calc(100vw - 24px)); }
+.picker { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; margin-top: 4px; }
+.picker h3 { font-size: 0.8rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; font-family: var(--font); margin: 0 0 8px; }
+.pick-paths { display: flex; gap: 6px; margin-bottom: 10px; flex-wrap: wrap; }
+.pick-row { display: flex; gap: 8px; justify-content: center; padding: 6px 0; border-top: 1px solid var(--line); }
+.pick-row:first-of-type { border-top: 0; }
+.pick {
+  padding: 0; border: 2px solid transparent; background: none; cursor: pointer; border-radius: 50%;
+  opacity: 0.45; filter: grayscale(0.8); transition: opacity 0.1s, filter 0.1s;
+}
+.pick:hover { opacity: 0.85; filter: none; }
+.pick.on { opacity: 1; filter: none; border-color: var(--gold); }
+.pick.sq { border-radius: 8px; }
+.pick-hint { color: var(--muted); font-size: 0.82rem; padding: 10px 0; }
+.pick-sel { color: var(--text); font-size: 0.8rem; min-height: 1.2em; margin-top: 6px; text-align: center; }
+
+.note-list { display: flex; flex-direction: column; gap: 10px; }
+.note-card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px 16px; }
+.note-card.pinned { border-color: rgba(200, 166, 75, 0.55); }
+.note-card .nh { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.note-card .nh b { font: 700 1.1rem var(--display); flex: 1; min-width: 160px; }
+.note-card .nb { white-space: pre-wrap; margin-top: 8px; line-height: 1.55; overflow-wrap: anywhere; }
+.note-card .nm { color: var(--muted); font-size: 0.78rem; margin-top: 10px; display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+.note-card .nm .spacer { flex: 1; }
+textarea.big { min-height: 260px; font-family: var(--font); line-height: 1.5; }
+
+@media (max-width: 860px) {
+  .coach { grid-template-columns: 1fr; }
+  .tree { position: static; max-height: 300px; overflow: auto; }
+  .picker { grid-template-columns: 1fr; }
 }

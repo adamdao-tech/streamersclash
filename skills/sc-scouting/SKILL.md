@@ -61,7 +61,15 @@ If `save_draft` says a champion is unknown, fix the spelling (e.g. "Kai'Sa", "Nu
 - `update_scheduled_match` – move a match or fill in the result (`our_score`, `their_score`). Ask first.
 - Deleting is done by Dao on the *Harmonogram* page (list or calendar view).
 
-## Workflow 5 – checking that things run ("co je nového", "jede čtečka?")
+## Workflow 5 – coaching ("runy pro supporta", "zapiš to do koučingu")
+
+- Coaching lives per player of our team, or team-wide. Dao sorts it into folders he names himself (e.g. "Supp – tank", "Supp – heal"). Each place holds **rune pages** and **notes (zápisky)**.
+- `get_coaching` (optionally `player_id`) – folders, rune pages (rune names, shards, summoners) and notes.
+- `save_rune_page` – runes, paths, shards and summoners by English name; `perks` = keystone, 3 primary, 2 secondary from two different rows. Pass `id` to change an existing page. Ask before saving.
+- `add_coaching_note` – a note in Czech for a player, a folder or the whole team; `id` updates an existing one. Good after a scouting report or a scrim review. Ask before saving.
+- `add_coaching_folder` – a new folder for a player or the team, when Dao wants one.
+
+## Workflow 6 – checking that things run ("co je nového", "jede čtečka?")
 
 - `get_activity` – recent changes: new VODs (`Sync`), games saved by the reader, frames sent for review, Claude's changes.
 - `list_vods` – `scan_status`: `pending` waits for the reader, `scanning` is in progress (a claim expires after 6 h), `done` read, `skipped` no draft found, `failed` couldn't be read (often a sub-only or deleted VOD).
@@ -82,3 +90,4 @@ If `save_draft` says a champion is unknown, fix the spelling (e.g. "Kai'Sa", "Nu
 | `add_team`, `add_player` | new data |
 | `rescan_vod`, `get_activity` | reader and app status |
 | `get_schedule`, `add_scheduled_match`, `update_scheduled_match` | our match schedule |
+| `get_coaching`, `save_rune_page`, `add_coaching_note`, `add_coaching_folder` | coaching: rune pages and notes per player/folder |

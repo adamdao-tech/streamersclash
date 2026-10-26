@@ -1,0 +1,489 @@
+<!doctype html>
+<html lang="cs">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Koučing · SGooBovo šedl scouting</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="preload" href="/fonts/inter-var.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="/fonts/rajdhani-700.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="/app.css">
+</head>
+<body>
+  <main>
+    <div class="page-head">
+      <div>
+        <h1>Koučing</h1>
+        <p>Runy a zápisky pro celý tým i pro každého hráče, rozdělené do složek podle tebe.</p>
+      </div>
+    </div>
+
+    <div class="coach">
+      <nav class="tree" id="tree" aria-label="Hráči a složky"></nav>
+      <section>
+        <div class="coach-head">
+          <h2 id="place-title"></h2>
+          <button class="btn btn-small" id="add-folder" hidden>+ Složka</button>
+          <button class="btn btn-small" id="rename-folder" hidden>Přejmenovat</button>
+          <button class="btn btn-small btn-danger" id="delete-folder" hidden>Smazat složku</button>
+        </div>
+        <div class="tabs" id="tabs">
+          <button data-tab="runes">Runy <span class="count" id="count-runes"></span></button>
+          <button data-tab="notes">Zápisky <span class="count" id="count-notes"></span></button>
+        </div>
+
+        <div id="tab-runes">
+          <div style="display:flex;justify-content:flex-end;margin-bottom:12px"><button class="btn btn-primary" id="add-runes">+ Runová stránka</button></div>
+          <div id="runes" class="rp-grid"></div>
+        </div>
+        <div id="tab-notes" hidden>
+          <div style="display:flex;justify-content:flex-end;margin-bottom:12px"><button class="btn btn-primary" id="add-note">+ Zápisek</button></div>
+          <div id="notes" class="note-list"></div>
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <dialog id="folder-dialog">
+    <form>
+      <h2>Nová složka</h2>
+      <label>Název *</label>
+      <input name="name" required maxlength="60" placeholder="např. Supp – tank, Supp – heal, Lane fáze">
+      <p class="form-error"></p>
+      <div class="dialog-actions">
+        <button type="button" class="btn" data-cancel>Zrušit</button>
+        <button type="submit" class="btn btn-primary">Uložit</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="note-dialog" class="wide">
+    <form>
+      <h2>Zápisek</h2>
+      <div class="form-grid">
+        <div><label>Nadpis</label><input name="title" maxlength="120" placeholder="např. Wardování v lane fázi"></div>
+        <div><label>Složka</label><select name="folder_id"></select></div>
+        <div class="full"><label>Text *</label><textarea name="body" class="big" required maxlength="20000"></textarea></div>
+        <div class="full"><label class="check"><input type="checkbox" name="pinned"> Připnout nahoru</label></div>
+      </div>
+      <p class="form-error"></p>
+      <div class="dialog-actions">
+        <button type="button" class="btn btn-danger" data-remove style="margin-right:auto">Smazat</button>
+        <button type="button" class="btn" data-cancel>Zrušit</button>
+        <button type="submit" class="btn btn-primary">Uložit</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="runes-dialog" class="wide">
+    <form>
+      <h2>Runová stránka</h2>
+      <div class="form-grid">
+        <div><label>Champion</label><input name="champion" list="champ-list" maxlength="40" placeholder="např. Leona" autocomplete="off"></div>
+        <div><label>Název</label><input name="title" maxlength="80" placeholder="např. Engage, proti poke botu"></div>
+        <div class="full"><label>Složka</label><select name="folder_id"></select></div>
+      </div>
+      <datalist id="champ-list"></datalist>
+      <div id="picker"></div>
+      <div class="form-grid" style="margin-top:14px">
+        <div class="full"><label>Poznámka</label><textarea name="notes" maxlength="5000" placeholder="Kdy to brát, matchupy, itemy…"></textarea></div>
+      </div>
+      <p class="form-error"></p>
+      <div class="dialog-actions">
+        <button type="button" class="btn btn-danger" data-remove style="margin-right:auto">Smazat</button>
+        <button type="button" class="btn" data-cancel>Zrušit</button>
+        <button type="submit" class="btn btn-primary">Uložit</button>
+      </div>
+    </form>
+  </dialog>
+
+  <script type="module">
+    import { api, esc, initPage, formDialog, ROLE_LABELS, loadChampions, timeAgo } from '/app.js';
+
+    await initPage('coaching');
+
+    const DD = 'https://ddragon.leagueoflegends.com/cdn';
+    const store = {
+      get(k) { try { return localStorage.getItem(k); } catch { return null; } },
+      set(k, v) { try { localStorage.setItem(k, v); } catch {} },
+    };
+
+    let data = { players: [], folders: [], runes: [], notes: [] };
+    let runeData = null; // null when Data Dragon is unavailable
+    const champIcons = await loadChampions();
+    // Selected place: player = 'team' or a player id; folder = folder id or null.
+    let sel = JSON.parse(store.get('coach.sel') || 'null') || { player: 'team', folder: null };
+    let tab = store.get('coach.tab') === 'notes' ? 'notes' : 'runes';
+
+    // Broken icons (e.g. a renamed rune) turn into their short label instead of an empty circle.
+    document.addEventListener('error', (e) => {
+      const img = e.target;
+      if (img.tagName === 'IMG' && img.dataset.fb !== undefined) img.replaceWith(document.createTextNode(img.dataset.fb));
+    }, true);
+
+    const short = (name) => String(name || '?').split(/\s+/).map((w) => w[0]).join('').slice(0, 3).toUpperCase();
+    function icon(src, name, cls) {
+      return `<span class="ri ${cls}" title="${esc(name)}">${src ? `<img src="${esc(src)}" alt="${esc(name)}" data-fb="${esc(short(name))}" loading="lazy">` : esc(short(name))}</span>`;
+    }
+    const allRunes = () => (runeData ? runeData.paths.flatMap((p) => p.slots.flatMap((s) => s.runes)) : []);
+    const runeById = (id) => allRunes().find((r) => r.id === id);
+    const pathById = (id) => runeData?.paths.find((p) => p.id === id);
+    const runeIcon = (r, cls) => (r ? icon(`${DD}/img/${r.icon}`, r.name, cls) : '');
+    const sumById = (id) => runeData?.summoners.find((s) => s.id === id);
+    const sumIcon = (s, cls = 'ri-md') => (s ? icon(`${DD}/${runeData.version}/img/spell/${s.image}`, s.name, `${cls} ri-sq`) : '');
+    const champIconHtml = (name) => icon(champIcons.get(name), name || '?', 'ri-xl ri-sq');
+
+    // --- where are we ----------------------------------------------------------
+    const playerId = () => (sel.player === 'team' ? null : sel.player);
+    const folderOf = (id) => data.folders.find((f) => f.id === id);
+    /** Items shown for the selection: a folder shows its items, a player shows all of theirs, the team shows team-wide ones. */
+    function inPlace(item) {
+      if (sel.folder) return item.folder_id === sel.folder;
+      return (item.player_id ?? null) === playerId();
+    }
+    const placeName = () => {
+      const p = data.players.find((x) => x.id === sel.player);
+      const who = sel.player === 'team' ? 'Celý tým' : p ? p.nickname : '?';
+      const f = sel.folder && folderOf(sel.folder);
+      return f ? `${esc(who)} <small>/ ${esc(f.name)}</small>` : esc(who);
+    };
+
+    function validateSel() {
+      if (sel.player !== 'team' && !data.players.some((p) => p.id === sel.player)) sel = { player: 'team', folder: null };
+      if (sel.folder && !folderOf(sel.folder)) sel.folder = null;
+    }
+
+    // --- tree --------------------------------------------------------------------
+    function renderTree() {
+      const count = (pid, fid) => data.runes.concat(data.notes).filter((x) => (fid ? x.folder_id === fid : (x.player_id ?? null) === pid)).length;
+      const group = (key, label, lead, pid) => {
+        const folders = data.folders.filter((f) => (f.player_id ?? null) === pid);
+        const active = sel.player === key;
+        return `
+          <div class="tree-group">
+            <button class="tree-item ${active && !sel.folder ? 'active' : ''}" data-player="${key}">${lead}<span>${esc(label)}</span><span class="count">${count(pid) || ''}</span></button>
+            ${folders.map((f) => `<button class="tree-item folder ${sel.folder === f.id ? 'active' : ''}" data-player="${key}" data-folder="${f.id}">📁 ${esc(f.name)}<span class="count">${count(pid, f.id) || ''}</span></button>`).join('')}
+            ${active ? `<button class="tree-item tree-add" data-add-folder="${key}">+ nová složka</button>` : ''}
+          </div>`;
+      };
+      document.getElementById('tree').innerHTML =
+        group('team', 'Celý tým', '<span class="dot">★</span>', null) +
+        (data.players.length
+          ? data.players.map((p) => group(p.id, p.nickname, `<span class="role role-${esc(p.role || '')}">${ROLE_LABELS[p.role] || '—'}</span>`, p.id)).join('')
+          : '<div class="tree-empty">Žádní hráči. Přidej hráče do týmu označeného jako „Náš tým“.</div>');
+    }
+
+    // --- rune pages -------------------------------------------------------------------
+    function runeCard(r) {
+      const perks = JSON.parse(r.perks || '[]');
+      const shards = JSON.parse(r.shards || '[]');
+      const sums = JSON.parse(r.summoners || '[]');
+      const prim = pathById(r.primary_style), sec = pathById(r.secondary_style);
+      const folder = !sel.folder && r.folder_id ? folderOf(r.folder_id) : null;
+      const shardIcon = (id, i) => {
+        const s = runeData?.shards[i]?.find((x) => x.id === id);
+        return s ? icon(`${DD}/img/${s.icon}`, s.name, 'ri-sm') : '';
+      };
+      const hasRunes = perks.some((p) => p) || prim;
+      return `
+        <div class="rp-card">
+          <div class="rp-top">
+            ${champIconHtml(r.champion)}
+            <div class="t"><b>${esc(r.champion || r.title)}</b><small>${esc(r.champion && r.title ? r.title : '')}</small></div>
+            <div class="rp-sums">${sums.map((id) => sumIcon(sumById(id))).join('')}</div>
+          </div>
+          ${hasRunes ? `
+          <div class="rp-runes">
+            <div class="rp-line">
+              ${prim ? icon(`${DD}/img/${prim.icon}`, prim.name, 'ri-path') : ''}
+              ${runeIcon(runeById(perks[0]), 'ri-xl')}
+              ${perks.slice(1, 4).map((id) => runeIcon(runeById(id), 'ri-md')).join('')}
+            </div>
+            <div class="rp-line">
+              ${sec ? icon(`${DD}/img/${sec.icon}`, sec.name, 'ri-path') : ''}
+              ${perks.slice(4, 6).map((id) => runeIcon(runeById(id), 'ri-md')).join('')}
+              <span style="width:10px"></span>
+              ${shards.map(shardIcon).join('')}
+            </div>
+          </div>` : ''}
+          ${r.notes ? `<div class="rp-notes">${esc(r.notes)}</div>` : ''}
+          <div class="rp-foot">
+            ${folder ? `<span class="chip">📁 ${esc(folder.name)}</span>` : ''}
+            ${r.created_by_kind === 'claude' ? '<span class="badge">Claude</span>' : ''}
+            <span class="spacer"></span>
+            <button class="btn btn-small" data-edit-runes="${r.id}">Upravit</button>
+          </div>
+        </div>`;
+    }
+
+    // --- notes ----------------------------------------------------------------------------
+    function linkify(text) {
+      return esc(text).replace(/https?:\/\/[^\s<]+/g, (u) => `<a href="${u}" target="_blank" rel="noopener">${u}</a>`);
+    }
+    function noteCard(n) {
+      const folder = !sel.folder && n.folder_id ? folderOf(n.folder_id) : null;
+      return `
+        <article class="note-card ${n.pinned ? 'pinned' : ''}">
+          <div class="nh">
+            <b>${n.pinned ? '📌 ' : ''}${esc(n.title || 'Bez nadpisu')}</b>
+            ${folder ? `<span class="chip">📁 ${esc(folder.name)}</span>` : ''}
+          </div>
+          <div class="nb">${linkify(n.body)}</div>
+          <div class="nm">
+            <span>${esc(n.author_kind === 'claude' ? 'Claude' : n.author_name || '')} · ${timeAgo(n.updated_at)}</span>
+            <span class="spacer"></span>
+            <button class="btn btn-small" data-pin="${n.id}">${n.pinned ? 'Odepnout' : 'Připnout'}</button>
+            <button class="btn btn-small" data-edit-note="${n.id}">Upravit</button>
+          </div>
+        </article>`;
+    }
+
+    function render() {
+      validateSel();
+      store.set('coach.sel', JSON.stringify(sel));
+      store.set('coach.tab', tab);
+      renderTree();
+      document.getElementById('place-title').innerHTML = placeName();
+      document.getElementById('add-folder').hidden = !!sel.folder;
+      document.getElementById('rename-folder').hidden = !sel.folder;
+      document.getElementById('delete-folder').hidden = !sel.folder;
+
+      const runes = data.runes.filter(inPlace);
+      const notes = data.notes.filter(inPlace);
+      document.getElementById('count-runes').textContent = runes.length || '';
+      document.getElementById('count-notes').textContent = notes.length || '';
+      document.querySelectorAll('#tabs button').forEach((b) => b.classList.toggle('active', b.dataset.tab === tab));
+      document.getElementById('tab-runes').hidden = tab !== 'runes';
+      document.getElementById('tab-notes').hidden = tab !== 'notes';
+
+      document.getElementById('runes').innerHTML = runes.length
+        ? runes.map(runeCard).join('')
+        : '<div class="empty" style="grid-column:1/-1">Tady zatím nejsou žádné runy. Přidej první runovou stránku.</div>';
+      document.getElementById('notes').innerHTML = notes.length
+        ? notes.map(noteCard).join('')
+        : '<div class="empty">Zatím žádné zápisky.</div>';
+    }
+
+    async function load() {
+      data = await api('/api/coaching');
+      render();
+    }
+
+    /** <option>s for the folder select: folders of the current player (or team). */
+    function folderOptions(select, pid) {
+      const folders = data.folders.filter((f) => (f.player_id ?? null) === pid);
+      select.innerHTML = '<option value="">— bez složky —</option>' + folders.map((f) => `<option value="${f.id}">${esc(f.name)}</option>`).join('');
+    }
+
+    // --- folders ------------------------------------------------------------------------------
+    let folderMode = null; // { create: playerKey } or { rename: folderId }
+    const folderDialogEl = document.getElementById('folder-dialog');
+    const folderDialog = formDialog(folderDialogEl, {
+      async onSubmit({ name }) {
+        if (folderMode.rename) {
+          await api(`/api/coaching/folders/${folderMode.rename}`, { method: 'PUT', body: { name } });
+        } else {
+          const player_id = folderMode.create === 'team' ? null : folderMode.create;
+          const { id } = await api('/api/coaching/folders', { method: 'POST', body: { name, player_id } });
+          sel = { player: folderMode.create, folder: id };
+        }
+        await load();
+      },
+    });
+    function openFolderDialog(mode) {
+      folderMode = mode;
+      folderDialogEl.querySelector('h2').textContent = mode.rename ? 'Přejmenovat složku' : 'Nová složka';
+      folderDialog.open(mode.rename ? { name: folderOf(mode.rename)?.name } : {});
+    }
+    document.getElementById('add-folder').addEventListener('click', () => openFolderDialog({ create: sel.player }));
+    document.getElementById('rename-folder').addEventListener('click', () => openFolderDialog({ rename: sel.folder }));
+    document.getElementById('delete-folder').addEventListener('click', async () => {
+      const f = folderOf(sel.folder);
+      const n = data.runes.concat(data.notes).filter((x) => x.folder_id === f.id).length;
+      if (!confirm(`Smazat složku „${f.name}“${n ? ` i s ${n} položkami uvnitř` : ''}?`)) return;
+      await api(`/api/coaching/folders/${f.id}`, { method: 'DELETE' });
+      sel.folder = null;
+      await load();
+    });
+
+    document.getElementById('tree').addEventListener('click', (e) => {
+      const add = e.target.closest('[data-add-folder]');
+      if (add) return openFolderDialog({ create: add.dataset.addFolder === 'team' ? 'team' : Number(add.dataset.addFolder) });
+      const item = e.target.closest('[data-player]');
+      if (!item) return;
+      sel = { player: item.dataset.player === 'team' ? 'team' : Number(item.dataset.player), folder: item.dataset.folder ? Number(item.dataset.folder) : null };
+      render();
+    });
+    document.getElementById('tabs').addEventListener('click', (e) => {
+      const b = e.target.closest('[data-tab]');
+      if (b) { tab = b.dataset.tab; render(); }
+    });
+
+    // --- notes dialog ------------------------------------------------------------------------
+    let editingNote = null;
+    const noteDialogEl = document.getElementById('note-dialog');
+    const noteDialog = formDialog(noteDialogEl, {
+      async onSubmit(v) {
+        const body = { ...v, folder_id: v.folder_id ? Number(v.folder_id) : null, player_id: playerId() };
+        if (editingNote) await api(`/api/coaching/notes/${editingNote}`, { method: 'PUT', body });
+        else await api('/api/coaching/notes', { method: 'POST', body });
+        await load();
+      },
+    });
+    function openNote(n) {
+      editingNote = n?.id ?? null;
+      noteDialogEl.querySelector('h2').textContent = n ? 'Upravit zápisek' : 'Nový zápisek';
+      noteDialogEl.querySelector('[data-remove]').hidden = !n;
+      folderOptions(noteDialogEl.querySelector('[name=folder_id]'), n ? n.player_id ?? null : playerId());
+      noteDialog.open(n ? { ...n, folder_id: n.folder_id ?? '', pinned: !!n.pinned } : { folder_id: sel.folder ?? '' });
+    }
+    document.getElementById('add-note').addEventListener('click', () => openNote(null));
+    noteDialogEl.querySelector('[data-remove]').addEventListener('click', async () => {
+      if (!confirm('Smazat zápisek?')) return;
+      await api(`/api/coaching/notes/${editingNote}`, { method: 'DELETE' });
+      noteDialogEl.close();
+      await load();
+    });
+
+    // --- rune page dialog + picker -------------------------------------------------------------------
+    let editingRunes = null;
+    let page = null; // { primary, secondary, perks[6], secOrder (rows picked, oldest first), shards[3], summoners[] }
+    const runesDialogEl = document.getElementById('runes-dialog');
+    const champList = document.getElementById('champ-list');
+    champList.innerHTML = [...champIcons.keys()].sort((a, b) => a.localeCompare(b)).map((n) => `<option value="${esc(n)}">`).join('');
+
+    function renderPicker() {
+      const el = document.getElementById('picker');
+      if (!runeData) {
+        el.innerHTML = '<p class="pick-hint">Seznam run od Riotu se teď nepodařilo načíst. Champion, název a poznámka se uloží i tak.</p>';
+        return;
+      }
+      const prim = pathById(page.primary), sec = pathById(page.secondary);
+      const pathBtns = (current, which, exclude) => runeData.paths
+        .filter((p) => p.id !== exclude)
+        .map((p) => `<button type="button" class="pick ${current === p.id ? 'on' : ''}" data-path="${which}" data-id="${p.id}" title="${esc(p.name)}">${icon(`${DD}/img/${p.icon}`, p.name, 'ri-md')}</button>`)
+        .join('');
+      const runeBtn = (r, on, attrs, cls) => `<button type="button" class="pick ${on ? 'on' : ''}" ${attrs} title="${esc(r.name)}${r.shortDesc ? ` – ${esc(r.shortDesc.replace(/<[^>]+>/g, ''))}` : ''}">${runeIcon(r, cls)}</button>`;
+      const primRows = prim
+        ? prim.slots.map((s, i) => `<div class="pick-row">${s.runes.map((r) => runeBtn(r, page.perks[i] === r.id, `data-prim="${i}" data-id="${r.id}"`, i === 0 ? 'ri-xl' : 'ri-md')).join('')}</div>`).join('')
+        : '<p class="pick-hint">Vyber hlavní větev.</p>';
+      const secRows = sec
+        ? sec.slots.slice(1).map((s, j) => `<div class="pick-row">${s.runes.map((r) => runeBtn(r, page.perks.slice(4).includes(r.id), `data-sec="${j + 1}" data-id="${r.id}"`, 'ri-md')).join('')}</div>`).join('')
+        : '<p class="pick-hint">Vyber vedlejší větev.</p>';
+      const shardRows = runeData.shards.map((row, i) => `<div class="pick-row">${row.map((s) => `<button type="button" class="pick ${page.shards[i] === s.id ? 'on' : ''}" data-shard="${i}" data-id="${s.id}" title="${esc(s.name)}">${icon(`${DD}/img/${s.icon}`, s.name, 'ri-sm')}</button>`).join('')}</div>`).join('');
+      const sums = runeData.summoners.map((s) => `<button type="button" class="pick sq ${page.summoners.includes(s.id) ? 'on' : ''}" data-sum="${s.id}" title="${esc(s.name)}">${sumIcon(s, 'ri-md')}</button>`).join('');
+      const names = (ids) => ids.map((id) => runeById(id)?.name).filter(Boolean).join(', ');
+      el.innerHTML = `
+        <div class="picker">
+          <div>
+            <h3>Hlavní větev${prim ? ` · ${esc(prim.name)}` : ''}</h3>
+            <div class="pick-paths">${pathBtns(page.primary, 'primary')}</div>
+            ${primRows}
+            <div class="pick-sel">${esc(names(page.perks.slice(0, 4)))}</div>
+          </div>
+          <div>
+            <h3>Vedlejší větev${sec ? ` · ${esc(sec.name)}` : ''}</h3>
+            <div class="pick-paths">${pathBtns(page.secondary, 'secondary', page.primary)}</div>
+            ${secRows}
+            <div class="pick-sel">${esc(names(page.perks.slice(4)))}</div>
+            <h3 style="margin-top:14px">Shardy</h3>
+            ${shardRows}
+          </div>
+        </div>
+        <h3 style="margin:16px 0 8px;font-size:.8rem;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;font-family:var(--font)">Summonery (2)</h3>
+        <div class="pick-paths">${sums}</div>`;
+    }
+
+    document.getElementById('picker').addEventListener('click', (e) => {
+      const b = e.target.closest('.pick');
+      if (!b) return;
+      const id = Number(b.dataset.id);
+      if (b.dataset.path === 'primary' && page.primary !== id) {
+        page.primary = id; page.perks.splice(0, 4, null, null, null, null);
+        if (page.secondary === id) { page.secondary = null; page.perks.splice(4, 2, null, null); page.secOrder = []; }
+      } else if (b.dataset.path === 'secondary' && page.secondary !== id) {
+        page.secondary = id; page.perks.splice(4, 2, null, null); page.secOrder = [];
+      } else if (b.dataset.prim !== undefined) {
+        const i = Number(b.dataset.prim);
+        page.perks[i] = page.perks[i] === id ? null : id;
+      } else if (b.dataset.sec !== undefined) {
+        // Like the client: two runes from two different rows; a third row pushes out the oldest pick.
+        const row = Number(b.dataset.sec);
+        let order = page.secOrder.filter((o) => o.row !== row);
+        const wasOn = page.secOrder.some((o) => o.id === id);
+        if (!wasOn) order.push({ row, id });
+        if (order.length > 2) order = order.slice(-2);
+        page.secOrder = order;
+        page.perks[4] = order[0]?.id ?? null;
+        page.perks[5] = order[1]?.id ?? null;
+      } else if (b.dataset.shard !== undefined) {
+        const i = Number(b.dataset.shard);
+        page.shards[i] = page.shards[i] === id ? null : id;
+      } else if (b.dataset.sum) {
+        const s = b.dataset.sum;
+        page.summoners = page.summoners.includes(s) ? page.summoners.filter((x) => x !== s) : [...page.summoners, s].slice(-2);
+      }
+      renderPicker();
+    });
+
+    const runesDialog = formDialog(runesDialogEl, {
+      async onSubmit(v) {
+        const body = {
+          title: v.title, champion: v.champion, notes: v.notes,
+          folder_id: v.folder_id ? Number(v.folder_id) : null, player_id: editingRunes ? editingRunes.player_id ?? null : playerId(),
+          primary_style: page.primary, secondary_style: page.secondary,
+          perks: page.perks.some((p) => p) ? page.perks : [],
+          shards: page.shards.some((p) => p) ? page.shards : [],
+          summoners: page.summoners,
+        };
+        if (editingRunes) await api(`/api/coaching/runes/${editingRunes.id}`, { method: 'PUT', body });
+        else await api('/api/coaching/runes', { method: 'POST', body });
+        await load();
+      },
+    });
+    function openRunes(r) {
+      editingRunes = r ?? null;
+      runesDialogEl.querySelector('h2').textContent = r ? 'Upravit runovou stránku' : 'Nová runová stránka';
+      runesDialogEl.querySelector('[data-remove]').hidden = !r;
+      folderOptions(runesDialogEl.querySelector('[name=folder_id]'), r ? r.player_id ?? null : playerId());
+      const perks = r ? JSON.parse(r.perks || '[]') : [];
+      while (perks.length < 6) perks.push(null);
+      const shards = r ? JSON.parse(r.shards || '[]') : [];
+      while (shards.length < 3) shards.push(null);
+      const sec = pathById(r?.secondary_style);
+      const rowOf = (id) => sec?.slots.findIndex((s) => s.runes.some((x) => x.id === id));
+      page = {
+        primary: r?.primary_style ?? null, secondary: r?.secondary_style ?? null, perks, shards,
+        summoners: r ? JSON.parse(r.summoners || '[]') : [],
+        secOrder: perks.slice(4).filter(Boolean).map((id) => ({ row: rowOf(id), id })),
+      };
+      runesDialog.open(r ? { ...r, folder_id: r.folder_id ?? '' } : { folder_id: sel.folder ?? '' });
+      renderPicker();
+    }
+    document.getElementById('add-runes').addEventListener('click', () => openRunes(null));
+    runesDialogEl.querySelector('[data-remove]').addEventListener('click', async () => {
+      if (!confirm('Smazat runovou stránku?')) return;
+      await api(`/api/coaching/runes/${editingRunes.id}`, { method: 'DELETE' });
+      runesDialogEl.close();
+      await load();
+    });
+
+    // --- card buttons -------------------------------------------------------------------
+    document.querySelector('main').addEventListener('click', async (e) => {
+      const er = e.target.closest('[data-edit-runes]');
+      if (er) return openRunes(data.runes.find((x) => x.id === Number(er.dataset.editRunes)));
+      const en = e.target.closest('[data-edit-note]');
+      if (en) return openNote(data.notes.find((x) => x.id === Number(en.dataset.editNote)));
+      const pin = e.target.closest('[data-pin]');
+      if (pin) {
+        const n = data.notes.find((x) => x.id === Number(pin.dataset.pin));
+        await api(`/api/coaching/notes/${n.id}`, { method: 'PUT', body: { pinned: !n.pinned } });
+        await load();
+      }
+    });
+
+    [runeData] = await Promise.all([api('/api/runes').catch(() => null), load()]);
+    render();
+  </script>
+</body>
+</html>

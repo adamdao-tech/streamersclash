@@ -8,6 +8,8 @@ import { listDrafts, playerGames, relinkDraftPlayers, saveDraft, summarizeGames,
 import { HttpError, json } from './http';
 import { userFromBearer } from './oauth';
 import { syncTwitchVods } from './vods';
+import { createFolder, loadCoaching, saveNote, saveRunePage } from './coaching';
+import { describeRunePage, getRuneData } from './runes';
 
 // Remote MCP server (Streamable HTTP transport, JSON responses only).
 // Claude connects through the OAuth flow in oauth.ts and acts as the user who approved it;
@@ -21,6 +23,7 @@ and drafts read from those VODs. Drafts are seen from one player's stream (POV):
 (left column of the client), "enemy" = the opponents (right column).
 Draft review workflow: list_drafts_for_review → get_draft_frame (look at the image) → save_draft with the
 correct champions, or discard_draft_frame if it isn't a finished draft (dodge, lobby, unreadable).
+Coaching: get_coaching shows rune pages and coaching notes per player and folder; write notes with add_coaching_note.
 Schedule: get_schedule lists our tournament matches, scrims and other events; the next opponent's opponent_team_id is the team to scout.
 Reply to the user in Czech.`;
 
@@ -510,6 +513,99 @@ const TOOLS: Tool[] = [
       await logActivity(env.DB, { kind: 'claude', userId: user.id }, 'schedule.update', 'schedule', id, { name: opponentLabel(current), kind: current.kind });
       const [m] = await listSchedule(env, { id });
       return text({ ok: true, match: compactScheduled(m) });
+    },
+  },
+  {
+    name: 'get_coaching',
+    description:
+      'Coaching material for our team: folders per player (e.g. "Supp – tank", "Supp – heal") or team-wide, rune pages and coaching notes. ' +
+      'Without player_id returns everything; player_id narrows to one player (team-wide items are always included).',
+    inputSchema: { type: 'object', properties: { player_id: { type: 'integer' } } },
+    annotations: { readOnlyHint: true },
+    async run(a, { env }) {
+      const data = await loadCoaching(env);
+      const runeData = await getRuneData(env).catch(() => null);
+      const pid = a.player_id ? int(a.player_id, 'player_id') : null;
+      const inScope = (x: Record<string, any>) => !pid || x.player_id === null || x.player_id === pid;
+      const folders = (data.folders as { id: number; player_id: number | null; name: string }[]).filter(inScope);
+      const folderName = (id: unknown) => folders.find((f) => f.id === id)?.name ?? null;
+      const playerName = (id: unknown) => (data.players as { id: number; nickname: string }[]).find((p) => p.id === id)?.nickname ?? (id ? `player ${id}` : 'Tým');
+      return text({
+        players: data.players,
+        folders: folders.map((f) => ({ id: f.id, name: f.name, player: playerName(f.player_id), player_id: f.player_id })),
+        rune_pages: (data.runes as Record<string, any>[]).filter(inScope).map((r) => ({
+          id: r.id, player: playerName(r.player_id), folder: folderName(r.folder_id), title: r.title, champion: r.champion,
+          ...(runeData ? describeRunePage(runeData, r as any) : {}), notes: r.notes,
+        })),
+        notes: (data.notes as Record<string, any>[]).filter(inScope).map((n) => ({
+          id: n.id, player: playerName(n.player_id), folder: folderName(n.folder_id), title: n.title, body: n.body,
+          pinned: !!n.pinned, author: n.author_kind === 'claude' ? 'Claude' : n.author_name, updated_at: n.updated_at,
+        })),
+      });
+    },
+  },
+  {
+    name: 'add_coaching_folder',
+    description: 'Creates a coaching folder for a player (or team-wide without player_id), e.g. "Supp – tank". Ask Dao first.',
+    inputSchema: {
+      type: 'object',
+      properties: { name: { type: 'string' }, player_id: { type: 'integer' } },
+      required: ['name'],
+    },
+    async run(a, { env, user }) {
+      const id = await createFolder(env, { kind: 'claude', userId: user.id }, a);
+      return text({ ok: true, folder_id: id });
+    },
+  },
+  {
+    name: 'add_coaching_note',
+    description:
+      'Writes a coaching note (zápisek) for a player, into a folder, or team-wide (neither player_id nor folder_id). ' +
+      'Pass id to update an existing note. Write in Czech. Ask Dao before saving.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        id: { type: 'integer', description: 'Existing note to update' },
+        player_id: { type: 'integer' },
+        folder_id: { type: 'integer' },
+        title: { type: 'string' },
+        body: { type: 'string' },
+        pinned: { type: 'boolean' },
+      },
+      required: ['body'],
+    },
+    async run(a, { env, user }) {
+      const { id, ...rest } = a;
+      const noteId = await saveNote(env, { kind: 'claude', userId: user.id }, rest, id ? int(id, 'id') : undefined);
+      return text({ ok: true, note_id: noteId });
+    },
+  },
+  {
+    name: 'save_rune_page',
+    description:
+      'Creates or updates (with id) a rune page in coaching. Runes, paths, shards and summoners can be given by English name. ' +
+      'perks = [keystone, primary row 1, row 2, row 3, secondary rune A, secondary rune B]; shards = [offense, flex, defense], ' +
+      'e.g. ["Adaptive Force", "Adaptive Force", "Health"]; summoners e.g. ["Flash", "Ignite"]. Ask Dao before saving.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        id: { type: 'integer' },
+        player_id: { type: 'integer' },
+        folder_id: { type: 'integer' },
+        title: { type: 'string', description: 'e.g. "Tank supp – engage"' },
+        champion: { type: 'string' },
+        primary_style: { type: 'string', description: 'Precision, Domination, Sorcery, Resolve or Inspiration' },
+        secondary_style: { type: 'string' },
+        perks: { type: 'array', items: { type: 'string' }, maxItems: 6 },
+        shards: { type: 'array', items: { type: 'string' }, maxItems: 3 },
+        summoners: { type: 'array', items: { type: 'string' }, maxItems: 2 },
+        notes: { type: 'string' },
+      },
+    },
+    async run(a, { env, user }) {
+      const { id, ...rest } = a;
+      const pageId = await saveRunePage(env, { kind: 'claude', userId: user.id }, rest, id ? int(id, 'id') : undefined);
+      return text({ ok: true, rune_page_id: pageId });
     },
   },
   {

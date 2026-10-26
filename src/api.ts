@@ -7,7 +7,7 @@ import { getChampionData } from './champions';
 import { listSchedule, opponentLabel, requireOpponent, scheduleFields } from './schedule';
 import {
   createFolder, createShot, deleteFolder, deleteMap, deleteNote, deleteRunePage, deleteShot, getMapImage, getShotImage, loadCoaching,
-  mapVersion, renameFolder, resetMapImage, saveMap, saveNote, saveRunePage, setMapImage, updateShot,
+  mapVersion, renameFolder, resetMapImage, saveMap, saveNote, savePool, saveRunePage, setMapImage, updateShot,
 } from './coaching';
 import { getRuneData } from './runes';
 
@@ -359,6 +359,11 @@ async function route(req: Request, env: Env, url: URL, user: User): Promise<Resp
   if ((m = path.match(/^\/api\/coaching\/runes\/(\d+)$/))) {
     if (method === 'PUT') return json({ id: await saveRunePage(env, actor, await readBody(req), Number(m[1])) });
     if (method === 'DELETE') return (await deleteRunePage(env, Number(m[1])), json({ ok: true }));
+  }
+  if ((m = path.match(/^\/api\/coaching\/pool\/(\d+)$/)) && method === 'PUT') {
+    const body = await readBody(req);
+    await savePool(env, actor, Number(m[1]), body.items);
+    return json({ ok: true });
   }
   if (path === '/api/coaching/shots' && method === 'POST') {
     return json({ id: await createShot(env, actor, await readBody(req)) }, 201);

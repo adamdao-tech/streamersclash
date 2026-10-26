@@ -8,7 +8,7 @@ import { listDrafts, playerGames, relinkDraftPlayers, saveDraft, summarizeGames,
 import { HttpError, json } from './http';
 import { userFromBearer } from './oauth';
 import { syncTwitchVods } from './vods';
-import { createFolder, getShotImage, loadCoaching, saveNote, saveRunePage } from './coaching';
+import { createFolder, getShotImage, loadCoaching, saveNote, savePool, saveRunePage, TIER_LABELS } from './coaching';
 import { describeRunePage, getRuneData } from './runes';
 
 // Remote MCP server (Streamable HTTP transport, JSON responses only).
@@ -519,7 +519,8 @@ const TOOLS: Tool[] = [
     name: 'get_coaching',
     description:
       'Coaching material for our team: folders per player (e.g. "Supp – tank", "Supp – heal") or team-wide, rune pages, coaching notes ' +
-      'ward maps (only counts and labels of the markers – the map itself is drawn by Dao in the app) and screenshots ' +
+      'ward maps (only counts and labels of the markers – the map itself is drawn by Dao in the app), screenshots ' +
+      'and each player\'s champion pool tier list with games/winrate from recorded drafts ' +
       '(look at one with get_coaching_screenshot). ' +
       'Without player_id returns everything; player_id narrows to one player (team-wide items are always included).',
     inputSchema: { type: 'object', properties: { player_id: { type: 'integer' } } },
@@ -549,6 +550,19 @@ const TOOLS: Tool[] = [
             labelled_markers: markers.filter((k) => k.label).map((k) => ({ type: k.type, label: k.label })),
           };
         }),
+        champion_pools: (data.players as { id: number; nickname: string }[])
+          .filter((p) => !pid || p.id === pid)
+          .map((p) => {
+            const stats = ((data.pool_stats as Record<number, any[]>)[p.id] ?? []);
+            const entries = (data.pool as Record<string, any>[]).filter((e) => e.player_id === p.id);
+            return {
+              player: p.nickname, player_id: p.id,
+              tiers: Object.fromEntries(Object.entries(TIER_LABELS).map(([t, label]) => [label, entries.filter((e) => e.tier === t).map((e) => {
+                const st = stats.find((x) => x.champion === e.champion);
+                return { champion: e.champion, note: e.note || undefined, games: st?.games ?? 0, winrate: st?.winrate ?? null };
+              })])),
+            };
+          }),
         screenshots: (data.shots as Record<string, any>[]).filter(inScope).map((sh) => ({
           id: sh.id, player: playerName(sh.player_id), folder: folderName(sh.folder_id), title: sh.title, notes: sh.notes,
           size: sh.width && sh.height ? `${sh.width}×${sh.height}` : null, added: sh.created_at,
@@ -576,6 +590,34 @@ const TOOLS: Tool[] = [
           { type: 'text', text: JSON.stringify({ id, title: meta.title, notes: meta.notes }) },
         ],
       };
+    },
+  },
+  {
+    name: 'set_champion_pool_entry',
+    description:
+      "Puts a champion into one of our player's champion pool tiers, moves it, or removes it (tier null). " +
+      'Tiers: S (main), A (strong), B (playable), C (emergency), L (learning). Ask Dao before changing.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        player_id: { type: 'integer' },
+        champion: { type: 'string' },
+        tier: { type: ['string', 'null'], enum: ['S', 'A', 'B', 'C', 'L', null] },
+        note: { type: 'string', description: 'Short note, e.g. "jen proti AP botu"' },
+      },
+      required: ['player_id', 'champion'],
+    },
+    async run(a, { env, user }) {
+      const playerId = int(a.player_id, 'player_id');
+      const { results } = await env.DB.prepare('SELECT champion, tier, note FROM champion_pool WHERE player_id = ? ORDER BY sort').bind(playerId).all<{ champion: string; tier: string; note: string | null }>();
+      const name = String(a.champion ?? '').toLowerCase().replace(/[^a-z0-9]/g, '');
+      const items = results.filter((r) => r.champion.toLowerCase().replace(/[^a-z0-9]/g, '') !== name);
+      if (a.tier) {
+        const old = results.find((r) => r.champion.toLowerCase().replace(/[^a-z0-9]/g, '') === name);
+        items.push({ champion: String(a.champion), tier: String(a.tier).toUpperCase(), note: a.note !== undefined ? String(a.note) : old?.note ?? null });
+      }
+      await savePool(env, { kind: 'claude', userId: user.id }, playerId, items);
+      return text({ ok: true });
     },
   },
   {

@@ -696,3 +696,54 @@ dialog.map-viewer:fullscreen .mv-map .map-box { width: min(100%, calc(100vh - 32
   dialog.map-viewer { grid-template-columns: 1fr; height: auto; max-height: calc(100vh - 24px); overflow-y: auto; }
   .mv-map .map-box { width: 100%; }
 }
+
+/* --- coaching: champion pool tier list --- */
+.pool-add { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
+.pool-add input { flex: 1; min-width: 180px; }
+.pool-add select { width: auto; }
+.tierlist { display: flex; flex-direction: column; gap: 6px; }
+.tier-row { display: grid; grid-template-columns: 96px minmax(0, 1fr); border-radius: 10px; overflow: hidden; border: 1px solid var(--line); background: var(--panel); }
+.tier-label { display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center; padding: 8px; color: #10131c; }
+.tier-label b { font: 700 1.5rem/1 var(--display); }
+.tier-label small { font-size: 0.72rem; font-weight: 600; opacity: 0.8; margin-top: 2px; }
+.tier-S { background: #f0c75e; } .tier-A { background: #7fd18b; } .tier-B { background: #6fb2ff; }
+.tier-C { background: #b9c1d3; } .tier-L { background: #c4a6ff; }
+.tier-drop { display: flex; flex-wrap: wrap; gap: 8px; padding: 8px; min-height: 92px; align-content: flex-start; transition: background 0.1s; }
+.tier-drop.over { background: rgba(200, 166, 75, 0.12); }
+.tier-empty { color: var(--muted); font-size: 0.82rem; align-self: center; padding-left: 4px; }
+.pc {
+  position: relative; display: flex; flex-direction: column; align-items: center; gap: 3px; width: 74px; padding: 4px 2px;
+  border-radius: 8px; cursor: pointer; background: none; border: 1px solid transparent; color: var(--text); font: inherit;
+}
+.pc:hover { background: var(--panel-2); border-color: var(--line); }
+.pc.dragging { opacity: 0.4; }
+.pc[draggable='true'] { cursor: grab; }
+.pc-name { font-size: 0.72rem; font-weight: 600; max-width: 70px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pc-stat { font-size: 0.66rem; color: var(--muted); }
+.pc-stat.good { color: var(--green); } .pc-stat.bad { color: #ff8f93; }
+.pc-note { position: absolute; top: 2px; right: 6px; font-size: 0.7rem; color: var(--gold-2); }
+.pc-sm { width: auto; padding: 1px; }
+.pool-played { margin-top: 18px; }
+.pool-played h3 { font-size: 0.8rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; font-family: var(--font); margin: 0 0 8px; }
+.pool-played-list { display: flex; flex-wrap: wrap; gap: 6px; }
+.pc-add { border: 1px dashed var(--line); }
+.pool-team { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 12px; }
+.pool-col { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 10px; display: flex; flex-direction: column; gap: 8px; }
+.pool-col-head { display: flex; align-items: center; gap: 8px; background: none; border: 0; color: var(--text); font: 700 1.05rem var(--display); cursor: pointer; padding: 0; text-align: left; }
+.pool-col-head .role { width: 26px; height: 26px; font-size: 0.62rem; }
+.pool-mini { display: flex; gap: 8px; align-items: flex-start; }
+.tier-tag { flex: none; min-width: 26px; text-align: center; border-radius: 6px; padding: 2px 5px; font: 700 0.78rem var(--display); color: #10131c; }
+.pool-mini-list { display: flex; flex-wrap: wrap; gap: 3px; }
+.pool-dlg-head { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
+.pool-dlg-head h2 { margin: 0; }
+.tier-pick { display: flex; gap: 6px; flex-wrap: wrap; }
+.tier-btn { border: 2px solid transparent; border-radius: 8px; padding: 6px 10px; cursor: pointer; color: #10131c; display: flex; flex-direction: column; align-items: center; min-width: 64px; opacity: 0.55; }
+.tier-btn b { font: 700 1.1rem/1 var(--display); }
+.tier-btn small { font-size: 0.68rem; font-weight: 600; }
+.tier-btn.on { opacity: 1; border-color: #fff; }
+.pool-dlg-links { display: flex; flex-direction: column; gap: 6px; margin-top: 14px; font-size: 0.88rem; }
+@media (max-width: 640px) {
+  .tier-row { grid-template-columns: 64px minmax(0, 1fr); }
+  .tier-label b { font-size: 1.2rem; }
+  .pc { width: 62px; }
+}

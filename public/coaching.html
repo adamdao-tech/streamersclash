@@ -14,7 +14,7 @@
     <div class="page-head">
       <div>
         <h1>Koučing</h1>
-        <p>Runy, zápisky, mapy a screenshoty pro celý tým i pro každého hráče, rozdělené do složek podle tebe.</p>
+        <p>Runy, zápisky, mapy, screenshoty a champion pooly pro celý tým i pro každého hráče, rozdělené do složek podle tebe.</p>
       </div>
     </div>
 
@@ -32,6 +32,7 @@
           <button data-tab="notes">Zápisky <span class="count" id="count-notes"></span></button>
           <button data-tab="maps">Mapy <span class="count" id="count-maps"></span></button>
           <button data-tab="shots">Screenshoty <span class="count" id="count-shots"></span></button>
+          <button data-tab="pool">Champion pool <span class="count" id="count-pool"></span></button>
         </div>
 
         <div id="tab-runes">
@@ -53,6 +54,7 @@
           <p class="form-error" id="map-image-error" style="margin:-4px 0 10px"></p>
           <div id="maps" class="rp-grid"></div>
         </div>
+        <div id="tab-pool" hidden></div>
         <div id="tab-shots" hidden>
           <div class="tab-bar">
             <span class="muted">Tip: screenshot zkopíruj a tady zmáčkni <b>Ctrl+V</b>, nebo ho sem přetáhni.</span>
@@ -146,6 +148,23 @@
     </form>
   </dialog>
 
+  <dialog id="pool-dialog">
+    <form>
+      <div class="pool-dlg-head" id="pool-dlg-head"></div>
+      <label>Tier</label>
+      <div class="tier-pick" id="tier-pick"></div>
+      <label style="margin-top:14px">Poznámka</label>
+      <input name="note" maxlength="300" placeholder="např. jen proti AP botu, učí se combo">
+      <div class="pool-dlg-links" id="pool-dlg-links"></div>
+      <p class="form-error"></p>
+      <div class="dialog-actions">
+        <button type="button" class="btn btn-danger" data-remove style="margin-right:auto">Odebrat z poolu</button>
+        <button type="button" class="btn" data-cancel>Zrušit</button>
+        <button type="submit" class="btn btn-primary">Uložit</button>
+      </div>
+    </form>
+  </dialog>
+
   <dialog id="shot-dialog" class="wide">
     <form>
       <h2>Screenshot</h2>
@@ -213,7 +232,7 @@
     const champIcons = await loadChampions();
     // Selected place: player = 'team' or a player id; folder = folder id or null.
     let sel = JSON.parse(store.get('coach.sel') || 'null') || { player: 'team', folder: null };
-    let tab = ['notes', 'maps', 'shots'].includes(store.get('coach.tab')) ? store.get('coach.tab') : 'runes';
+    let tab = ['notes', 'maps', 'shots', 'pool'].includes(store.get('coach.tab')) ? store.get('coach.tab') : 'runes';
 
     // Broken icons (e.g. a renamed rune) turn into their short label instead of an empty circle.
     document.addEventListener('error', (e) => {
@@ -645,6 +664,199 @@
       setTimeout(() => { e.target.textContent = '🔗 Kopírovat odkaz'; }, 2000);
     });
 
+    // --- champion pool (tier list per player) ----------------------------------------------------
+    const TIERS = [
+      ['S', 'S', 'Main'], ['A', 'A', 'Silný'], ['B', 'B', 'Hratelný'], ['C', 'C', 'Nouzově'], ['L', 'Učí se', 'Trénuje'],
+    ];
+    /** The player whose pool is shown: the selected player (or the folder's player); null = whole team overview. */
+    const poolPlayer = () => (sel.folder ? folderOf(sel.folder)?.player_id ?? null : playerId());
+    const poolOf = (pid) => data.pool.filter((e) => e.player_id === pid).sort((a, b) => a.sort - b.sort);
+    const statOf = (pid, champ) => (data.pool_stats?.[pid] || []).find((x) => x.champion === champ);
+    const runeCount = (pid, champ) => data.runes.filter((r) => r.champion === champ && (r.player_id ?? null) === pid).length;
+
+    function statBadge(st) {
+      if (!st) return '';
+      const wr = st.winrate === null ? '' : ` · ${st.winrate} %`;
+      const cls = st.winrate === null ? '' : st.winrate >= 55 ? 'good' : st.winrate < 45 ? 'bad' : '';
+      return `<span class="pc-stat ${cls}" title="Z nahraných draftů: ${st.wins} V / ${st.losses} P">${st.games}×${wr}</span>`;
+    }
+    function poolChip(pid, e, small = false) {
+      const st = statOf(pid, e.champion);
+      return `<div class="pc ${small ? 'pc-sm' : ''}" ${small ? '' : 'draggable="true"'} data-pool-champ="${esc(e.champion)}" data-pool-player="${pid}"
+                title="${esc(e.champion)}${e.note ? ` – ${esc(e.note)}` : ''}">
+        ${icon(champIcons.get(e.champion), e.champion, small ? 'ri-md ri-sq' : 'ri-xl ri-sq')}
+        ${small ? '' : `<span class="pc-name">${esc(e.champion)}</span>${statBadge(st)}${e.note ? '<span class="pc-note" aria-label="Má poznámku">✎</span>' : ''}`}
+      </div>`;
+    }
+
+    function renderPool() {
+      const el = document.getElementById('tab-pool');
+      const pid = poolPlayer();
+      if (!pid) {
+        // Whole team: everyone's pool side by side – handy for the draft.
+        if (!data.players.length) { el.innerHTML = '<div class="empty">Nejdřív přidej hráče do týmu označeného jako „Náš tým“.</div>'; return; }
+        el.innerHTML = `
+          <p class="muted" style="margin:0 0 12px;font-size:.88rem">Přehled poolů celého týmu. Klikni na hráče vlevo a uprav jeho tier list.</p>
+          <div class="pool-team">${data.players.map((p) => {
+            const list = poolOf(p.id);
+            return `<div class="pool-col">
+              <button type="button" class="pool-col-head" data-goto-player="${p.id}"><span class="role role-${esc(p.role || '')}">${ROLE_LABELS[p.role] || '—'}</span>${esc(p.nickname)}</button>
+              ${TIERS.map(([t, label]) => {
+                const items = list.filter((e) => e.tier === t);
+                return items.length ? `<div class="pool-mini"><span class="tier-tag tier-${t}">${label}</span><div class="pool-mini-list">${items.map((e) => poolChip(p.id, e, true)).join('')}</div></div>` : '';
+              }).join('') || '<div class="muted" style="font-size:.85rem;padding:6px 0">Prázdný pool</div>'}
+            </div>`;
+          }).join('')}</div>`;
+        return;
+      }
+      const list = poolOf(pid);
+      const inPool = new Set(list.map((e) => e.champion));
+      // Linked to the drafts: champions this player actually played that aren't in the tier list yet.
+      const played = (data.pool_stats?.[pid] || []).filter((st) => !inPool.has(st.champion)).slice(0, 12);
+      el.innerHTML = `
+        <div class="pool-add">
+          <input id="pool-search" list="pool-champs" placeholder="Přidat championa…" autocomplete="off">
+          <select id="pool-tier">${TIERS.map(([t, label, hint]) => `<option value="${t}" ${t === 'B' ? 'selected' : ''}>${label} – ${hint}</option>`).join('')}</select>
+          <button type="button" class="btn btn-primary" id="pool-add">Přidat</button>
+          <datalist id="pool-champs">${[...champIcons.keys()].filter((n) => !inPool.has(n)).sort((a, b) => a.localeCompare(b)).map((n) => `<option value="${esc(n)}">`).join('')}</datalist>
+        </div>
+        <p class="form-error" id="pool-error" style="margin:0 0 8px"></p>
+        <div class="tierlist">
+          ${TIERS.map(([t, label, hint]) => `
+            <div class="tier-row" data-tier="${t}">
+              <div class="tier-label tier-${t}"><b>${label}</b><small>${hint}</small></div>
+              <div class="tier-drop" data-drop-tier="${t}">${list.filter((e) => e.tier === t).map((e) => poolChip(pid, e)).join('') || '<span class="tier-empty">Přetáhni sem championa</span>'}</div>
+            </div>`).join('')}
+        </div>
+        ${played.length ? `
+          <div class="pool-played">
+            <h3>Hraje v draftech, ale není v tier listu</h3>
+            <div class="pool-played-list">${played.map((st) => `<button type="button" class="pc pc-add" data-add-played="${esc(st.champion)}" title="Přidat do tieru B">
+              ${icon(champIcons.get(st.champion), st.champion, 'ri-md ri-sq')}<span class="pc-name">${esc(st.champion)}</span>${statBadge(st)}</button>`).join('')}</div>
+          </div>` : ''}
+        <p class="muted" style="font-size:.82rem;margin-top:12px">Championy přetahuj mezi řádky, kliknutím otevřeš poznámku a změnu tieru. Čísla u championů jsou počet her a winrate z nahraných draftů.</p>`;
+    }
+
+    async function savePoolList(pid, list) {
+      const items = list.map((e) => ({ champion: e.champion, tier: e.tier, note: e.note || null }));
+      // Show the change right away; reload from the server only if saving fails.
+      data.pool = data.pool.filter((e) => e.player_id !== pid).concat(list.map((e, i) => ({ ...e, player_id: pid, sort: i })));
+      render();
+      try {
+        await api(`/api/coaching/pool/${pid}`, { method: 'PUT', body: { items } });
+      } catch (err) {
+        await load();
+        const el = document.getElementById('pool-error');
+        if (el) el.textContent = err.message;
+      }
+    }
+    function addToPool(pid, champion, tier) {
+      const name = [...champIcons.keys()].find((n) => n.toLowerCase() === String(champion).trim().toLowerCase()) || String(champion).trim();
+      if (!name) return;
+      const list = poolOf(pid).filter((e) => e.champion !== name);
+      list.push({ champion: name, tier, note: poolOf(pid).find((e) => e.champion === name)?.note ?? null });
+      savePoolList(pid, list);
+    }
+
+    const poolTab = document.getElementById('tab-pool');
+    poolTab.addEventListener('click', (e) => {
+      const go = e.target.closest('[data-goto-player]');
+      if (go) { sel = { player: Number(go.dataset.gotoPlayer), folder: null }; render(); return; }
+      if (e.target.id === 'pool-add') {
+        const q = document.getElementById('pool-search').value;
+        if (q.trim()) addToPool(poolPlayer(), q, document.getElementById('pool-tier').value);
+        return;
+      }
+      const played = e.target.closest('[data-add-played]');
+      if (played) return addToPool(poolPlayer(), played.dataset.addPlayed, 'B');
+      const chip = e.target.closest('[data-pool-champ]');
+      if (chip) openPoolDialog(Number(chip.dataset.poolPlayer), chip.dataset.poolChamp);
+    });
+    poolTab.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && e.target.id === 'pool-search') { e.preventDefault(); document.getElementById('pool-add').click(); }
+    });
+
+    // Drag & drop between tiers (and to reorder inside a tier).
+    let dragChamp = null;
+    poolTab.addEventListener('dragstart', (e) => {
+      const chip = e.target.closest('[data-pool-champ]');
+      if (!chip) return;
+      dragChamp = chip.dataset.poolChamp;
+      e.dataTransfer.effectAllowed = 'move';
+      e.dataTransfer.setData('text/plain', dragChamp);
+      chip.classList.add('dragging');
+    });
+    poolTab.addEventListener('dragend', () => { dragChamp = null; poolTab.querySelectorAll('.over').forEach((x) => x.classList.remove('over')); });
+    poolTab.addEventListener('dragover', (e) => {
+      const zone = e.target.closest('[data-drop-tier]');
+      if (!zone || !dragChamp) return;
+      e.preventDefault();
+      poolTab.querySelectorAll('.over').forEach((x) => x !== zone && x.classList.remove('over'));
+      zone.classList.add('over');
+    });
+    poolTab.addEventListener('drop', (e) => {
+      const zone = e.target.closest('[data-drop-tier]');
+      if (!zone || !dragChamp) return;
+      e.preventDefault();
+      const pid = poolPlayer();
+      const tier = zone.dataset.dropTier;
+      const list = poolOf(pid);
+      const moving = list.find((x) => x.champion === dragChamp);
+      if (!moving) return;
+      const rest = list.filter((x) => x.champion !== dragChamp);
+      // Dropped onto another champion: go in front of it; otherwise to the end of the tier.
+      const target = e.target.closest('[data-pool-champ]')?.dataset.poolChamp;
+      const updated = { ...moving, tier };
+      let idx = target && target !== dragChamp ? rest.findIndex((x) => x.champion === target) : -1;
+      if (idx < 0) {
+        const lastInTier = rest.map((x) => x.tier).lastIndexOf(tier);
+        idx = lastInTier >= 0 ? lastInTier + 1 : rest.length;
+      }
+      rest.splice(idx, 0, updated);
+      savePoolList(pid, rest);
+    });
+
+    // Chip dialog: tier, note, remove, links to stats and rune pages.
+    const poolDialogEl = document.getElementById('pool-dialog');
+    let poolEditing = null; // { pid, champion, tier }
+    const poolDialog = formDialog(poolDialogEl, {
+      async onSubmit(v) {
+        const { pid, champion, tier } = poolEditing;
+        const list = poolOf(pid).map((e) => (e.champion === champion ? { ...e, tier, note: v.note } : e));
+        await savePoolList(pid, list);
+      },
+    });
+    function renderTierPick() {
+      document.getElementById('tier-pick').innerHTML = TIERS.map(([t, label, hint]) =>
+        `<button type="button" class="tier-btn tier-${t} ${poolEditing.tier === t ? 'on' : ''}" data-pick-tier="${t}"><b>${label}</b><small>${hint}</small></button>`).join('');
+    }
+    function openPoolDialog(pid, champion) {
+      const e = poolOf(pid).find((x) => x.champion === champion);
+      if (!e) return;
+      poolEditing = { pid, champion, tier: e.tier };
+      const st = statOf(pid, champion);
+      const player = data.players.find((p) => p.id === pid);
+      document.getElementById('pool-dlg-head').innerHTML = `${champIconHtml(champion)}<div><h2>${esc(champion)}</h2><span class="muted">${esc(player?.nickname || '')}</span></div>`;
+      const runes = runeCount(pid, champion);
+      document.getElementById('pool-dlg-links').innerHTML = [
+        st ? `<span>Z draftů: <b>${st.games}</b> ${st.games === 1 ? 'hra' : st.games <= 4 ? 'hry' : 'her'}, ${st.wins} V / ${st.losses} P${st.winrate !== null ? ` (${st.winrate} %)` : ''}${st.kda !== null ? `, KDA ${st.kda}` : ''}</span>` : '<span class="muted">V nahraných draftech zatím nehrál(a).</span>',
+        `<a href="/player?id=${pid}">Statistiky hráče →</a>`,
+        runes ? `<button type="button" class="link-like" data-show-runes>${runes} ${runes === 1 ? 'runová stránka' : runes <= 4 ? 'runové stránky' : 'runových stránek'} →</button>` : '',
+      ].filter(Boolean).join('');
+      poolDialog.open({ note: e.note || '' });
+      renderTierPick();
+    }
+    poolDialogEl.addEventListener('click', (e) => {
+      const b = e.target.closest('[data-pick-tier]');
+      if (b) { poolEditing.tier = b.dataset.pickTier; renderTierPick(); }
+      if (e.target.closest('[data-show-runes]')) { poolDialogEl.close(); sel = { player: poolEditing.pid, folder: null }; tab = 'runes'; render(); }
+    });
+    poolDialogEl.querySelector('[data-remove]').addEventListener('click', () => {
+      const { pid, champion } = poolEditing;
+      poolDialogEl.close();
+      savePoolList(pid, poolOf(pid).filter((e) => e.champion !== champion));
+    });
+
     function render() {
       validateSel();
       store.set('coach.sel', JSON.stringify(sel));
@@ -668,6 +880,10 @@
       document.getElementById('tab-notes').hidden = tab !== 'notes';
       document.getElementById('tab-maps').hidden = tab !== 'maps';
       document.getElementById('tab-shots').hidden = tab !== 'shots';
+      document.getElementById('tab-pool').hidden = tab !== 'pool';
+      const poolPid = poolPlayer();
+      document.getElementById('count-pool').textContent = (poolPid ? data.pool.filter((e) => e.player_id === poolPid).length : data.pool.length) || '';
+      if (tab === 'pool') renderPool();
       document.getElementById('shots').innerHTML = shots.length
         ? shots.map(shotCard).join('')
         : '<div class="empty" style="grid-column:1/-1">Zatím žádné screenshoty. Zkopíruj obrázek a zmáčkni Ctrl+V.</div>';

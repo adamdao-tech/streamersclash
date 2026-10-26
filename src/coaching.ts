@@ -1,5 +1,6 @@
 import type { Env } from './index';
 import { getChampions, resolveChampion } from './champions';
+import { playerGames, summarizeGames } from './drafts';
 import { logActivity } from './db';
 import { HttpError } from './http';
 import { cleanRunePage, getRuneData } from './runes';
@@ -29,7 +30,7 @@ const optId = (v: unknown): number | null => {
 /** Everything on the coaching page in one go – the data set is small. */
 export async function loadCoaching(env: Env) {
   const db = env.DB;
-  const [players, folders, runes, notes, maps, shots] = await Promise.all([
+  const [players, folders, runes, notes, maps, shots, pool] = await Promise.all([
     db.prepare(
       `SELECT p.id, p.nickname, p.role FROM players p JOIN teams t ON t.id = p.team_id
         WHERE t.is_own_team = 1
@@ -49,9 +50,18 @@ export async function loadCoaching(env: Env) {
               s.created_at, s.updated_at, u.display_name AS author_name
          FROM coaching_shots s LEFT JOIN users u ON u.id = s.created_by ORDER BY s.created_at DESC`,
     ).all(),
+    db.prepare('SELECT player_id, champion, tier, note, sort FROM champion_pool ORDER BY player_id, sort').all(),
   ]);
+  // Per champion games and winrate from recorded drafts, shown next to the tier list.
+  const poolStats: Record<number, unknown> = {};
+  await Promise.all(
+    (players.results as { id: number }[]).map(async (p) => {
+      poolStats[p.id] = summarizeGames(await playerGames(env, p.id)).champions;
+    }),
+  );
   return {
     players: players.results, folders: folders.results, runes: runes.results, notes: notes.results, maps: maps.results, shots: shots.results,
+    pool: pool.results, pool_stats: poolStats,
   };
 }
 
@@ -354,4 +364,40 @@ export async function deleteShot(env: Env, id: number): Promise<void> {
 export async function getShotImage(env: Env, id: number): Promise<{ mime: string; data: Uint8Array } | null> {
   const row = await env.DB.prepare('SELECT mime, data FROM coaching_shots WHERE id = ?').bind(id).first<{ mime: string; data: number[] }>();
   return row ? { mime: row.mime, data: new Uint8Array(row.data) } : null;
+}
+
+// --- champion pool (tier list per player) ---------------------------------------------------
+
+export const TIERS = ['S', 'A', 'B', 'C', 'L'] as const; // L = learning (Učí se)
+export const TIER_LABELS: Record<string, string> = { S: 'S – main', A: 'A – silný', B: 'B – hratelný', C: 'C – nouzově', L: 'Učí se' };
+
+/**
+ * Replaces a player's whole champion pool (the page sends the list after every drag).
+ * items: [{ champion, tier, note? }] in display order.
+ */
+export async function savePool(env: Env, actor: Actor, playerId: number, items: unknown): Promise<void> {
+  if (!(await env.DB.prepare('SELECT 1 FROM players WHERE id = ?').bind(playerId).first())) throw new HttpError(404, 'not_found', 'Hráč neexistuje.');
+  if (!Array.isArray(items)) throw new HttpError(400, 'invalid', 'Seznam championů chybí.');
+  if (items.length > 170) throw new HttpError(400, 'invalid', 'Moc championů.');
+  const champions = await getChampions(env).catch(() => []);
+  const seen = new Set<string>();
+  const rows = items.map((it, i) => {
+    const o = (it ?? {}) as Record<string, unknown>;
+    const tier = String(o.tier ?? '').toUpperCase();
+    if (!(TIERS as readonly string[]).includes(tier)) throw new HttpError(400, 'invalid', `Neznámý tier: ${o.tier}`);
+    const raw = str(o.champion, 'Champion', 40);
+    if (!raw) throw new HttpError(400, 'invalid', 'Chybí champion.');
+    const champion = resolveChampion(champions, raw) ?? (champions.length ? null : raw);
+    if (!champion) throw new HttpError(400, 'invalid', `Neznámý champion: ${raw}`);
+    if (seen.has(champion)) throw new HttpError(400, 'invalid', `${champion} je v poolu dvakrát.`);
+    seen.add(champion);
+    return { champion, tier, note: str(o.note, 'Poznámka', 300), sort: i };
+  });
+  await env.DB.batch([
+    env.DB.prepare('DELETE FROM champion_pool WHERE player_id = ?').bind(playerId),
+    ...rows.map((r) =>
+      env.DB.prepare('INSERT INTO champion_pool (player_id, champion, tier, note, sort) VALUES (?, ?, ?, ?, ?)').bind(playerId, r.champion, r.tier, r.note, r.sort),
+    ),
+  ]);
+  await logActivity(env.DB, actor, 'coaching.pool', 'player', playerId, { name: await placeName(env.DB, playerId) });
 }

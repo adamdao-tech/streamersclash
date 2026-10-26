@@ -378,4 +378,18 @@ CREATE TABLE coaching_shots (
 CREATE INDEX idx_coaching_shots_player ON coaching_shots(player_id);
 CREATE INDEX idx_coaching_shots_folder ON coaching_shots(folder_id);
 `,
+
+  /* 11: champion pool tier lists for our players */ `
+CREATE TABLE champion_pool (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  player_id  INTEGER NOT NULL REFERENCES players(id) ON DELETE CASCADE,
+  champion   TEXT NOT NULL,
+  tier       TEXT NOT NULL CHECK (tier IN ('S', 'A', 'B', 'C', 'L')),
+  note       TEXT,
+  sort       INTEGER NOT NULL DEFAULT 0,
+  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+  UNIQUE (player_id, champion)
+);
+CREATE INDEX idx_champion_pool_player ON champion_pool(player_id);
+`,
 ];

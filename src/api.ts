@@ -5,7 +5,10 @@ import { getLiveChannels, syncTwitchVods } from './vods';
 import { listDrafts, playerGames, relinkDraftPlayers, summarizeGames } from './drafts';
 import { getChampionData } from './champions';
 import { listSchedule, opponentLabel, requireOpponent, scheduleFields } from './schedule';
-import { createFolder, deleteFolder, deleteMap, deleteNote, deleteRunePage, loadCoaching, renameFolder, saveMap, saveNote, saveRunePage } from './coaching';
+import {
+  createFolder, deleteFolder, deleteMap, deleteNote, deleteRunePage, getBoard, getMapImage, loadCoaching, mapVersion,
+  renameFolder, resetMapImage, saveBoard, saveMap, saveNote, saveRunePage, setMapImage,
+} from './coaching';
 import { getRuneData } from './runes';
 
 const ROLES = ['TOP', 'JUNGLE', 'MID', 'ADC', 'SUPPORT', 'SUB'] as const;
@@ -333,7 +336,21 @@ async function route(req: Request, env: Env, url: URL, user: User): Promise<Resp
       throw new HttpError(502, 'ddragon_unavailable', 'Seznam run teď není dostupný.');
     }
   }
-  if (path === '/api/coaching' && method === 'GET') return json(await loadCoaching(env));
+  if (path === '/api/coaching' && method === 'GET') return json({ ...(await loadCoaching(env)), map_version: await mapVersion(env) });
+  if (path === '/api/coaching/map-image') {
+    if (method === 'GET') {
+      const res = await getMapImage(env);
+      if (!res) throw new HttpError(404, 'not_found', 'Vlastní obrázek mapy není nahraný.');
+      return res;
+    }
+    if (method === 'PUT') return (await setMapImage(env, actor, await readBody(req)), json({ ok: true, map_version: await mapVersion(env) }));
+    if (method === 'DELETE') return (await resetMapImage(env), json({ ok: true }));
+  }
+  if (path === '/api/coaching/board') {
+    if (method === 'GET') return json({ ...(await getBoard(env)), map_version: await mapVersion(env) });
+    // POST too: the page saves its last edit with navigator.sendBeacon when it is closed.
+    if (method === 'PUT' || method === 'POST') return (await saveBoard(env, await readBody(req)), json({ ok: true }));
+  }
   if (path === '/api/coaching/folders' && method === 'POST') {
     return json({ id: await createFolder(env, actor, await readBody(req)) }, 201);
   }

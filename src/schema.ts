@@ -339,4 +339,20 @@ CREATE TABLE coaching_maps (
 CREATE INDEX idx_coaching_maps_player ON coaching_maps(player_id);
 CREATE INDEX idx_coaching_maps_folder ON coaching_maps(folder_id);
 `,
+
+  /* 9: uploaded images (own map picture) and the single coaching board (Riftkit) */ `
+CREATE TABLE app_assets (
+  key        TEXT PRIMARY KEY,
+  mime       TEXT NOT NULL,
+  data       BLOB NOT NULL,
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE coaching_board (
+  id         INTEGER PRIMARY KEY CHECK (id = 1),
+  markers    TEXT NOT NULL DEFAULT '[]',
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+INSERT INTO coaching_board (id) VALUES (1);
+`,
 ];

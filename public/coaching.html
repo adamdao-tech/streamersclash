@@ -14,8 +14,9 @@
     <div class="page-head">
       <div>
         <h1>Koučing</h1>
-        <p>Runy a zápisky pro celý tým i pro každého hráče, rozdělené do složek podle tebe.</p>
+        <p>Runy, zápisky a mapy pro celý tým i pro každého hráče, rozdělené do složek podle tebe.</p>
       </div>
+      <a class="btn btn-primary board-link" href="/board">🗺️ Riftkit – velká tabule</a>
     </div>
 
     <div class="coach">
@@ -31,7 +32,6 @@
           <button data-tab="runes">Runy <span class="count" id="count-runes"></span></button>
           <button data-tab="notes">Zápisky <span class="count" id="count-notes"></span></button>
           <button data-tab="maps">Mapy <span class="count" id="count-maps"></span></button>
-          <button data-tab="riftkit">Riftkit</button>
         </div>
 
         <div id="tab-runes">
@@ -45,13 +45,6 @@
         <div id="tab-maps" hidden>
           <div style="display:flex;justify-content:flex-end;margin-bottom:12px"><button class="btn btn-primary" id="add-map">+ Mapa</button></div>
           <div id="maps" class="rp-grid"></div>
-        </div>
-        <div id="tab-riftkit" hidden>
-          <div class="riftkit-head">
-            <span class="muted">Plánovač map od <b>map.riftkit.net</b> – kreslení, wardy a pozice. Co tam nakreslíš, se ukládá u nich, ne tady.</span>
-            <a class="btn btn-small" href="https://map.riftkit.net" target="_blank" rel="noopener">Otevřít v nové záložce ↗</a>
-          </div>
-          <div class="riftkit-frame" id="riftkit-frame"></div>
         </div>
       </section>
     </div>
@@ -139,7 +132,7 @@
   </dialog>
 
   <script type="module">
-    import { api, esc, initPage, formDialog, ROLE_LABELS, loadChampions, timeAgo } from '/app.js';
+    import { api, esc, initPage, formDialog, ROLE_LABELS, loadChampions, timeAgo, MARKERS, markersSvg, mapBoxHtml, mapImageSrc } from '/app.js';
 
     await initPage('coaching');
 
@@ -154,24 +147,13 @@
     const champIcons = await loadChampions();
     // Selected place: player = 'team' or a player id; folder = folder id or null.
     let sel = JSON.parse(store.get('coach.sel') || 'null') || { player: 'team', folder: null };
-    let tab = ['notes', 'maps', 'riftkit'].includes(store.get('coach.tab')) ? store.get('coach.tab') : 'runes';
+    let tab = ['notes', 'maps'].includes(store.get('coach.tab')) ? store.get('coach.tab') : 'runes';
 
     // Broken icons (e.g. a renamed rune) turn into their short label instead of an empty circle.
     document.addEventListener('error', (e) => {
       const img = e.target;
       if (img.tagName !== 'IMG') return;
       if (img.dataset.fb !== undefined) img.replaceWith(document.createTextNode(img.dataset.fb));
-      // Map image: try the next source; when none is left, show a plain background.
-      if (img.dataset.map !== undefined) {
-        const next = MAP_SOURCES()[Number(img.dataset.map) + 1];
-        if (next) { img.dataset.map = Number(img.dataset.map) + 1; img.src = next; }
-        else img.replaceWith(Object.assign(document.createElement('div'), { className: 'map-fallback', textContent: 'Mapa se nenačetla' }));
-      }
-    }, true);
-    // Remember which map source works so later maps start with it.
-    document.addEventListener('load', (e) => {
-      const img = e.target;
-      if (img.tagName === 'IMG' && img.dataset.map !== undefined) goodMap = Number(img.dataset.map);
     }, true);
 
     const short = (name) => String(name || '?').split(/\s+/).map((w) => w[0]).join('').slice(0, 3).toUpperCase();
@@ -292,42 +274,8 @@
     }
 
     // --- ward maps -----------------------------------------------------------------------------------
-    const MARKERS = {
-      ward: { label: 'Ward', hint: 'Žlutý (stealth) ward' },
-      control: { label: 'Control ward', hint: 'Růžový control ward' },
-      farsight: { label: 'Farsight', hint: 'Modrý farsight ward' },
-      sweep: { label: 'Sweeper', hint: 'Oblast, kterou projet sweeperem' },
-      note: { label: 'Poznámka', hint: 'Očíslovaný bod s popiskem' },
-    };
-    // Sharp, large map from CommunityDragon first; Riot's small 512 px minimap as the fallback.
-    const MAP_SOURCES = () => [
-      'https://raw.communitydragon.org/latest/game/assets/maps/info/map11/2dlevelminimap_base_baron1.png',
-      'https://raw.communitydragon.org/latest/game/levels/map11/info/2dlevelminimap.png',
-      runeData ? `${DD}/${runeData.version}/img/map/map11.png` : `${DD}/15.1.1/img/map/map11.png`,
-    ];
-    let goodMap = 0;
-
-    /** SVG for all markers; coordinates are 0–100 in both axes. */
-    function markersSvg(markers, selected = -1) {
-      let noteNo = 0;
-      const out = markers.map((m, i) => {
-        const on = i === selected ? ' sel' : '';
-        let shape;
-        if (m.type === 'sweep') shape = `<circle class="mk-sweep${on}" cx="${m.x}" cy="${m.y}" r="6"/>`;
-        else if (m.type === 'note') {
-          noteNo++;
-          shape = `<circle class="mk-note${on}" cx="${m.x}" cy="${m.y}" r="2.3"/><text class="mk-num" x="${m.x}" y="${m.y}">${noteNo}</text>`;
-        } else shape = `<circle class="mk-${m.type}${on}" cx="${m.x}" cy="${m.y}" r="${m.type === 'farsight' ? 1.7 : 1.9}"/>`;
-        const label = m.label ? `<text class="mk-label" x="${m.x + 2.8}" y="${m.y + 0.9}">${esc(m.label)}</text>` : '';
-        return `<g class="mk" data-i="${i}"><title>${esc(MARKERS[m.type]?.label || m.type)}${m.label ? ` – ${esc(m.label)}` : ''}</title>${shape}${label}</g>`;
-      });
-      return `<svg class="map-svg" viewBox="0 0 100 100" preserveAspectRatio="none">${out.join('')}</svg>`;
-    }
-
-    function mapHtml(markers, selected) {
-      const i = Math.min(goodMap, MAP_SOURCES().length - 1);
-      return `<div class="map-box"><img src="${esc(MAP_SOURCES()[i])}" data-map="${i}" alt="Summoner's Rift" draggable="false">${markersSvg(markers, selected)}</div>`;
-    }
+    // Map picture: the uploaded one if there is one, otherwise Riot's minimap (see app.js).
+    const mapHtml = (markers, selected) => mapBoxHtml(markers, selected, mapImageSrc(data.map_version, runeData?.version));
 
     function mapCard(m) {
       const markers = JSON.parse(m.markers || '[]');
@@ -470,12 +418,6 @@
       document.getElementById('tab-runes').hidden = tab !== 'runes';
       document.getElementById('tab-notes').hidden = tab !== 'notes';
       document.getElementById('tab-maps').hidden = tab !== 'maps';
-      document.getElementById('tab-riftkit').hidden = tab !== 'riftkit';
-      // Load the embedded planner only when its tab is opened, and only once.
-      const frame = document.getElementById('riftkit-frame');
-      if (tab === 'riftkit' && !frame.firstChild) {
-        frame.innerHTML = '<iframe src="https://map.riftkit.net" title="RiftKit – LoL Planner" loading="lazy" referrerpolicy="no-referrer" allow="clipboard-write; fullscreen"></iframe>';
-      }
       document.getElementById('maps').innerHTML = maps.length
         ? maps.map(mapCard).join('')
         : '<div class="empty" style="grid-column:1/-1">Zatím žádné mapy. Přidej mapu a naklikej, kam patří wardy.</div>';

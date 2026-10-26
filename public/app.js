@@ -306,3 +306,53 @@ export function startCountdowns() {
   tick();
   return setInterval(tick, 30_000);
 }
+
+// --- maps (ward maps and the Riftkit board) ----------------------------------------------
+
+export const MARKERS = {
+  ward: { label: 'Ward', hint: 'Žlutý (stealth) ward' },
+  control: { label: 'Control ward', hint: 'Růžový control ward' },
+  farsight: { label: 'Farsight', hint: 'Modrý farsight ward' },
+  sweep: { label: 'Sweeper', hint: 'Oblast, kterou projet sweeperem' },
+  note: { label: 'Poznámka', hint: 'Očíslovaný bod s popiskem' },
+};
+
+const DDRAGON_MAP = (v) => `https://ddragon.leagueoflegends.com/cdn/${v || '15.1.1'}/img/map/map11.png`;
+
+/** The uploaded map picture when there is one, otherwise Riot's small minimap. */
+export function mapImageSrc(mapVersion, ddVersion) {
+  return mapVersion
+    ? { src: `/api/coaching/map-image?v=${encodeURIComponent(mapVersion)}`, alt: DDRAGON_MAP(ddVersion) }
+    : { src: DDRAGON_MAP(ddVersion), alt: null };
+}
+
+// If the uploaded picture can't be loaded, fall back to Riot's minimap.
+document.addEventListener('error', (e) => {
+  const img = e.target;
+  if (img.tagName === 'IMG' && img.dataset.alt) {
+    const alt = img.dataset.alt;
+    delete img.dataset.alt;
+    img.src = alt;
+  }
+}, true);
+
+/** SVG for all markers; coordinates are 0–100 % of the map in both axes. */
+export function markersSvg(markers, selected = -1) {
+  let noteNo = 0;
+  const out = markers.map((m, i) => {
+    const on = i === selected ? ' sel' : '';
+    let shape;
+    if (m.type === 'sweep') shape = `<circle class="mk-sweep${on}" cx="${m.x}" cy="${m.y}" r="6"/>`;
+    else if (m.type === 'note') {
+      noteNo++;
+      shape = `<circle class="mk-note${on}" cx="${m.x}" cy="${m.y}" r="2.3"/><text class="mk-num" x="${m.x}" y="${m.y}">${noteNo}</text>`;
+    } else shape = `<circle class="mk-${m.type}${on}" cx="${m.x}" cy="${m.y}" r="${m.type === 'farsight' ? 1.7 : 1.9}"/>`;
+    const label = m.label ? `<text class="mk-label" x="${m.x + 2.8}" y="${m.y + 0.9}">${esc(m.label)}</text>` : '';
+    return `<g class="mk" data-i="${i}"><title>${esc(MARKERS[m.type]?.label || m.type)}${m.label ? ` – ${esc(m.label)}` : ''}</title>${shape}${label}</g>`;
+  });
+  return `<svg class="map-svg" viewBox="0 0 100 100" preserveAspectRatio="none">${out.join('')}</svg>`;
+}
+
+export function mapBoxHtml(markers, selected, image) {
+  return `<div class="map-box"><img src="${esc(image.src)}"${image.alt ? ` data-alt="${esc(image.alt)}"` : ''} alt="Summoner's Rift" draggable="false">${markersSvg(markers, selected)}</div>`;
+}

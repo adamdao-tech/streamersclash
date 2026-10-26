@@ -200,9 +200,9 @@ export async function deleteNote(env: Env, id: number): Promise<void> {
 
 export const MARKER_TYPES = ['ward', 'control', 'farsight', 'sweep', 'note'] as const;
 
-function cleanMarkers(v: unknown) {
+export function cleanMarkers(v: unknown) {
   if (!Array.isArray(v)) throw new HttpError(400, 'invalid', 'Značky musí být seznam.');
-  if (v.length > 80) throw new HttpError(400, 'invalid', 'Na mapě může být nejvýš 80 značek.');
+  if (v.length > 150) throw new HttpError(400, 'invalid', 'Na mapě může být nejvýš 150 značek.');
   return v.map((m) => {
     const o = (m ?? {}) as Record<string, unknown>;
     const type = String(o.type);
@@ -252,4 +252,59 @@ export async function saveMap(env: Env, actor: Actor, body: Body, id?: number): 
 
 export async function deleteMap(env: Env, id: number): Promise<void> {
   await env.DB.prepare('DELETE FROM coaching_maps WHERE id = ?').bind(id).run();
+}
+
+// --- own map picture + the single board ------------------------------------------------
+
+const MAP_KEY = 'map';
+const MAX_IMAGE = 1_900_000; // D1 keeps a value up to ~2 MB; the browser shrinks the picture before upload.
+
+/** When the own map picture last changed (used to bust caches), or null if none is uploaded. */
+export async function mapVersion(env: Env): Promise<string | null> {
+  const row = await env.DB.prepare('SELECT updated_at FROM app_assets WHERE key = ?').bind(MAP_KEY).first<{ updated_at: string }>();
+  return row?.updated_at ?? null;
+}
+
+export async function getMapImage(env: Env): Promise<Response | null> {
+  const row = await env.DB.prepare('SELECT mime, data FROM app_assets WHERE key = ?').bind(MAP_KEY).first<{ mime: string; data: number[] }>();
+  if (!row) return null;
+  return new Response(new Uint8Array(row.data), {
+    // The URL carries the version, so the picture can be cached for long.
+    headers: { 'Content-Type': row.mime, 'Cache-Control': 'private, max-age=31536000, immutable' },
+  });
+}
+
+export async function setMapImage(env: Env, actor: Actor, body: Body): Promise<void> {
+  const mime = String(body.mime ?? '');
+  if (!['image/webp', 'image/jpeg', 'image/png'].includes(mime)) throw new HttpError(400, 'invalid', 'Obrázek musí být WebP, JPEG nebo PNG.');
+  let bytes: Uint8Array;
+  try {
+    bytes = Uint8Array.from(atob(String(body.data ?? '')), (c) => c.charCodeAt(0));
+  } catch {
+    throw new HttpError(400, 'invalid', 'Obrázek se nepodařilo přečíst.');
+  }
+  if (!bytes.length) throw new HttpError(400, 'invalid', 'Obrázek je prázdný.');
+  if (bytes.length > MAX_IMAGE) throw new HttpError(400, 'invalid', 'Obrázek je moc velký (max ~1,9 MB).');
+  await env.DB.prepare(
+    `INSERT INTO app_assets (key, mime, data, updated_at) VALUES (?, ?, ?, datetime('now'))
+     ON CONFLICT(key) DO UPDATE SET mime = excluded.mime, data = excluded.data, updated_at = excluded.updated_at`,
+  ).bind(MAP_KEY, mime, bytes).run();
+  await logActivity(env.DB, actor, 'coaching.mapimage', null, null, { name: 'obrázek mapy' });
+}
+
+export async function resetMapImage(env: Env): Promise<void> {
+  await env.DB.prepare('DELETE FROM app_assets WHERE key = ?').bind(MAP_KEY).run();
+}
+
+export async function getBoard(env: Env) {
+  const row = await env.DB.prepare('SELECT markers, updated_at FROM coaching_board WHERE id = 1').first<{ markers: string; updated_at: string }>();
+  return { markers: JSON.parse(row?.markers ?? '[]'), updated_at: row?.updated_at ?? null };
+}
+
+export async function saveBoard(env: Env, body: Body): Promise<void> {
+  const markers = JSON.stringify(cleanMarkers(body.markers));
+  await env.DB.prepare(
+    `INSERT INTO coaching_board (id, markers, updated_at) VALUES (1, ?, datetime('now'))
+     ON CONFLICT(id) DO UPDATE SET markers = excluded.markers, updated_at = excluded.updated_at`,
+  ).bind(markers).run();
 }

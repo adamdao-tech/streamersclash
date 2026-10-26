@@ -14,45 +14,84 @@
     <div class="page-head">
       <div>
         <h1>Harmonogram</h1>
-        <p>Kdy a proti komu hrajeme. Časy jsou v tvém místním čase.</p>
+        <p>Turnajové zápasy, scrimy a další akce týmu. Časy jsou v tvém místním čase.</p>
       </div>
-      <button class="btn btn-primary" id="add-match">+ Přidat zápas</button>
+      <button class="btn btn-primary" id="add-match">+ Přidat</button>
     </div>
 
     <div id="next"></div>
 
-    <div class="section-head"><h2>Nadcházející</h2></div>
-    <div id="upcoming" class="sched-list"></div>
-
-    <div id="past-wrap" hidden>
-      <div class="section-head"><h2>Odehrané</h2></div>
-      <div id="past" class="sched-list sched-past"></div>
+    <div class="sched-toolbar">
+      <div class="seg" id="view">
+        <button data-view="list">Seznam</button>
+        <button data-view="cal">Kalendář</button>
+      </div>
+      <div class="seg" id="filter">
+        <button data-kind="">Vše</button>
+        <button data-kind="match">Turnaj</button>
+        <button data-kind="scrim">Scrimy</button>
+        <button data-kind="other">Jiné</button>
+      </div>
     </div>
+
+    <section id="list-view">
+      <div class="section-head"><h2>Nadcházející</h2></div>
+      <div id="upcoming" class="sched-list"></div>
+      <div id="past-wrap" hidden>
+        <div class="section-head"><h2>Proběhlé</h2></div>
+        <div id="past" class="sched-list sched-past"></div>
+      </div>
+    </section>
+
+    <section id="cal-view" hidden>
+      <div class="cal-head">
+        <button class="btn btn-small" id="cal-prev" aria-label="Předchozí měsíc">‹</button>
+        <h2 id="cal-title"></h2>
+        <button class="btn btn-small" id="cal-today">Dnes</button>
+        <button class="btn btn-small" id="cal-next" aria-label="Další měsíc">›</button>
+      </div>
+      <div id="cal" class="cal"></div>
+      <div class="cal-legend">
+        <span class="kind kind-match">Turnaj</span><span class="kind kind-scrim">Scrim</span><span class="kind kind-other">Jiné</span>
+        <span>Klikni na den pro přidání akce, na akci pro úpravu.</span>
+      </div>
+      <div id="cal-day-list" class="cal-day-list"></div>
+    </section>
   </main>
 
   <dialog id="match-dialog">
     <form>
-      <h2>Zápas</h2>
+      <h2>Akce</h2>
       <div class="form-grid">
-        <div><label>Datum a čas *</label><input name="starts_at" type="datetime-local" required></div>
         <div>
-          <label>Formát</label>
-          <select name="format"><option>BO1</option><option>BO2</option><option>BO3</option><option>BO5</option></select>
+          <label>Typ</label>
+          <select name="kind">
+            <option value="match">Turnajový zápas</option>
+            <option value="scrim">Scrim</option>
+            <option value="other">Jiné (trénink, schůzka…)</option>
+          </select>
         </div>
-        <div>
+        <div><label>Datum a čas *</label><input name="starts_at" type="datetime-local" required></div>
+        <div class="full" data-show="other"><label>Co se děje *</label><input name="title" maxlength="80" placeholder="např. Trénink, Review VODek, Schůzka týmu"></div>
+        <div data-show="match scrim">
           <label>Soupeř</label>
           <select name="opponent_team_id"></select>
         </div>
-        <div><label>…nebo jméno soupeře</label><input name="opponent_name" maxlength="80" placeholder="když tým v appce ještě není"></div>
-        <div><label>Fáze / kolo</label><input name="stage" maxlength="80" placeholder="např. Skupina A – 2. kolo"></div>
-        <div><label>Místo</label><input name="location" maxlength="120" placeholder="např. Kongresové centrum Praha"></div>
-        <div class="full"><label>Odkaz na stream</label><input name="stream_url" type="url" placeholder="https://twitch.tv/…"></div>
-        <div><label>Naše skóre</label><input name="our_score" type="number" min="0" max="9" inputmode="numeric" placeholder="po zápase"></div>
-        <div><label>Skóre soupeře</label><input name="their_score" type="number" min="0" max="9" inputmode="numeric" placeholder="po zápase"></div>
+        <div data-show="match scrim"><label>…nebo jméno soupeře</label><input name="opponent_name" maxlength="80" placeholder="když tým v appce ještě není"></div>
+        <div data-show="match scrim">
+          <label>Formát</label>
+          <select name="format"><option>BO1</option><option>BO2</option><option>BO3</option><option>BO5</option></select>
+        </div>
+        <div data-show="match"><label>Fáze / kolo</label><input name="stage" maxlength="80" placeholder="např. Skupina A – 2. kolo"></div>
+        <div><label>Místo</label><input name="location" maxlength="120" placeholder="např. Discord, Kongresové centrum"></div>
+        <div data-show="match"><label>Odkaz na stream</label><input name="stream_url" type="url" placeholder="https://twitch.tv/…"></div>
+        <div data-show="match scrim"><label>Naše skóre</label><input name="our_score" type="number" min="0" max="9" inputmode="numeric" placeholder="po zápase"></div>
+        <div data-show="match scrim"><label>Skóre soupeře</label><input name="their_score" type="number" min="0" max="9" inputmode="numeric" placeholder="po zápase"></div>
         <div class="full"><label>Poznámky</label><textarea name="notes" maxlength="2000"></textarea></div>
       </div>
       <p class="form-error"></p>
       <div class="dialog-actions">
+        <button type="button" class="btn btn-danger" data-remove hidden style="margin-right:auto">Smazat</button>
         <button type="button" class="btn" data-cancel>Zrušit</button>
         <button type="submit" class="btn btn-primary">Uložit</button>
       </div>
@@ -62,28 +101,43 @@
   <script type="module">
     import {
       api, esc, initPage, formDialog, matchWhen, countdown, isUpcoming, opponentName, opponentLogo,
-      scoreBadge, nextMatchHtml, startCountdowns,
+      scoreBadge, nextMatchHtml, startCountdowns, kindBadge, eventName, featuredEvent, KINDS,
     } from '/app.js';
 
     await initPage('schedule');
 
-    let matches = [];
+    const store = {
+      get(k) { try { return localStorage.getItem(k); } catch { return null; } },
+      set(k, v) { try { localStorage.setItem(k, v); } catch {} },
+    };
+
+    let events = [];
     let editing = null;
+    let view = store.get('sched.view') === 'cal' ? 'cal' : 'list';
+    let kindFilter = store.get('sched.kind') || '';
+    let month = new Date(); month.setDate(1); month.setHours(0, 0, 0, 0);
+    let selectedDay = null; // mobile calendar: day whose events are listed below the grid
+
+    const p2 = (n) => String(n).padStart(2, '0');
+    const dayKey = (d) => `${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())}`;
 
     /** ISO (UTC) → value for <input type="datetime-local"> in local time. */
     function toLocalInput(iso) {
       const d = new Date(iso);
-      const p = (n) => String(n).padStart(2, '0');
-      return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
+      return `${dayKey(d)}T${p2(d.getHours())}:${p2(d.getMinutes())}`;
     }
+
+    const visible = () => events.filter((m) => !kindFilter || m.kind === kindFilter);
 
     function row(m) {
       const w = matchWhen(m.starts_at);
-      const chips = [m.format, m.stage, m.location].filter(Boolean).map((c) => `<span class="chip">${esc(c)}</span>`).join('');
-      const name = m.opponent_team_id
-        ? `<a href="/team?id=${m.opponent_team_id}">${esc(opponentName(m))}</a>`
-        : esc(opponentName(m));
-      const upcoming = isUpcoming(m);
+      const chips = [m.kind !== 'other' && m.format, m.stage, m.location].filter(Boolean).map((c) => `<span class="chip">${esc(c)}</span>`).join('');
+      const name = m.kind !== 'other' && m.opponent_team_id
+        ? `vs <a href="/team?id=${m.opponent_team_id}">${esc(opponentName(m))}</a>`
+        : eventName(m);
+      const status = isUpcoming(m)
+        ? `<span class="chip" data-countdown="${esc(m.starts_at)}">${countdown(m.starts_at)}</span>`
+        : m.kind === 'other' ? '' : scoreBadge(m) || '<span class="chip">bez výsledku</span>';
       return `
         <div class="sched-row" style="--accent:${esc(m.team_accent_color || '#c8a64b')}">
           <div class="sched-date">
@@ -94,84 +148,191 @@
           <div class="sched-opp">
             ${opponentLogo(m)}
             <div style="min-width:0">
-              <div class="name">vs ${name}</div>
+              <div class="name">${kindBadge(m)}${name}</div>
               ${chips ? `<div class="chips">${chips}</div>` : ''}
               ${m.notes ? `<div class="note">${esc(m.notes)}</div>` : ''}
             </div>
           </div>
           <div class="sched-actions">
-            ${upcoming ? `<span class="chip" data-countdown="${esc(m.starts_at)}">${countdown(m.starts_at)}</span>` : scoreBadge(m) || '<span class="chip">bez výsledku</span>'}
+            ${status}
             ${m.stream_url ? `<a class="btn btn-small" href="${esc(m.stream_url)}" target="_blank" rel="noopener">Stream</a>` : ''}
             <button class="btn btn-small" data-edit="${m.id}">Upravit</button>
-            <button class="btn btn-small btn-danger" data-delete="${m.id}" title="Smazat">✕</button>
           </div>
         </div>`;
     }
 
-    async function load() {
-      ({ matches } = await api('/api/schedule'));
-      const upcoming = matches.filter(isUpcoming);
-      const past = matches.filter((m) => !isUpcoming(m)).reverse();
-
-      document.getElementById('next').innerHTML = upcoming.length ? nextMatchHtml(upcoming[0]) : '';
+    function renderList() {
+      const list = visible();
+      const upcoming = list.filter(isUpcoming);
+      const past = list.filter((m) => !isUpcoming(m)).reverse();
+      const what = kindFilter ? KINDS[kindFilter].label.toLowerCase() : '';
       document.getElementById('upcoming').innerHTML = upcoming.length
         ? upcoming.map(row).join('')
-        : '<div class="empty">Žádný naplánovaný zápas. Přidej ho tlačítkem nahoře.</div>';
+        : `<div class="empty">Nic naplánovaného${what ? ` (${what})` : ''}. Přidej akci tlačítkem nahoře.</div>`;
       document.getElementById('past-wrap').hidden = !past.length;
       document.getElementById('past').innerHTML = past.map(row).join('');
     }
 
-    // Opponent picker: every team except ours.
+    function evPill(m) {
+      const w = matchWhen(m.starts_at);
+      const label = m.kind === 'other' ? opponentName(m) : `vs ${opponentName(m)}`;
+      return `<button type="button" class="cal-ev kind-${m.kind}${isUpcoming(m) ? '' : ' past'}" data-edit="${m.id}"
+        title="${esc(`${KINDS[m.kind]?.label || ''} · ${w.time} ${label}`)}"><b>${w.time}</b>${esc(label)}</button>`;
+    }
+
+    function renderCalendar() {
+      const title = month.toLocaleDateString('cs-CZ', { month: 'long', year: 'numeric' });
+      document.getElementById('cal-title').textContent = title;
+      const byDay = new Map();
+      for (const m of visible()) {
+        const k = dayKey(new Date(m.starts_at));
+        if (!byDay.has(k)) byDay.set(k, []);
+        byDay.get(k).push(m);
+      }
+      // Grid starts on the Monday on or before the 1st and runs for whole weeks.
+      const start = new Date(month);
+      start.setDate(1 - ((month.getDay() + 6) % 7));
+      const last = new Date(month.getFullYear(), month.getMonth() + 1, 0);
+      const cells = [];
+      const today = dayKey(new Date());
+      for (const d = new Date(start); d <= last || d.getDay() !== 1; d.setDate(d.getDate() + 1)) {
+        const k = dayKey(d);
+        const evs = byDay.get(k) || [];
+        const cls = ['cal-day', d.getMonth() !== month.getMonth() && 'out', k === today && 'today'].filter(Boolean).join(' ');
+        cells.push(`<div class="${cls}" data-day="${k}"><span class="cal-num">${d.getDate()}</span>${evs.map(evPill).join('')}</div>`);
+      }
+      document.getElementById('cal').innerHTML =
+        ['Po', 'Út', 'St', 'Čt', 'Pá', 'So', 'Ne'].map((d) => `<div class="cal-wd">${d}</div>`).join('') + cells.join('');
+      renderDayList(byDay);
+    }
+
+    /** On phones the calendar only shows coloured bars, so the tapped day's events are listed below it. */
+    function renderDayList(byDay) {
+      const el = document.getElementById('cal-day-list');
+      if (!selectedDay) { el.innerHTML = ''; return; }
+      const [y, mo, d] = selectedDay.split('-').map(Number);
+      const label = new Date(y, mo - 1, d).toLocaleDateString('cs-CZ', { weekday: 'long', day: 'numeric', month: 'numeric' });
+      const evs = byDay.get(selectedDay) || [];
+      el.innerHTML = `
+        <div class="section-head" style="display:flex;justify-content:space-between;align-items:center;gap:10px">
+          <h2 style="text-transform:capitalize">${esc(label)}</h2>
+          <button class="btn btn-small" data-new-day="${selectedDay}">+ Přidat</button>
+        </div>
+        <div class="sched-list">${evs.length ? evs.map(row).join('') : '<div class="empty" style="padding:20px">Tento den nic.</div>'}</div>`;
+    }
+
+    function render() {
+      const next = featuredEvent(kindFilter ? visible() : events);
+      document.getElementById('next').innerHTML = next ? nextMatchHtml(next) : '';
+      document.getElementById('list-view').hidden = view !== 'list';
+      document.getElementById('cal-view').hidden = view !== 'cal';
+      document.querySelectorAll('#view button').forEach((b) => b.classList.toggle('active', b.dataset.view === view));
+      document.querySelectorAll('#filter button').forEach((b) => b.classList.toggle('active', b.dataset.kind === kindFilter));
+      if (view === 'list') renderList(); else renderCalendar();
+    }
+
+    async function load() {
+      ({ matches: events } = await api('/api/schedule'));
+      render();
+    }
+
+    // --- form ---------------------------------------------------------------
     const { teams } = await api('/api/teams');
     document.querySelector('[name=opponent_team_id]').innerHTML =
       '<option value="">— jiný soupeř —</option>' +
       teams.filter((t) => !t.is_own_team).map((t) => `<option value="${t.id}">${esc(t.name)}</option>`).join('');
 
     const dialogEl = document.getElementById('match-dialog');
+    const kindSelect = dialogEl.querySelector('[name=kind]');
+    function syncFields() {
+      for (const el of dialogEl.querySelectorAll('[data-show]')) el.hidden = !el.dataset.show.split(' ').includes(kindSelect.value);
+    }
+    kindSelect.addEventListener('change', syncFields);
+
     const dialog = formDialog(dialogEl, {
       async onSubmit(v) {
         if (!v.starts_at) throw new Error('Zadej datum a čas.');
+        const other = v.kind === 'other';
         const body = {
-          ...v,
+          kind: v.kind,
           starts_at: new Date(v.starts_at).toISOString(),
-          opponent_team_id: v.opponent_team_id ? Number(v.opponent_team_id) : null,
-          opponent_name: v.opponent_team_id ? null : v.opponent_name,
-          our_score: v.our_score === '' ? null : Number(v.our_score),
-          their_score: v.their_score === '' ? null : Number(v.their_score),
+          title: other ? v.title : null,
+          opponent_team_id: !other && v.opponent_team_id ? Number(v.opponent_team_id) : null,
+          opponent_name: !other && !v.opponent_team_id ? v.opponent_name : null,
+          format: v.format,
+          stage: v.kind === 'match' ? v.stage : null,
+          location: v.location,
+          stream_url: v.kind === 'match' ? v.stream_url : null,
+          our_score: other || v.our_score === '' ? null : Number(v.our_score),
+          their_score: other || v.their_score === '' ? null : Number(v.their_score),
+          notes: v.notes,
         };
-        if (!body.opponent_team_id && !String(body.opponent_name || '').trim()) throw new Error('Vyber soupeře, nebo napiš jeho jméno.');
+        if (other && !String(body.title || '').trim()) throw new Error('Napiš, co se děje (např. Trénink).');
+        if (!other && !body.opponent_team_id && !String(body.opponent_name || '').trim()) throw new Error('Vyber soupeře, nebo napiš jeho jméno.');
         if (editing) await api(`/api/schedule/${editing}`, { method: 'PUT', body });
         else await api('/api/schedule', { method: 'POST', body });
         await load();
       },
     });
 
-    document.getElementById('add-match').addEventListener('click', () => {
+    const removeBtn = dialogEl.querySelector('[data-remove]');
+    function openNew(values = {}) {
       editing = null;
-      dialogEl.querySelector('h2').textContent = 'Nový zápas';
-      dialog.open({ format: 'BO1' });
+      dialogEl.querySelector('h2').textContent = 'Nová akce';
+      removeBtn.hidden = true;
+      dialog.open({ kind: kindFilter || 'match', format: kindFilter === 'scrim' ? 'BO3' : 'BO1', ...values });
+      syncFields();
+    }
+    function openEdit(id) {
+      const m = events.find((x) => x.id === id);
+      if (!m) return;
+      editing = m.id;
+      dialogEl.querySelector('h2').textContent = 'Upravit akci';
+      removeBtn.hidden = false;
+      dialog.open({
+        ...m,
+        starts_at: toLocalInput(m.starts_at),
+        opponent_team_id: m.opponent_team_id ?? '',
+        our_score: m.our_score ?? '',
+        their_score: m.their_score ?? '',
+      });
+      syncFields();
+    }
+    removeBtn.addEventListener('click', async () => {
+      const m = events.find((x) => x.id === editing);
+      if (!m || !confirm(`Smazat ${m.kind === 'other' ? opponentName(m) : `${KINDS[m.kind].label.toLowerCase()} proti ${opponentName(m)}`}?`)) return;
+      await api(`/api/schedule/${m.id}`, { method: 'DELETE' });
+      dialogEl.close();
+      await load();
     });
 
-    document.querySelector('main').addEventListener('click', async (e) => {
+    // --- interactions -------------------------------------------------------
+    document.getElementById('add-match').addEventListener('click', () => openNew());
+    document.getElementById('view').addEventListener('click', (e) => {
+      const b = e.target.closest('[data-view]'); if (!b) return;
+      view = b.dataset.view; store.set('sched.view', view); render();
+    });
+    document.getElementById('filter').addEventListener('click', (e) => {
+      const b = e.target.closest('[data-kind]'); if (!b) return;
+      kindFilter = b.dataset.kind; store.set('sched.kind', kindFilter); render();
+    });
+    const shiftMonth = (n) => { month = new Date(month.getFullYear(), month.getMonth() + n, 1); selectedDay = null; renderCalendar(); };
+    document.getElementById('cal-prev').addEventListener('click', () => shiftMonth(-1));
+    document.getElementById('cal-next').addEventListener('click', () => shiftMonth(1));
+    document.getElementById('cal-today').addEventListener('click', () => {
+      month = new Date(); month.setDate(1); month.setHours(0, 0, 0, 0); selectedDay = null; renderCalendar();
+    });
+
+    const phone = matchMedia('(max-width: 640px)');
+    document.querySelector('main').addEventListener('click', (e) => {
+      const newDay = e.target.closest('[data-new-day]');
+      if (newDay) return openNew({ starts_at: `${newDay.dataset.newDay}T18:00` });
       const edit = e.target.closest('[data-edit]');
-      const del = e.target.closest('[data-delete]');
-      if (edit) {
-        const m = matches.find((x) => x.id === Number(edit.dataset.edit));
-        editing = m.id;
-        dialogEl.querySelector('h2').textContent = 'Upravit zápas';
-        dialog.open({
-          ...m,
-          starts_at: toLocalInput(m.starts_at),
-          opponent_team_id: m.opponent_team_id ?? '',
-          our_score: m.our_score ?? '',
-          their_score: m.their_score ?? '',
-        });
-      }
-      if (del) {
-        const m = matches.find((x) => x.id === Number(del.dataset.delete));
-        if (!confirm(`Smazat zápas proti ${opponentName(m)}?`)) return;
-        await api(`/api/schedule/${m.id}`, { method: 'DELETE' });
-        await load();
+      if (edit && !(phone.matches && edit.classList.contains('cal-ev'))) return openEdit(Number(edit.dataset.edit));
+      const day = e.target.closest('[data-day]');
+      if (day) {
+        if (phone.matches) { selectedDay = day.dataset.day; renderCalendar(); }
+        else openNew({ starts_at: `${day.dataset.day}T18:00` });
       }
     });
 

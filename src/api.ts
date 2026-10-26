@@ -293,14 +293,15 @@ async function route(req: Request, env: Env, url: URL, user: User): Promise<Resp
   if (path === '/api/schedule') {
     if (method === 'GET') {
       const teamId = url.searchParams.get('team_id');
-      return json({ matches: await listSchedule(env, { teamId: teamId ? Number(teamId) : undefined }) });
+      const kind = url.searchParams.get('kind') ?? undefined;
+      return json({ matches: await listSchedule(env, { teamId: teamId ? Number(teamId) : undefined, kind }) });
     }
     if (method === 'POST') {
       const fields = await scheduleFields(db, await readBody(req), false);
       requireOpponent(fields);
       const id = await insert(db, 'schedule', { ...fields, created_by_kind: 'user', created_by: user.id });
       const [m] = await listSchedule(env, { id });
-      await logActivity(db, actor, 'schedule.create', 'schedule', id, { name: opponentLabel(m) });
+      await logActivity(db, actor, 'schedule.create', 'schedule', id, { name: opponentLabel(m), kind: m.kind });
       return json({ id }, 201);
     }
   }
@@ -312,12 +313,12 @@ async function route(req: Request, env: Env, url: URL, user: User): Promise<Resp
       const fields = await scheduleFields(db, await readBody(req), true);
       requireOpponent({ ...current, ...fields });
       await update(db, 'schedule', id, fields);
-      await logActivity(db, actor, 'schedule.update', 'schedule', id, { name: opponentLabel(current) });
+      await logActivity(db, actor, 'schedule.update', 'schedule', id, { name: opponentLabel(current), kind: current.kind });
       return json({ ok: true });
     }
     if (method === 'DELETE') {
       await db.prepare('DELETE FROM schedule WHERE id = ?').bind(id).run();
-      await logActivity(db, actor, 'schedule.delete', 'schedule', id, { name: opponentLabel(current) });
+      await logActivity(db, actor, 'schedule.delete', 'schedule', id, { name: opponentLabel(current), kind: current.kind });
       return json({ ok: true });
     }
   }

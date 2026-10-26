@@ -52,13 +52,14 @@ If `save_draft` says a champion is unknown, fix the spelling (e.g. "Kai'Sa", "Nu
 - `add_player` with role, Riot ID (`GameName#TAG`) and Twitch/Kick channel – a channel name or full link both work. Twitch VODs are fetched right away.
 - Remind Dao that Riot ID matters: games are matched to players by it.
 
-## Workflow 4 – schedule ("kdy hrajeme", "další zápas", "přidej zápas")
+## Workflow 4 – schedule ("kdy hrajeme", "další zápas", "přidej scrim")
 
-- `get_schedule` – our upcoming matches (soonest first) and recent results, times in Prague time. The opponent's `opponent_team_id` is the team to scout.
+- The schedule holds three kinds of events: `match` (tournament match), `scrim` (practice games vs another team) and `other` (training, VOD review, meeting – has a `title` instead of an opponent).
+- `get_schedule` – our upcoming events (soonest first) and recent results, times in Prague time; `kind` filters one type. The opponent's `opponent_team_id` is the team to scout – that works for scrims too.
 - "Kdy hrajeme / proti komu?" → answer from `get_schedule`, then offer a scouting report on the next opponent (Workflow 2).
-- `add_scheduled_match` – `starts_at` as "YYYY-MM-DD HH:MM" Prague time; prefer `opponent_team_id` (find it with `list_teams`/`search`), use `opponent_name` only if the team isn't in the app. Confirm the details with Dao before adding.
+- `add_scheduled_match` – `kind` (default `match`), `starts_at` as "YYYY-MM-DD HH:MM" Prague time; prefer `opponent_team_id` (find it with `list_teams`/`search`), use `opponent_name` only if the team isn't in the app. Confirm the details with Dao before adding.
 - `update_scheduled_match` – move a match or fill in the result (`our_score`, `their_score`). Ask first.
-- Deleting is done by Dao on the *Harmonogram* page.
+- Deleting is done by Dao on the *Harmonogram* page (list or calendar view).
 
 ## Workflow 5 – checking that things run ("co je nového", "jede čtečka?")
 

@@ -51,7 +51,7 @@
   </dialog>
 
   <script type="module">
-    import { api, esc, initPage, formDialog, logoHtml, timeAgo, isUpcoming, nextMatchHtml, startCountdowns } from '/app.js';
+    import { api, esc, initPage, formDialog, logoHtml, timeAgo, featuredEvent, nextMatchHtml, startCountdowns } from '/app.js';
 
     await initPage('teams');
 
@@ -74,14 +74,14 @@
       'vod.rescan': 'poslal(a) VODku znovu ke skenování',
       'note.add': 'přidal(a) poznámku',
       'mcp.authorize': 'připojil(a) Clauda',
-      'schedule.create': 'přidal(a) zápas proti',
-      'schedule.update': 'upravil(a) zápas proti',
-      'schedule.delete': 'smazal(a) zápas proti',
+      'schedule.create': 'přidal(a) do harmonogramu',
+      'schedule.update': 'upravil(a) v harmonogramu',
+      'schedule.delete': 'smazal(a) z harmonogramu',
     };
 
     async function load() {
       const [{ teams }, { activity }, { matches }] = await Promise.all([api('/api/teams'), api('/api/activity'), api('/api/schedule')]);
-      const next = matches.find(isUpcoming);
+      const next = featuredEvent(matches);
       document.getElementById('next-match').innerHTML = next ? nextMatchHtml(next, { compact: true }) : '';
       const el = document.getElementById('teams');
       el.innerHTML = teams.length

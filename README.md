@@ -32,5 +32,5 @@ See [`reader/README.md`](reader/README.md). Needs the `READER_TOKEN` secret in C
 2. ~~Twitch VOD sync, live status~~ (Kick later)
 3. ~~Remote MCP connector (OAuth) for Claude~~
 4. ~~Draft reader (VOD → champ select → draft)~~, tuning on real VODs
-5. ~~Match schedule (Harmonogram) with next-match countdown~~
+5. ~~Schedule (Harmonogram): tournament matches, scrims and other events, list + calendar view, next-match countdown~~
 6. Drafts in the web UI, Riot API sync, champion pools, compare view

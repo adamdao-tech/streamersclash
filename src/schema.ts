@@ -270,4 +270,9 @@ CREATE TABLE schedule (
 );
 CREATE INDEX idx_schedule_starts ON schedule(starts_at);
 `,
+
+  /* 6: schedule event types (tournament match, scrim, other) */ `
+ALTER TABLE schedule ADD COLUMN kind TEXT NOT NULL DEFAULT 'match' CHECK (kind IN ('match', 'scrim', 'other'));
+ALTER TABLE schedule ADD COLUMN title TEXT;
+`,
 ];

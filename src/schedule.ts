@@ -6,12 +6,17 @@ import { HttpError } from './http';
 // times typed without a zone (e.g. from Claude) are read as Prague time.
 
 export const FORMATS = ['BO1', 'BO2', 'BO3', 'BO5'] as const;
+/** match = tournament match, scrim = practice game vs another team, other = training, meeting… */
+export const KINDS = ['match', 'scrim', 'other'] as const;
+export type Kind = (typeof KINDS)[number];
 const TZ = 'Europe/Prague';
 
 type Row = Record<string, string | number | null>;
 
 export interface ScheduledMatch {
   id: number;
+  kind: Kind;
+  title: string | null;
   starts_at: string;
   opponent_team_id: number | null;
   opponent_name: string | null;
@@ -89,6 +94,12 @@ function score(v: unknown, label: string): number | null {
 export async function scheduleFields(db: D1Database, body: Record<string, unknown>, partial: boolean): Promise<Row> {
   const out: Row = {};
   const has = (k: string) => !partial || k in body;
+  if (has('kind')) {
+    const k = String(body.kind ?? 'match').toLowerCase();
+    if (!(KINDS as readonly string[]).includes(k)) throw new HttpError(400, 'invalid', 'Typ musí být match, scrim nebo other.');
+    out.kind = k;
+  }
+  if (has('title')) out.title = str(body.title, 'Název', 80);
   if (has('starts_at')) out.starts_at = parseStart(body.starts_at);
   if (has('opponent_team_id')) {
     const v = body.opponent_team_id;
@@ -120,14 +131,24 @@ export async function scheduleFields(db: D1Database, body: Record<string, unknow
   return out;
 }
 
-/** Checks a complete row (after merging an update) still names an opponent. */
-export function requireOpponent(row: { opponent_team_id?: unknown; opponent_name?: unknown }): void {
+/**
+ * Checks a complete row (after merging an update): matches and scrims need an opponent,
+ * other events (training, meeting) need a title.
+ */
+export function requireOpponent(row: { kind?: unknown; title?: unknown; opponent_team_id?: unknown; opponent_name?: unknown }): void {
+  if ((row.kind ?? 'match') === 'other') {
+    if (!row.title) throw new HttpError(400, 'invalid', 'Napiš, co se děje (např. Trénink).');
+    return;
+  }
   if (!row.opponent_team_id && !row.opponent_name) throw new HttpError(400, 'invalid', 'Vyber soupeře, nebo napiš jeho jméno.');
 }
 
-export async function listSchedule(env: Env, opts: { teamId?: number; id?: number } = {}): Promise<ScheduledMatch[]> {
+export const KIND_LABELS: Record<Kind, string> = { match: 'Turnaj', scrim: 'Scrim', other: 'Jiné' };
+
+export async function listSchedule(env: Env, opts: { teamId?: number; id?: number; kind?: string } = {}): Promise<ScheduledMatch[]> {
   const where: string[] = [];
-  const params: number[] = [];
+  const params: (number | string)[] = [];
+  if (opts.kind) (where.push('s.kind = ?'), params.push(opts.kind));
   if (opts.teamId) (where.push('s.opponent_team_id = ?'), params.push(opts.teamId));
   if (opts.id) (where.push('s.id = ?'), params.push(opts.id));
   const { results } = await env.DB.prepare(
@@ -141,7 +162,9 @@ export async function listSchedule(env: Env, opts: { teamId?: number; id?: numbe
   return results;
 }
 
-export function opponentLabel(m: { team_name?: string | null; opponent_name?: string | null }): string {
+/** What the event is called: the opponent for matches and scrims, the title for other events. */
+export function opponentLabel(m: { kind?: string; title?: string | null; team_name?: string | null; opponent_name?: string | null }): string {
+  if (m.kind === 'other') return m.title || '?';
   return m.team_name || m.opponent_name || '?';
 }
 

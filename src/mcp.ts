@@ -1,7 +1,7 @@
 import type { Env } from './index';
 import { insert, parsePlayer, playerFields, teamFields, update } from './api';
 import {
-  formatPrague, listSchedule, matchResult, opponentLabel, requireOpponent, scheduleFields, type ScheduledMatch,
+  formatPrague, KIND_LABELS, listSchedule, matchResult, opponentLabel, requireOpponent, scheduleFields, type ScheduledMatch,
 } from './schedule';
 import { logActivity, type User } from './db';
 import { listDrafts, playerGames, relinkDraftPlayers, saveDraft, summarizeGames, validateDraft, type DraftInput } from './drafts';
@@ -21,7 +21,7 @@ and drafts read from those VODs. Drafts are seen from one player's stream (POV):
 (left column of the client), "enemy" = the opponents (right column).
 Draft review workflow: list_drafts_for_review → get_draft_frame (look at the image) → save_draft with the
 correct champions, or discard_draft_frame if it isn't a finished draft (dodge, lobby, unreadable).
-Schedule: get_schedule lists our upcoming and played matches; the next opponent's opponent_team_id is the team to scout.
+Schedule: get_schedule lists our tournament matches, scrims and other events; the next opponent's opponent_team_id is the team to scout.
 Reply to the user in Czech.`;
 
 type Json = Record<string, unknown>;
@@ -420,17 +420,19 @@ const TOOLS: Tool[] = [
   {
     name: 'get_schedule',
     description:
-      "Our team's match schedule (harmonogram): upcoming matches first (soonest first), then recently played ones. " +
-      'Times are given in UTC and in Prague local time. opponent_team_id links to the opponent for get_team / scouting.',
+      "Our team's schedule (harmonogram): tournament matches (kind 'match'), scrims ('scrim') and other events like training ('other'). " +
+      'Upcoming events first (soonest first), then recently played ones. Times are given in UTC and in Prague local time. ' +
+      'opponent_team_id links to the opponent for get_team / scouting.',
     inputSchema: {
       type: 'object',
       properties: {
-        include_past: { type: 'integer', minimum: 0, maximum: 50, description: 'How many played matches to include (default 5)' },
+        include_past: { type: 'integer', minimum: 0, maximum: 50, description: 'How many played events to include (default 5)' },
+        kind: { type: 'string', enum: ['match', 'scrim', 'other'], description: 'Only this type of event' },
       },
     },
     annotations: { readOnlyHint: true },
     async run(a, { env }) {
-      const all = await listSchedule(env);
+      const all = await listSchedule(env, { kind: a.kind ? String(a.kind) : undefined });
       const now = Date.now();
       // A match counts as upcoming until 3 hours after its start (a Bo3 can run long).
       const isUpcoming = (m: { starts_at: string }) => new Date(m.starts_at).getTime() + 3 * 3600_000 > now;
@@ -445,11 +447,14 @@ const TOOLS: Tool[] = [
   {
     name: 'add_scheduled_match',
     description:
-      'Adds a match of ours to the schedule. starts_at: "YYYY-MM-DD HH:MM" in Prague time (or ISO with a zone). ' +
-      'Give opponent_team_id when the opponent is in the app (list_teams/search), otherwise opponent_name. Ask Dao before adding.',
+      'Adds an event to our schedule: a tournament match (kind "match", default), a scrim ("scrim") or something else like training ("other", needs title). ' +
+      'starts_at: "YYYY-MM-DD HH:MM" in Prague time (or ISO with a zone). For matches and scrims give opponent_team_id when the opponent is in the app ' +
+      '(list_teams/search), otherwise opponent_name. Ask Dao before adding.',
     inputSchema: {
       type: 'object',
       properties: {
+        kind: { type: 'string', enum: ['match', 'scrim', 'other'] },
+        title: { type: 'string', description: 'Name of an "other" event, e.g. "Trénink", "Review VODek"' },
         starts_at: { type: 'string', description: 'e.g. "2026-11-02 18:00" (Prague time)' },
         opponent_team_id: { type: 'integer' },
         opponent_name: { type: 'string', description: 'Only when the opponent team is not in the app' },
@@ -466,19 +471,21 @@ const TOOLS: Tool[] = [
       requireOpponent(fields);
       const id = await insert(env.DB, 'schedule', { ...fields, created_by_kind: 'claude', created_by: user.id });
       const [m] = await listSchedule(env, { id });
-      await logActivity(env.DB, { kind: 'claude', userId: user.id }, 'schedule.create', 'schedule', id, { name: opponentLabel(m) });
+      await logActivity(env.DB, { kind: 'claude', userId: user.id }, 'schedule.create', 'schedule', id, { name: opponentLabel(m), kind: m.kind });
       return text({ ok: true, match: compactScheduled(m) });
     },
   },
   {
     name: 'update_scheduled_match',
     description:
-      'Changes a scheduled match: move it, change the opponent or format, or fill in the result (our_score / their_score, e.g. 2 and 1 for a 2:1 Bo3 win). ' +
+      'Changes a schedule event: move it, change its type, opponent or format, or fill in the result (our_score / their_score, e.g. 2 and 1 for a 2:1 Bo3 win). ' +
       'Only the fields you pass are changed. Ask Dao before changing.',
     inputSchema: {
       type: 'object',
       properties: {
         id: { type: 'integer' },
+        kind: { type: 'string', enum: ['match', 'scrim', 'other'] },
+        title: { type: 'string', description: 'Name of an "other" event, e.g. "Trénink", "Review VODek"' },
         starts_at: { type: 'string' },
         opponent_team_id: { type: 'integer' },
         opponent_name: { type: 'string' },
@@ -500,7 +507,7 @@ const TOOLS: Tool[] = [
       const fields = await scheduleFields(env.DB, rest, true);
       requireOpponent({ ...current, ...fields });
       await update(env.DB, 'schedule', id, fields);
-      await logActivity(env.DB, { kind: 'claude', userId: user.id }, 'schedule.update', 'schedule', id, { name: opponentLabel(current) });
+      await logActivity(env.DB, { kind: 'claude', userId: user.id }, 'schedule.update', 'schedule', id, { name: opponentLabel(current), kind: current.kind });
       const [m] = await listSchedule(env, { id });
       return text({ ok: true, match: compactScheduled(m) });
     },
@@ -524,9 +531,11 @@ const TOOLS: Tool[] = [
 function compactScheduled(m: ScheduledMatch) {
   return {
     id: m.id,
+    kind: m.kind,
+    type: KIND_LABELS[m.kind] ?? m.kind,
     starts_at_utc: m.starts_at,
     starts_at_prague: formatPrague(m.starts_at),
-    opponent: opponentLabel(m),
+    ...(m.kind === 'other' ? { title: m.title } : { opponent: opponentLabel(m) }),
     opponent_team_id: m.opponent_team_id,
     format: m.format,
     stage: m.stage,

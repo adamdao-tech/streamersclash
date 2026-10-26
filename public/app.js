@@ -235,12 +235,37 @@ export function isUpcoming(m) {
   return new Date(m.starts_at).getTime() + 3 * 3600_000 > Date.now();
 }
 
+export const KINDS = {
+  match: { label: 'Turnaj', next: 'Další turnajový zápas' },
+  scrim: { label: 'Scrim', next: 'Další scrim' },
+  other: { label: 'Jiné', next: 'Další akce' },
+};
+
+/** Opponent for matches and scrims, the title for other events (training, meeting…). */
 export function opponentName(m) {
+  if (m.kind === 'other') return m.title || '?';
   return m.team_name || m.opponent_name || '?';
 }
 
+/** "vs Soupeř" for matches and scrims, just the title for other events. */
+export function eventName(m) {
+  return m.kind === 'other' ? esc(opponentName(m)) : `vs ${esc(opponentName(m))}`;
+}
+
+export function kindBadge(m) {
+  const k = KINDS[m.kind] ? m.kind : 'match';
+  return `<span class="kind kind-${k}">${KINDS[k].label}</span>`;
+}
+
 export function opponentLogo(m, large = false) {
+  if (m.kind === 'other') return `<div class="${large ? 'logo logo-lg' : 'logo'} logo-other" aria-hidden="true">●</div>`;
   return logoHtml({ name: opponentName(m), tag: m.team_tag, logo_url: m.team_logo_url }, large);
+}
+
+/** The event to feature: the next tournament match, or the nearest event if no match is planned. */
+export function featuredEvent(events) {
+  const upcoming = events.filter(isUpcoming);
+  return upcoming.find((m) => m.kind === 'match') || upcoming[0] || null;
 }
 
 /** Win/loss badge with the score, from our side. */
@@ -253,14 +278,15 @@ export function scoreBadge(m) {
 /** The big "next match" card; compact = smaller version for the home page. */
 export function nextMatchHtml(m, { compact = false } = {}) {
   const w = matchWhen(m.starts_at);
-  const chips = [m.format, m.stage, m.location].filter(Boolean).map((c) => `<span class="chip">${esc(c)}</span>`).join('');
+  const chips = [m.kind !== 'other' && m.format, m.stage, m.location].filter(Boolean).map((c) => `<span class="chip">${esc(c)}</span>`).join('');
+  const k = KINDS[m.kind] ? m.kind : 'match';
   return `
     <div class="next-match${compact ? ' compact' : ''}" style="--accent:${esc(m.team_accent_color || '#c8a64b')}">
-      <div class="nm-label">Další zápas · <span data-countdown="${esc(m.starts_at)}">${countdown(m.starts_at)}</span></div>
+      <div class="nm-label">${KINDS[k].next} · <span data-countdown="${esc(m.starts_at)}">${countdown(m.starts_at)}</span></div>
       <div class="nm-main">
         ${opponentLogo(m, !compact)}
         <div class="nm-text">
-          <div class="nm-vs">vs <b>${esc(opponentName(m))}</b></div>
+          <div class="nm-vs">${m.kind === 'other' ? `<b>${esc(opponentName(m))}</b>` : `vs <b>${esc(opponentName(m))}</b>`}</div>
           <div class="nm-when">${w.weekday} ${w.date} ${w.year} · <b>${w.time}</b></div>
           ${chips ? `<div class="chips">${chips}</div>` : ''}
         </div>

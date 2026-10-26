@@ -1,4 +1,4 @@
-# Streamers Clash – Scouting Hub
+# SGooBovo šedl scouting (Streamers Clash – Scouting Hub)
 
 Web app for scouting League of Legends teams and players in Streamers Clash: drafts, champion pools, matchups, Twitch/Kick/vodvod.tv VODs, and an MCP connector so Claude can keep the data up to date.
 
@@ -32,4 +32,5 @@ See [`reader/README.md`](reader/README.md). Needs the `READER_TOKEN` secret in C
 2. ~~Twitch VOD sync, live status~~ (Kick later)
 3. ~~Remote MCP connector (OAuth) for Claude~~
 4. ~~Draft reader (VOD → champ select → draft)~~, tuning on real VODs
-5. Drafts in the web UI, Riot API sync, champion pools, compare view
+5. ~~Match schedule (Harmonogram) with next-match countdown~~
+6. Drafts in the web UI, Riot API sync, champion pools, compare view

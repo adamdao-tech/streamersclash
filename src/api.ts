@@ -4,6 +4,7 @@ import { HttpError, json } from './http';
 import { getLiveChannels, syncTwitchVods } from './vods';
 import { listDrafts, playerGames, relinkDraftPlayers, summarizeGames } from './drafts';
 import { getChampionData } from './champions';
+import { listSchedule, opponentLabel, requireOpponent, scheduleFields } from './schedule';
 
 const ROLES = ['TOP', 'JUNGLE', 'MID', 'ADC', 'SUPPORT', 'SUB'] as const;
 const REGIONS = ['EUNE', 'EUW'] as const;
@@ -288,6 +289,39 @@ async function route(req: Request, env: Env, url: URL, user: User): Promise<Resp
     return json({ ok: true });
   }
 
+  // --- schedule (our matches) ------------------------------------------------
+  if (path === '/api/schedule') {
+    if (method === 'GET') {
+      const teamId = url.searchParams.get('team_id');
+      return json({ matches: await listSchedule(env, { teamId: teamId ? Number(teamId) : undefined }) });
+    }
+    if (method === 'POST') {
+      const fields = await scheduleFields(db, await readBody(req), false);
+      requireOpponent(fields);
+      const id = await insert(db, 'schedule', { ...fields, created_by_kind: 'user', created_by: user.id });
+      const [m] = await listSchedule(env, { id });
+      await logActivity(db, actor, 'schedule.create', 'schedule', id, { name: opponentLabel(m) });
+      return json({ id }, 201);
+    }
+  }
+  if ((m = path.match(/^\/api\/schedule\/(\d+)$/))) {
+    const id = Number(m[1]);
+    const [current] = await listSchedule(env, { id });
+    if (!current) throw new HttpError(404, 'not_found', 'Zápas neexistuje.');
+    if (method === 'PUT') {
+      const fields = await scheduleFields(db, await readBody(req), true);
+      requireOpponent({ ...current, ...fields });
+      await update(db, 'schedule', id, fields);
+      await logActivity(db, actor, 'schedule.update', 'schedule', id, { name: opponentLabel(current) });
+      return json({ ok: true });
+    }
+    if (method === 'DELETE') {
+      await db.prepare('DELETE FROM schedule WHERE id = ?').bind(id).run();
+      await logActivity(db, actor, 'schedule.delete', 'schedule', id, { name: opponentLabel(current) });
+      return json({ ok: true });
+    }
+  }
+
   // --- notes -------------------------------------------------------------
   if (path === '/api/notes' && method === 'POST') {
     const body = await readBody(req);
@@ -449,7 +483,7 @@ export async function insert(db: D1Database, table: string, row: Row): Promise<n
   return res.meta.last_row_id;
 }
 
-async function update(db: D1Database, table: string, id: number, row: Row): Promise<void> {
+export async function update(db: D1Database, table: string, id: number, row: Row): Promise<void> {
   const cols = Object.keys(row);
   if (!cols.length) return;
   const res = await db

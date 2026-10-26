@@ -36,13 +36,14 @@ export async function initPage(active) {
   const { user } = await api('/api/me');
   const nav = [
     ['/', 'Týmy', 'teams'],
+    ['/schedule', 'Harmonogram', 'schedule'],
     ['/vods', 'VODky', 'vods'],
     ...(user.role === 'admin' ? [['/users', 'Uživatelé', 'users']] : []),
   ];
   const header = document.createElement('header');
   header.className = 'topbar';
   header.innerHTML = `
-    <a class="brand" href="/">SC <span>Scouting</span></a>
+    <a class="brand" href="/">SGooBovo šedl <span>scouting</span></a>
     <nav class="nav">${nav.map(([href, label, key]) => `<a href="${href}" class="${key === active ? 'active' : ''}">${label}</a>`).join('')}</nav>
     <div class="me">
       ${user.avatar_url ? `<img src="${esc(user.avatar_url)}" alt="">` : ''}
@@ -205,4 +206,76 @@ export function draftRow(d, icons, ours = new Set()) {
         </div>
       </div>
     </details>`;
+}
+
+// --- schedule (harmonogram) ------------------------------------------------------
+
+const WEEKDAYS = ['ne', 'po', 'út', 'st', 'čt', 'pá', 'so'];
+
+/** Parts of a match start in the viewer's local time. */
+export function matchWhen(iso) {
+  const d = new Date(iso);
+  const hm = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+  return { weekday: WEEKDAYS[d.getDay()], date: `${d.getDate()}. ${d.getMonth() + 1}.`, year: d.getFullYear(), time: hm };
+}
+
+/** "za 2 dny 4 h", "za 35 min", "právě se hraje". */
+export function countdown(iso) {
+  const ms = new Date(iso).getTime() - Date.now();
+  if (ms <= 0) return ms > -3 * 3600_000 ? 'právě se hraje' : 'odehráno';
+  const min = Math.floor(ms / 60_000);
+  const d = Math.floor(min / 1440), h = Math.floor((min % 1440) / 60), m = min % 60;
+  if (d >= 1) return `za ${d} ${d === 1 ? 'den' : d <= 4 ? 'dny' : 'dní'}${h ? ` ${h} h` : ''}`;
+  if (h >= 1) return `za ${h} h ${m} min`;
+  return `za ${m} min`;
+}
+
+/** A match still counts as upcoming until 3 hours after its start. */
+export function isUpcoming(m) {
+  return new Date(m.starts_at).getTime() + 3 * 3600_000 > Date.now();
+}
+
+export function opponentName(m) {
+  return m.team_name || m.opponent_name || '?';
+}
+
+export function opponentLogo(m, large = false) {
+  return logoHtml({ name: opponentName(m), tag: m.team_tag, logo_url: m.team_logo_url }, large);
+}
+
+/** Win/loss badge with the score, from our side. */
+export function scoreBadge(m) {
+  if (m.our_score === null || m.their_score === null) return '';
+  const cls = m.our_score > m.their_score ? 'res-win' : m.our_score < m.their_score ? 'res-loss' : 'res-none';
+  return `<span class="score ${cls}">${m.our_score}:${m.their_score}</span>`;
+}
+
+/** The big "next match" card; compact = smaller version for the home page. */
+export function nextMatchHtml(m, { compact = false } = {}) {
+  const w = matchWhen(m.starts_at);
+  const chips = [m.format, m.stage, m.location].filter(Boolean).map((c) => `<span class="chip">${esc(c)}</span>`).join('');
+  return `
+    <div class="next-match${compact ? ' compact' : ''}" style="--accent:${esc(m.team_accent_color || '#c8a64b')}">
+      <div class="nm-label">Další zápas · <span data-countdown="${esc(m.starts_at)}">${countdown(m.starts_at)}</span></div>
+      <div class="nm-main">
+        ${opponentLogo(m, !compact)}
+        <div class="nm-text">
+          <div class="nm-vs">vs <b>${esc(opponentName(m))}</b></div>
+          <div class="nm-when">${w.weekday} ${w.date} ${w.year} · <b>${w.time}</b></div>
+          ${chips ? `<div class="chips">${chips}</div>` : ''}
+        </div>
+        <div class="nm-actions">
+          ${m.opponent_team_id ? `<a class="btn btn-primary" href="/team?id=${m.opponent_team_id}">Scouting soupeře</a>` : ''}
+          ${m.stream_url ? `<a class="btn" href="${esc(m.stream_url)}" target="_blank" rel="noopener">Stream</a>` : ''}
+          ${compact ? '<a class="btn" href="/schedule">Celý harmonogram</a>' : ''}
+        </div>
+      </div>
+    </div>`;
+}
+
+/** Keeps every [data-countdown] element on the page ticking. */
+export function startCountdowns() {
+  const tick = () => document.querySelectorAll('[data-countdown]').forEach((el) => { el.textContent = countdown(el.dataset.countdown); });
+  tick();
+  return setInterval(tick, 30_000);
 }

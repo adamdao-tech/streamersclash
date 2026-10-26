@@ -5,7 +5,7 @@ description: Scouting for the Streamers Clash LoL tournament through the SC Scou
 
 # SC Scouting
 
-SC Scouting (https://sc.daotech.dev) is Dao's scouting tool for **Streamers Clash**, a Czech League of Legends tournament for streamers. Dao is the coach/manager of SGooB's team. The app tracks teams (ours has `is_own_team = 1`), players (Riot ID, Twitch/Kick channel), their stream VODs, and games read from those VODs by an automatic draft reader.
+SC Scouting (https://sc.daotech.dev, shown in the app as **SGooBovo šedl scouting**) is Dao's scouting tool for **Streamers Clash**, a Czech League of Legends tournament for streamers. Dao is the coach/manager of SGooB's team. The app tracks teams (ours has `is_own_team = 1`), players (Riot ID, Twitch/Kick channel), their stream VODs, and games read from those VODs by an automatic draft reader.
 
 Always answer Dao in **Czech**. Use the connector tools for every fact about teams, players and games; never invent champions, results or stats. If the connector tools aren't available, say so and ask Dao to enable the SC Scouting connector.
 
@@ -52,7 +52,15 @@ If `save_draft` says a champion is unknown, fix the spelling (e.g. "Kai'Sa", "Nu
 - `add_player` with role, Riot ID (`GameName#TAG`) and Twitch/Kick channel – a channel name or full link both work. Twitch VODs are fetched right away.
 - Remind Dao that Riot ID matters: games are matched to players by it.
 
-## Workflow 4 – checking that things run ("co je nového", "jede čtečka?")
+## Workflow 4 – schedule ("kdy hrajeme", "další zápas", "přidej zápas")
+
+- `get_schedule` – our upcoming matches (soonest first) and recent results, times in Prague time. The opponent's `opponent_team_id` is the team to scout.
+- "Kdy hrajeme / proti komu?" → answer from `get_schedule`, then offer a scouting report on the next opponent (Workflow 2).
+- `add_scheduled_match` – `starts_at` as "YYYY-MM-DD HH:MM" Prague time; prefer `opponent_team_id` (find it with `list_teams`/`search`), use `opponent_name` only if the team isn't in the app. Confirm the details with Dao before adding.
+- `update_scheduled_match` – move a match or fill in the result (`our_score`, `their_score`). Ask first.
+- Deleting is done by Dao on the *Harmonogram* page.
+
+## Workflow 5 – checking that things run ("co je nového", "jede čtečka?")
 
 - `get_activity` – recent changes: new VODs (`Sync`), games saved by the reader, frames sent for review, Claude's changes.
 - `list_vods` – `scan_status`: `pending` waits for the reader, `scanning` is in progress (a claim expires after 6 h), `done` read, `skipped` no draft found, `failed` couldn't be read (often a sub-only or deleted VOD).
@@ -72,3 +80,4 @@ If `save_draft` says a champion is unknown, fix the spelling (e.g. "Kai'Sa", "Nu
 | `add_scouting_note` | note on a team, player or game (ask first) |
 | `add_team`, `add_player` | new data |
 | `rescan_vod`, `get_activity` | reader and app status |
+| `get_schedule`, `add_scheduled_match`, `update_scheduled_match` | our match schedule |

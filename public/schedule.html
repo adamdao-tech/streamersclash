@@ -1,0 +1,182 @@
+<!doctype html>
+<html lang="cs">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Harmonogram · SGooBovo šedl scouting</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="preload" href="/fonts/inter-var.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="/fonts/rajdhani-700.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="/app.css">
+</head>
+<body>
+  <main>
+    <div class="page-head">
+      <div>
+        <h1>Harmonogram</h1>
+        <p>Kdy a proti komu hrajeme. Časy jsou v tvém místním čase.</p>
+      </div>
+      <button class="btn btn-primary" id="add-match">+ Přidat zápas</button>
+    </div>
+
+    <div id="next"></div>
+
+    <div class="section-head"><h2>Nadcházející</h2></div>
+    <div id="upcoming" class="sched-list"></div>
+
+    <div id="past-wrap" hidden>
+      <div class="section-head"><h2>Odehrané</h2></div>
+      <div id="past" class="sched-list sched-past"></div>
+    </div>
+  </main>
+
+  <dialog id="match-dialog">
+    <form>
+      <h2>Zápas</h2>
+      <div class="form-grid">
+        <div><label>Datum a čas *</label><input name="starts_at" type="datetime-local" required></div>
+        <div>
+          <label>Formát</label>
+          <select name="format"><option>BO1</option><option>BO2</option><option>BO3</option><option>BO5</option></select>
+        </div>
+        <div>
+          <label>Soupeř</label>
+          <select name="opponent_team_id"></select>
+        </div>
+        <div><label>…nebo jméno soupeře</label><input name="opponent_name" maxlength="80" placeholder="když tým v appce ještě není"></div>
+        <div><label>Fáze / kolo</label><input name="stage" maxlength="80" placeholder="např. Skupina A – 2. kolo"></div>
+        <div><label>Místo</label><input name="location" maxlength="120" placeholder="např. Kongresové centrum Praha"></div>
+        <div class="full"><label>Odkaz na stream</label><input name="stream_url" type="url" placeholder="https://twitch.tv/…"></div>
+        <div><label>Naše skóre</label><input name="our_score" type="number" min="0" max="9" inputmode="numeric" placeholder="po zápase"></div>
+        <div><label>Skóre soupeře</label><input name="their_score" type="number" min="0" max="9" inputmode="numeric" placeholder="po zápase"></div>
+        <div class="full"><label>Poznámky</label><textarea name="notes" maxlength="2000"></textarea></div>
+      </div>
+      <p class="form-error"></p>
+      <div class="dialog-actions">
+        <button type="button" class="btn" data-cancel>Zrušit</button>
+        <button type="submit" class="btn btn-primary">Uložit</button>
+      </div>
+    </form>
+  </dialog>
+
+  <script type="module">
+    import {
+      api, esc, initPage, formDialog, matchWhen, countdown, isUpcoming, opponentName, opponentLogo,
+      scoreBadge, nextMatchHtml, startCountdowns,
+    } from '/app.js';
+
+    await initPage('schedule');
+
+    let matches = [];
+    let editing = null;
+
+    /** ISO (UTC) → value for <input type="datetime-local"> in local time. */
+    function toLocalInput(iso) {
+      const d = new Date(iso);
+      const p = (n) => String(n).padStart(2, '0');
+      return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
+    }
+
+    function row(m) {
+      const w = matchWhen(m.starts_at);
+      const chips = [m.format, m.stage, m.location].filter(Boolean).map((c) => `<span class="chip">${esc(c)}</span>`).join('');
+      const name = m.opponent_team_id
+        ? `<a href="/team?id=${m.opponent_team_id}">${esc(opponentName(m))}</a>`
+        : esc(opponentName(m));
+      const upcoming = isUpcoming(m);
+      return `
+        <div class="sched-row" style="--accent:${esc(m.team_accent_color || '#c8a64b')}">
+          <div class="sched-date">
+            <div class="wd">${w.weekday}</div>
+            <div class="d">${w.date}</div>
+            <div class="t">${w.time}</div>
+          </div>
+          <div class="sched-opp">
+            ${opponentLogo(m)}
+            <div style="min-width:0">
+              <div class="name">vs ${name}</div>
+              ${chips ? `<div class="chips">${chips}</div>` : ''}
+              ${m.notes ? `<div class="note">${esc(m.notes)}</div>` : ''}
+            </div>
+          </div>
+          <div class="sched-actions">
+            ${upcoming ? `<span class="chip" data-countdown="${esc(m.starts_at)}">${countdown(m.starts_at)}</span>` : scoreBadge(m) || '<span class="chip">bez výsledku</span>'}
+            ${m.stream_url ? `<a class="btn btn-small" href="${esc(m.stream_url)}" target="_blank" rel="noopener">Stream</a>` : ''}
+            <button class="btn btn-small" data-edit="${m.id}">Upravit</button>
+            <button class="btn btn-small btn-danger" data-delete="${m.id}" title="Smazat">✕</button>
+          </div>
+        </div>`;
+    }
+
+    async function load() {
+      ({ matches } = await api('/api/schedule'));
+      const upcoming = matches.filter(isUpcoming);
+      const past = matches.filter((m) => !isUpcoming(m)).reverse();
+
+      document.getElementById('next').innerHTML = upcoming.length ? nextMatchHtml(upcoming[0]) : '';
+      document.getElementById('upcoming').innerHTML = upcoming.length
+        ? upcoming.map(row).join('')
+        : '<div class="empty">Žádný naplánovaný zápas. Přidej ho tlačítkem nahoře.</div>';
+      document.getElementById('past-wrap').hidden = !past.length;
+      document.getElementById('past').innerHTML = past.map(row).join('');
+    }
+
+    // Opponent picker: every team except ours.
+    const { teams } = await api('/api/teams');
+    document.querySelector('[name=opponent_team_id]').innerHTML =
+      '<option value="">— jiný soupeř —</option>' +
+      teams.filter((t) => !t.is_own_team).map((t) => `<option value="${t.id}">${esc(t.name)}</option>`).join('');
+
+    const dialogEl = document.getElementById('match-dialog');
+    const dialog = formDialog(dialogEl, {
+      async onSubmit(v) {
+        if (!v.starts_at) throw new Error('Zadej datum a čas.');
+        const body = {
+          ...v,
+          starts_at: new Date(v.starts_at).toISOString(),
+          opponent_team_id: v.opponent_team_id ? Number(v.opponent_team_id) : null,
+          opponent_name: v.opponent_team_id ? null : v.opponent_name,
+          our_score: v.our_score === '' ? null : Number(v.our_score),
+          their_score: v.their_score === '' ? null : Number(v.their_score),
+        };
+        if (!body.opponent_team_id && !String(body.opponent_name || '').trim()) throw new Error('Vyber soupeře, nebo napiš jeho jméno.');
+        if (editing) await api(`/api/schedule/${editing}`, { method: 'PUT', body });
+        else await api('/api/schedule', { method: 'POST', body });
+        await load();
+      },
+    });
+
+    document.getElementById('add-match').addEventListener('click', () => {
+      editing = null;
+      dialogEl.querySelector('h2').textContent = 'Nový zápas';
+      dialog.open({ format: 'BO1' });
+    });
+
+    document.querySelector('main').addEventListener('click', async (e) => {
+      const edit = e.target.closest('[data-edit]');
+      const del = e.target.closest('[data-delete]');
+      if (edit) {
+        const m = matches.find((x) => x.id === Number(edit.dataset.edit));
+        editing = m.id;
+        dialogEl.querySelector('h2').textContent = 'Upravit zápas';
+        dialog.open({
+          ...m,
+          starts_at: toLocalInput(m.starts_at),
+          opponent_team_id: m.opponent_team_id ?? '',
+          our_score: m.our_score ?? '',
+          their_score: m.their_score ?? '',
+        });
+      }
+      if (del) {
+        const m = matches.find((x) => x.id === Number(del.dataset.delete));
+        if (!confirm(`Smazat zápas proti ${opponentName(m)}?`)) return;
+        await api(`/api/schedule/${m.id}`, { method: 'DELETE' });
+        await load();
+      }
+    });
+
+    await load();
+    startCountdowns();
+  </script>
+</body>
+</html>

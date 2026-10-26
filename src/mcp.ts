@@ -1,5 +1,8 @@
 import type { Env } from './index';
-import { insert, parsePlayer, playerFields, teamFields } from './api';
+import { insert, parsePlayer, playerFields, teamFields, update } from './api';
+import {
+  formatPrague, listSchedule, matchResult, opponentLabel, requireOpponent, scheduleFields, type ScheduledMatch,
+} from './schedule';
 import { logActivity, type User } from './db';
 import { listDrafts, playerGames, relinkDraftPlayers, saveDraft, summarizeGames, validateDraft, type DraftInput } from './drafts';
 import { HttpError, json } from './http';
@@ -12,12 +15,13 @@ import { syncTwitchVods } from './vods';
 
 const PROTOCOL_VERSIONS = ['2025-06-18', '2025-03-26', '2024-11-05'];
 
-const INSTRUCTIONS = `SC Scouting: scouting tool for the Czech League of Legends tournament Streamers Clash.
+const INSTRUCTIONS = `SGooBovo šedl scouting (SC Scouting): scouting tool for the Czech League of Legends tournament Streamers Clash.
 Data: teams (one is ours, is_own_team), players with Riot ID and Twitch/Kick channels, their stream VODs,
 and drafts read from those VODs. Drafts are seen from one player's stream (POV): "ally" = that player's team
 (left column of the client), "enemy" = the opponents (right column).
 Draft review workflow: list_drafts_for_review → get_draft_frame (look at the image) → save_draft with the
 correct champions, or discard_draft_frame if it isn't a finished draft (dodge, lobby, unreadable).
+Schedule: get_schedule lists our upcoming and played matches; the next opponent's opponent_team_id is the team to scout.
 Reply to the user in Czech.`;
 
 type Json = Record<string, unknown>;
@@ -414,6 +418,94 @@ const TOOLS: Tool[] = [
     },
   },
   {
+    name: 'get_schedule',
+    description:
+      "Our team's match schedule (harmonogram): upcoming matches first (soonest first), then recently played ones. " +
+      'Times are given in UTC and in Prague local time. opponent_team_id links to the opponent for get_team / scouting.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        include_past: { type: 'integer', minimum: 0, maximum: 50, description: 'How many played matches to include (default 5)' },
+      },
+    },
+    annotations: { readOnlyHint: true },
+    async run(a, { env }) {
+      const all = await listSchedule(env);
+      const now = Date.now();
+      // A match counts as upcoming until 3 hours after its start (a Bo3 can run long).
+      const isUpcoming = (m: { starts_at: string }) => new Date(m.starts_at).getTime() + 3 * 3600_000 > now;
+      const past = all.filter((m) => !isUpcoming(m)).reverse().slice(0, Math.min(Number(a.include_past ?? 5) || 0, 50));
+      return text({
+        now_prague: formatPrague(new Date().toISOString()),
+        upcoming: all.filter(isUpcoming).map(compactScheduled),
+        recent: past.map(compactScheduled),
+      });
+    },
+  },
+  {
+    name: 'add_scheduled_match',
+    description:
+      'Adds a match of ours to the schedule. starts_at: "YYYY-MM-DD HH:MM" in Prague time (or ISO with a zone). ' +
+      'Give opponent_team_id when the opponent is in the app (list_teams/search), otherwise opponent_name. Ask Dao before adding.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        starts_at: { type: 'string', description: 'e.g. "2026-11-02 18:00" (Prague time)' },
+        opponent_team_id: { type: 'integer' },
+        opponent_name: { type: 'string', description: 'Only when the opponent team is not in the app' },
+        format: { type: 'string', enum: ['BO1', 'BO2', 'BO3', 'BO5'] },
+        stage: { type: 'string', description: 'e.g. "Skupina A – 2. kolo", "Playoff"' },
+        location: { type: 'string' },
+        stream_url: { type: 'string' },
+        notes: { type: 'string' },
+      },
+      required: ['starts_at'],
+    },
+    async run(a, { env, user }) {
+      const fields = await scheduleFields(env.DB, a, false);
+      requireOpponent(fields);
+      const id = await insert(env.DB, 'schedule', { ...fields, created_by_kind: 'claude', created_by: user.id });
+      const [m] = await listSchedule(env, { id });
+      await logActivity(env.DB, { kind: 'claude', userId: user.id }, 'schedule.create', 'schedule', id, { name: opponentLabel(m) });
+      return text({ ok: true, match: compactScheduled(m) });
+    },
+  },
+  {
+    name: 'update_scheduled_match',
+    description:
+      'Changes a scheduled match: move it, change the opponent or format, or fill in the result (our_score / their_score, e.g. 2 and 1 for a 2:1 Bo3 win). ' +
+      'Only the fields you pass are changed. Ask Dao before changing.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        id: { type: 'integer' },
+        starts_at: { type: 'string' },
+        opponent_team_id: { type: 'integer' },
+        opponent_name: { type: 'string' },
+        format: { type: 'string', enum: ['BO1', 'BO2', 'BO3', 'BO5'] },
+        stage: { type: 'string' },
+        location: { type: 'string' },
+        stream_url: { type: 'string' },
+        our_score: { type: 'integer', minimum: 0, maximum: 9 },
+        their_score: { type: 'integer', minimum: 0, maximum: 9 },
+        notes: { type: 'string' },
+      },
+      required: ['id'],
+    },
+    async run(a, { env, user }) {
+      const id = int(a.id, 'id');
+      const [current] = await listSchedule(env, { id });
+      if (!current) throw new HttpError(404, 'not_found', `Scheduled match ${id} not found`);
+      const { id: _id, ...rest } = a;
+      const fields = await scheduleFields(env.DB, rest, true);
+      requireOpponent({ ...current, ...fields });
+      await update(env.DB, 'schedule', id, fields);
+      await logActivity(env.DB, { kind: 'claude', userId: user.id }, 'schedule.update', 'schedule', id, { name: opponentLabel(current) });
+      const [m] = await listSchedule(env, { id });
+      return text({ ok: true, match: compactScheduled(m) });
+    },
+  },
+  {
     name: 'get_activity',
     description: 'Recent changes in the app (who added or changed what), newest first.',
     inputSchema: { type: 'object', properties: { limit: { type: 'integer', maximum: 100 } } },
@@ -428,6 +520,23 @@ const TOOLS: Tool[] = [
     },
   },
 ];
+
+function compactScheduled(m: ScheduledMatch) {
+  return {
+    id: m.id,
+    starts_at_utc: m.starts_at,
+    starts_at_prague: formatPrague(m.starts_at),
+    opponent: opponentLabel(m),
+    opponent_team_id: m.opponent_team_id,
+    format: m.format,
+    stage: m.stage,
+    location: m.location,
+    stream_url: m.stream_url,
+    score: m.our_score !== null && m.their_score !== null ? `${m.our_score}:${m.their_score}` : null,
+    result: matchResult(m),
+    notes: m.notes,
+  };
+}
 
 function compactDraft(d: Json & { actions?: Json[] }) {
   const acts = (d.actions ?? []) as {
@@ -511,7 +620,7 @@ async function dispatch(msg: RpcRequest, env: Env, user: User): Promise<unknown 
       return rpcResult(msg.id, {
         protocolVersion: PROTOCOL_VERSIONS.includes(requested) ? requested : PROTOCOL_VERSIONS[0],
         capabilities: { tools: { listChanged: false } },
-        serverInfo: { name: 'sc-scouting', title: 'SC Scouting', version: '0.1.0' },
+        serverInfo: { name: 'sc-scouting', title: 'SGooBovo šedl scouting', version: '0.1.0' },
         instructions: INSTRUCTIONS,
       });
     }

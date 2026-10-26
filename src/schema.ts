@@ -249,4 +249,25 @@ ALTER TABLE draft_actions ADD COLUMN assists INTEGER;
 ALTER TABLE draft_actions ADD COLUMN lane INTEGER;
 ALTER TABLE draft_frames ADD COLUMN postgame_image BLOB;
 `,
+
+  /* 5: our match schedule (harmonogram) */ `
+CREATE TABLE schedule (
+  id               INTEGER PRIMARY KEY AUTOINCREMENT,
+  starts_at        TEXT NOT NULL,
+  opponent_team_id INTEGER REFERENCES teams(id) ON DELETE SET NULL,
+  opponent_name    TEXT,
+  format           TEXT NOT NULL DEFAULT 'BO1' CHECK (format IN ('BO1', 'BO2', 'BO3', 'BO5')),
+  stage            TEXT,
+  location         TEXT,
+  stream_url       TEXT,
+  our_score        INTEGER,
+  their_score      INTEGER,
+  notes            TEXT,
+  created_by_kind  TEXT NOT NULL DEFAULT 'user' CHECK (created_by_kind IN ('user', 'claude')),
+  created_by       INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  created_at       TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at       TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX idx_schedule_starts ON schedule(starts_at);
+`,
 ];

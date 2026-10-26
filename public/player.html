@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Hráč · SC Scouting</title>
+  <title>Hráč · SGooBovo šedl scouting</title>
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
   <link rel="preload" href="/fonts/inter-var.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="preload" href="/fonts/rajdhani-700.woff2" as="font" type="font/woff2" crossorigin>
@@ -50,7 +50,7 @@
     const wrClass = (wr) => (wr === null ? '' : wr >= 55 ? 'good' : wr < 45 ? 'bad' : '');
 
     function render({ player: p, team, stats, games, notes, vods }, live) {
-      document.title = `${p.nickname} · SC Scouting`;
+      document.title = `${p.nickname} · SGooBovo šedl scouting`;
       if (team) {
         document.body.style.setProperty('--accent', team.accent_color || '#c8a64b');
         document.getElementById('back').innerHTML = `<a href="/team?id=${team.id}">← ${esc(team.name)}</a>`;

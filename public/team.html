@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Tým · SC Scouting</title>
+  <title>Tým · SGooBovo šedl scouting</title>
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
   <link rel="preload" href="/fonts/inter-var.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="preload" href="/fonts/rajdhani-700.woff2" as="font" type="font/woff2" crossorigin>
@@ -226,7 +226,7 @@
 
     async function load() {
       ({ team, players } = await api(`/api/teams/${teamId}`));
-      document.title = `${team.name} · SC Scouting`;
+      document.title = `${team.name} · SGooBovo šedl scouting`;
       document.body.style.setProperty('--accent', team.accent_color || '#c8a64b');
       [{ drafts }, icons] = await Promise.all([api(`/api/drafts?team_id=${teamId}&limit=100`), loadChampions()]);
       renderHero();

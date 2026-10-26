@@ -183,7 +183,7 @@ async function authorizePage(req: Request, env: Env, url: URL): Promise<Response
   const host = escapeHtml(new URL(p.redirect_uri).host);
   const res = page(
     'Povolit přístup',
-    `<p><b>${appName}</b> (${host}) chce přístup k SC Scouting pod tvým účtem
+    `<p><b>${appName}</b> (${host}) chce přístup k SGooBovo šedl scouting pod tvým účtem
        <b>${escapeHtml(user.display_name || user.twitch_login)}</b>.</p>
      <p class="muted">Bude moct číst týmy, hráče, VODky a drafty, a přidávat drafty a poznámky. Každá změna se ukáže v aktivitě jako „Claude“.</p>
      <form method="post" action="/oauth/authorize">
@@ -327,9 +327,9 @@ function escapeHtml(s: string): string {
 function page(title: string, body: string, status = 200): Response {
   const html = `<!doctype html><html lang="cs"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>${escapeHtml(title)} · SC Scouting</title><link rel="icon" href="/favicon.svg"><link rel="preload" href="/fonts/inter-var.woff2" as="font" type="font/woff2" crossorigin><link rel="preload" href="/fonts/rajdhani-700.woff2" as="font" type="font/woff2" crossorigin><link rel="stylesheet" href="/app.css">
+<title>${escapeHtml(title)} · SGooBovo šedl scouting</title><link rel="icon" href="/favicon.svg"><link rel="preload" href="/fonts/inter-var.woff2" as="font" type="font/woff2" crossorigin><link rel="preload" href="/fonts/rajdhani-700.woff2" as="font" type="font/woff2" crossorigin><link rel="stylesheet" href="/app.css">
 <style>.muted{color:var(--muted)} .actions{display:flex;gap:10px;justify-content:center;margin-top:24px}</style></head>
-<body><div class="login-wrap"><div class="login-card"><h1>SC <span>Scouting</span></h1><h2 style="margin:18px 0 8px">${escapeHtml(title)}</h2>${body}</div></div></body></html>`;
+<body><div class="login-wrap"><div class="login-card"><h1>SGooBovo šedl <span>scouting</span></h1><h2 style="margin:18px 0 8px">${escapeHtml(title)}</h2>${body}</div></div></body></html>`;
   return new Response(html, {
     status,
     headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'X-Frame-Options': 'DENY' },

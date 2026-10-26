@@ -30,6 +30,7 @@
         <div class="tabs" id="tabs">
           <button data-tab="runes">Runy <span class="count" id="count-runes"></span></button>
           <button data-tab="notes">Zápisky <span class="count" id="count-notes"></span></button>
+          <button data-tab="maps">Mapy <span class="count" id="count-maps"></span></button>
         </div>
 
         <div id="tab-runes">
@@ -39,6 +40,10 @@
         <div id="tab-notes" hidden>
           <div style="display:flex;justify-content:flex-end;margin-bottom:12px"><button class="btn btn-primary" id="add-note">+ Zápisek</button></div>
           <div id="notes" class="note-list"></div>
+        </div>
+        <div id="tab-maps" hidden>
+          <div style="display:flex;justify-content:flex-end;margin-bottom:12px"><button class="btn btn-primary" id="add-map">+ Mapa</button></div>
+          <div id="maps" class="rp-grid"></div>
         </div>
       </section>
     </div>
@@ -97,6 +102,34 @@
     </form>
   </dialog>
 
+  <dialog id="map-dialog" class="wide map-dialog">
+    <form>
+      <h2>Mapa</h2>
+      <div class="map-editor">
+        <div class="map-wrap" id="map-canvas"></div>
+        <div class="map-side">
+          <div><label>Název *</label><input name="title" required maxlength="80" placeholder="např. Wardy před drakem"></div>
+          <div class="form-grid" style="gap:10px">
+            <div><label>Strana</label><select name="side"><option value="">—</option><option value="BLUE">Modrá</option><option value="RED">Červená</option></select></div>
+            <div><label>Složka</label><select name="folder_id"></select></div>
+          </div>
+          <div>
+            <label>Co klikání přidá</label>
+            <div class="marker-tools" id="marker-tools"></div>
+          </div>
+          <div class="marker-panel" id="marker-panel"></div>
+          <div><label>Poznámka</label><textarea name="notes" maxlength="5000" placeholder="Kdy a proč, kdo wardí…"></textarea></div>
+        </div>
+      </div>
+      <p class="form-error"></p>
+      <div class="dialog-actions">
+        <button type="button" class="btn btn-danger" data-remove style="margin-right:auto">Smazat</button>
+        <button type="button" class="btn" data-cancel>Zrušit</button>
+        <button type="submit" class="btn btn-primary">Uložit</button>
+      </div>
+    </form>
+  </dialog>
+
   <script type="module">
     import { api, esc, initPage, formDialog, ROLE_LABELS, loadChampions, timeAgo } from '/app.js';
 
@@ -113,7 +146,7 @@
     const champIcons = await loadChampions();
     // Selected place: player = 'team' or a player id; folder = folder id or null.
     let sel = JSON.parse(store.get('coach.sel') || 'null') || { player: 'team', folder: null };
-    let tab = store.get('coach.tab') === 'notes' ? 'notes' : 'runes';
+    let tab = ['notes', 'maps'].includes(store.get('coach.tab')) ? store.get('coach.tab') : 'runes';
 
     // Broken icons (e.g. a renamed rune) turn into their short label instead of an empty circle.
     document.addEventListener('error', (e) => {
@@ -155,7 +188,7 @@
 
     // --- tree --------------------------------------------------------------------
     function renderTree() {
-      const count = (pid, fid) => data.runes.concat(data.notes).filter((x) => (fid ? x.folder_id === fid : (x.player_id ?? null) === pid)).length;
+      const count = (pid, fid) => data.runes.concat(data.notes, data.maps).filter((x) => (fid ? x.folder_id === fid : (x.player_id ?? null) === pid)).length;
       const group = (key, label, lead, pid) => {
         const folders = data.folders.filter((f) => (f.player_id ?? null) === pid);
         const active = sel.player === key;
@@ -238,6 +271,159 @@
         </article>`;
     }
 
+    // --- ward maps -----------------------------------------------------------------------------------
+    const MARKERS = {
+      ward: { label: 'Ward', hint: 'Žlutý (stealth) ward' },
+      control: { label: 'Control ward', hint: 'Růžový control ward' },
+      farsight: { label: 'Farsight', hint: 'Modrý farsight ward' },
+      sweep: { label: 'Sweeper', hint: 'Oblast, kterou projet sweeperem' },
+      note: { label: 'Poznámka', hint: 'Očíslovaný bod s popiskem' },
+    };
+    const mapUrl = () => (runeData ? `${DD}/${runeData.version}/img/map/map11.png` : null);
+
+    /** SVG for all markers; coordinates are 0–100 in both axes. */
+    function markersSvg(markers, selected = -1) {
+      let noteNo = 0;
+      const out = markers.map((m, i) => {
+        const on = i === selected ? ' sel' : '';
+        let shape;
+        if (m.type === 'sweep') shape = `<circle class="mk-sweep${on}" cx="${m.x}" cy="${m.y}" r="6"/>`;
+        else if (m.type === 'note') {
+          noteNo++;
+          shape = `<circle class="mk-note${on}" cx="${m.x}" cy="${m.y}" r="2.3"/><text class="mk-num" x="${m.x}" y="${m.y}">${noteNo}</text>`;
+        } else shape = `<circle class="mk-${m.type}${on}" cx="${m.x}" cy="${m.y}" r="${m.type === 'farsight' ? 1.7 : 1.9}"/>`;
+        const label = m.label ? `<text class="mk-label" x="${m.x + 2.8}" y="${m.y + 0.9}">${esc(m.label)}</text>` : '';
+        return `<g class="mk" data-i="${i}"><title>${esc(MARKERS[m.type]?.label || m.type)}${m.label ? ` – ${esc(m.label)}` : ''}</title>${shape}${label}</g>`;
+      });
+      return `<svg class="map-svg" viewBox="0 0 100 100" preserveAspectRatio="none">${out.join('')}</svg>`;
+    }
+
+    function mapHtml(markers, selected) {
+      const url = mapUrl();
+      return `<div class="map-box">${url ? `<img src="${esc(url)}" alt="Summoner's Rift" draggable="false">` : '<div class="map-fallback">Minimapa se nenačetla</div>'}${markersSvg(markers, selected)}</div>`;
+    }
+
+    function mapCard(m) {
+      const markers = JSON.parse(m.markers || '[]');
+      const folder = !sel.folder && m.folder_id ? folderOf(m.folder_id) : null;
+      const counts = Object.keys(MARKERS)
+        .map((t) => [t, markers.filter((k) => k.type === t).length])
+        .filter(([, n]) => n)
+        .map(([t, n]) => `<span class="chip"><span class="dot-${t}"></span>${n}× ${MARKERS[t].label}</span>`).join('');
+      return `
+        <div class="rp-card map-card" data-open-map="${m.id}">
+          ${mapHtml(markers)}
+          <div class="rp-top"><div class="t"><b>${esc(m.title)}</b><small>${m.side === 'BLUE' ? 'Modrá strana' : m.side === 'RED' ? 'Červená strana' : ''}</small></div></div>
+          ${counts ? `<div class="chips">${counts}</div>` : ''}
+          ${m.notes ? `<div class="rp-notes">${esc(m.notes)}</div>` : ''}
+          <div class="rp-foot">
+            ${folder ? `<span class="chip">📁 ${esc(folder.name)}</span>` : ''}
+            <span class="spacer"></span>
+            <button type="button" class="btn btn-small" data-open-map="${m.id}">Otevřít</button>
+          </div>
+        </div>`;
+    }
+
+    let editingMap = null;
+    let mapState = null; // { markers, tool, selected }
+    const mapDialogEl = document.getElementById('map-dialog');
+    const mapCanvas = document.getElementById('map-canvas');
+
+    function renderMapEditor() {
+      mapCanvas.innerHTML = mapHtml(mapState.markers, mapState.selected);
+      document.getElementById('marker-tools').innerHTML = Object.entries(MARKERS)
+        .map(([t, d]) => `<button type="button" class="mtool ${mapState.tool === t ? 'on' : ''}" data-tool="${t}" title="${d.hint}"><span class="dot-${t}"></span>${d.label}</button>`).join('');
+      const m = mapState.markers[mapState.selected];
+      document.getElementById('marker-panel').innerHTML = m
+        ? `<div class="mp-head"><span class="dot-${m.type}"></span><b>${MARKERS[m.type].label}</b><span class="muted">vybraná značka</span></div>
+           <div style="display:flex;gap:8px"><input id="marker-label" maxlength="60" placeholder="Popisek, např. 3:15 nebo Jungler" value="${esc(m.label || '')}">
+           <button type="button" class="btn btn-small btn-danger" id="marker-delete">Smazat</button></div>`
+        : `<p class="muted" style="margin:0;font-size:.85rem">Klikni do mapy pro přidání značky. Značku můžeš přetáhnout, kliknutím ji vybereš a dáš jí popisek.
+           ${mapState.markers.length ? `<br><button type="button" class="btn btn-small" id="markers-clear" style="margin-top:8px">Smazat všechny značky (${mapState.markers.length})</button>` : ''}</p>`;
+    }
+
+    // Placing and dragging markers. A press on empty map adds a marker; a press on a marker selects it and starts a drag.
+    let drag = null;
+    const posOf = (e) => {
+      const r = mapCanvas.querySelector('.map-box').getBoundingClientRect();
+      const clamp = (v) => Math.min(100, Math.max(0, v));
+      return { x: Math.round(clamp(((e.clientX - r.left) / r.width) * 100) * 10) / 10, y: Math.round(clamp(((e.clientY - r.top) / r.height) * 100) * 10) / 10 };
+    };
+    mapCanvas.addEventListener('pointerdown', (e) => {
+      if (!e.target.closest('.map-box')) return;
+      e.preventDefault();
+      const g = e.target.closest('.mk');
+      if (g) {
+        mapState.selected = Number(g.dataset.i);
+        drag = { i: mapState.selected, moved: false };
+      } else {
+        mapState.markers.push({ type: mapState.tool, ...posOf(e) });
+        mapState.selected = mapState.markers.length - 1;
+        drag = { i: mapState.selected, moved: true };
+      }
+      mapCanvas.setPointerCapture(e.pointerId);
+      renderMapEditor();
+    });
+    mapCanvas.addEventListener('pointermove', (e) => {
+      if (!drag) return;
+      Object.assign(mapState.markers[drag.i], posOf(e));
+      drag.moved = true;
+      mapCanvas.querySelector('.map-svg').outerHTML = markersSvg(mapState.markers, mapState.selected);
+    });
+    const endDrag = () => { if (drag) { drag = null; renderMapEditor(); } };
+    mapCanvas.addEventListener('pointerup', endDrag);
+    mapCanvas.addEventListener('pointercancel', endDrag);
+
+    mapDialogEl.addEventListener('click', (e) => {
+      const tool = e.target.closest('[data-tool]');
+      if (tool) { mapState.tool = tool.dataset.tool; mapState.selected = -1; renderMapEditor(); }
+      if (e.target.id === 'marker-delete') { mapState.markers.splice(mapState.selected, 1); mapState.selected = -1; renderMapEditor(); }
+      if (e.target.id === 'markers-clear' && confirm('Smazat všechny značky z mapy?')) { mapState.markers = []; renderMapEditor(); }
+    });
+    mapDialogEl.addEventListener('input', (e) => {
+      if (e.target.id !== 'marker-label') return;
+      const m = mapState.markers[mapState.selected];
+      if (!m) return;
+      const v = e.target.value.trim();
+      if (v) m.label = v; else delete m.label;
+      mapCanvas.querySelector('.map-svg').outerHTML = markersSvg(mapState.markers, mapState.selected);
+    });
+    mapDialogEl.addEventListener('keydown', (e) => {
+      if ((e.key === 'Delete' || e.key === 'Backspace') && mapState?.selected >= 0 && !e.target.closest('input, textarea, select')) {
+        e.preventDefault(); mapState.markers.splice(mapState.selected, 1); mapState.selected = -1; renderMapEditor();
+      }
+      // Enter in the label box shouldn't submit the whole form.
+      if (e.key === 'Enter' && e.target.id === 'marker-label') { e.preventDefault(); mapState.selected = -1; renderMapEditor(); }
+    });
+
+    const mapDialog = formDialog(mapDialogEl, {
+      async onSubmit(v) {
+        const body = {
+          title: v.title, side: v.side || null, notes: v.notes, markers: mapState.markers,
+          folder_id: v.folder_id ? Number(v.folder_id) : null, player_id: editingMap ? editingMap.player_id ?? null : playerId(),
+        };
+        if (editingMap) await api(`/api/coaching/maps/${editingMap.id}`, { method: 'PUT', body });
+        else await api('/api/coaching/maps', { method: 'POST', body });
+        await load();
+      },
+    });
+    function openMap(m) {
+      editingMap = m ?? null;
+      mapDialogEl.querySelector('h2').textContent = m ? 'Upravit mapu' : 'Nová mapa';
+      mapDialogEl.querySelector('[data-remove]').hidden = !m;
+      folderOptions(mapDialogEl.querySelector('[name=folder_id]'), m ? m.player_id ?? null : playerId());
+      mapState = { markers: m ? JSON.parse(m.markers || '[]') : [], tool: 'ward', selected: -1 };
+      mapDialog.open(m ? { ...m, side: m.side ?? '', folder_id: m.folder_id ?? '' } : { folder_id: sel.folder ?? '' });
+      renderMapEditor();
+    }
+    document.getElementById('add-map').addEventListener('click', () => openMap(null));
+    mapDialogEl.querySelector('[data-remove]').addEventListener('click', async () => {
+      if (!confirm('Smazat mapu?')) return;
+      await api(`/api/coaching/maps/${editingMap.id}`, { method: 'DELETE' });
+      mapDialogEl.close();
+      await load();
+    });
+
     function render() {
       validateSel();
       store.set('coach.sel', JSON.stringify(sel));
@@ -250,11 +436,17 @@
 
       const runes = data.runes.filter(inPlace);
       const notes = data.notes.filter(inPlace);
+      const maps = data.maps.filter(inPlace);
       document.getElementById('count-runes').textContent = runes.length || '';
       document.getElementById('count-notes').textContent = notes.length || '';
+      document.getElementById('count-maps').textContent = maps.length || '';
       document.querySelectorAll('#tabs button').forEach((b) => b.classList.toggle('active', b.dataset.tab === tab));
       document.getElementById('tab-runes').hidden = tab !== 'runes';
       document.getElementById('tab-notes').hidden = tab !== 'notes';
+      document.getElementById('tab-maps').hidden = tab !== 'maps';
+      document.getElementById('maps').innerHTML = maps.length
+        ? maps.map(mapCard).join('')
+        : '<div class="empty" style="grid-column:1/-1">Zatím žádné mapy. Přidej mapu a naklikej, kam patří wardy.</div>';
 
       document.getElementById('runes').innerHTML = runes.length
         ? runes.map(runeCard).join('')
@@ -299,7 +491,7 @@
     document.getElementById('rename-folder').addEventListener('click', () => openFolderDialog({ rename: sel.folder }));
     document.getElementById('delete-folder').addEventListener('click', async () => {
       const f = folderOf(sel.folder);
-      const n = data.runes.concat(data.notes).filter((x) => x.folder_id === f.id).length;
+      const n = data.runes.concat(data.notes, data.maps).filter((x) => x.folder_id === f.id).length;
       if (!confirm(`Smazat složku „${f.name}“${n ? ` i s ${n} položkami uvnitř` : ''}?`)) return;
       await api(`/api/coaching/folders/${f.id}`, { method: 'DELETE' });
       sel.folder = null;
@@ -473,6 +665,8 @@
     document.querySelector('main').addEventListener('click', async (e) => {
       const er = e.target.closest('[data-edit-runes]');
       if (er) return openRunes(data.runes.find((x) => x.id === Number(er.dataset.editRunes)));
+      const om = e.target.closest('[data-open-map]');
+      if (om) return openMap(data.maps.find((x) => x.id === Number(om.dataset.openMap)));
       const en = e.target.closest('[data-edit-note]');
       if (en) return openNote(data.notes.find((x) => x.id === Number(en.dataset.editNote)));
       const pin = e.target.closest('[data-pin]');

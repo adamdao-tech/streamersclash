@@ -518,7 +518,8 @@ const TOOLS: Tool[] = [
   {
     name: 'get_coaching',
     description:
-      'Coaching material for our team: folders per player (e.g. "Supp – tank", "Supp – heal") or team-wide, rune pages and coaching notes. ' +
+      'Coaching material for our team: folders per player (e.g. "Supp – tank", "Supp – heal") or team-wide, rune pages, coaching notes ' +
+      'and ward maps (only counts and labels of the markers – the map itself is drawn by Dao in the app). ' +
       'Without player_id returns everything; player_id narrows to one player (team-wide items are always included).',
     inputSchema: { type: 'object', properties: { player_id: { type: 'integer' } } },
     annotations: { readOnlyHint: true },
@@ -537,6 +538,16 @@ const TOOLS: Tool[] = [
           id: r.id, player: playerName(r.player_id), folder: folderName(r.folder_id), title: r.title, champion: r.champion,
           ...(runeData ? describeRunePage(runeData, r as any) : {}), notes: r.notes,
         })),
+        ward_maps: (data.maps as Record<string, any>[]).filter(inScope).map((m) => {
+          const markers = JSON.parse(m.markers || '[]') as { type: string; x: number; y: number; label?: string }[];
+          const counts: Record<string, number> = {};
+          for (const k of markers) counts[k.type] = (counts[k.type] ?? 0) + 1;
+          return {
+            id: m.id, player: playerName(m.player_id), folder: folderName(m.folder_id), title: m.title, side: m.side, notes: m.notes,
+            marker_counts: counts,
+            labelled_markers: markers.filter((k) => k.label).map((k) => ({ type: k.type, label: k.label })),
+          };
+        }),
         notes: (data.notes as Record<string, any>[]).filter(inScope).map((n) => ({
           id: n.id, player: playerName(n.player_id), folder: folderName(n.folder_id), title: n.title, body: n.body,
           pinned: !!n.pinned, author: n.author_kind === 'claude' ? 'Claude' : n.author_name, updated_at: n.updated_at,

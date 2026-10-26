@@ -321,4 +321,22 @@ CREATE TABLE coaching_notes (
 CREATE INDEX idx_coaching_notes_player ON coaching_notes(player_id);
 CREATE INDEX idx_coaching_notes_folder ON coaching_notes(folder_id);
 `,
+
+  /* 8: coaching ward maps */ `
+CREATE TABLE coaching_maps (
+  id              INTEGER PRIMARY KEY AUTOINCREMENT,
+  player_id       INTEGER REFERENCES players(id) ON DELETE CASCADE,
+  folder_id       INTEGER REFERENCES coaching_folders(id) ON DELETE CASCADE,
+  title           TEXT NOT NULL,
+  side            TEXT CHECK (side IN ('BLUE', 'RED')),
+  markers         TEXT NOT NULL DEFAULT '[]',
+  notes           TEXT,
+  created_by_kind TEXT NOT NULL DEFAULT 'user' CHECK (created_by_kind IN ('user', 'claude')),
+  created_by      INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at      TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX idx_coaching_maps_player ON coaching_maps(player_id);
+CREATE INDEX idx_coaching_maps_folder ON coaching_maps(folder_id);
+`,
 ];

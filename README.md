@@ -33,5 +33,5 @@ See [`reader/README.md`](reader/README.md). Needs the `READER_TOKEN` secret in C
 3. ~~Remote MCP connector (OAuth) for Claude~~
 4. ~~Draft reader (VOD → champ select → draft)~~, tuning on real VODs
 5. ~~Schedule (Harmonogram): tournament matches, scrims and other events, list + calendar view, next-match countdown~~
-6. ~~Koučing: folders per player, rune pages (rune picker from Data Dragon), coaching notes~~
+6. ~~Koučing: folders per player, rune pages (rune picker from Data Dragon), coaching notes, ward maps on the minimap~~
 7. Drafts in the web UI, Riot API sync, champion pools, compare view

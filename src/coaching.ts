@@ -29,7 +29,7 @@ const optId = (v: unknown): number | null => {
 /** Everything on the coaching page in one go – the data set is small. */
 export async function loadCoaching(env: Env) {
   const db = env.DB;
-  const [players, folders, runes, notes] = await Promise.all([
+  const [players, folders, runes, notes, maps] = await Promise.all([
     db.prepare(
       `SELECT p.id, p.nickname, p.role FROM players p JOIN teams t ON t.id = p.team_id
         WHERE t.is_own_team = 1
@@ -42,8 +42,9 @@ export async function loadCoaching(env: Env) {
       `SELECT n.*, u.display_name AS author_name FROM coaching_notes n LEFT JOIN users u ON u.id = n.author_user_id
         ORDER BY n.pinned DESC, n.updated_at DESC`,
     ).all(),
+    db.prepare('SELECT * FROM coaching_maps ORDER BY updated_at DESC').all(),
   ]);
-  return { players: players.results, folders: folders.results, runes: runes.results, notes: notes.results };
+  return { players: players.results, folders: folders.results, runes: runes.results, notes: notes.results, maps: maps.results };
 }
 
 /** Works out where an item lives. A folder decides the player; otherwise player_id (or none = whole team). */
@@ -88,6 +89,7 @@ export async function deleteFolder(env: Env, id: number): Promise<void> {
   await env.DB.batch([
     env.DB.prepare('DELETE FROM coaching_runes WHERE folder_id = ?').bind(id),
     env.DB.prepare('DELETE FROM coaching_notes WHERE folder_id = ?').bind(id),
+    env.DB.prepare('DELETE FROM coaching_maps WHERE folder_id = ?').bind(id),
     env.DB.prepare('DELETE FROM coaching_folders WHERE id = ?').bind(id),
   ]);
 }
@@ -191,4 +193,63 @@ export async function saveNote(env: Env, actor: Actor, body: Body, id?: number):
 
 export async function deleteNote(env: Env, id: number): Promise<void> {
   await env.DB.prepare('DELETE FROM coaching_notes WHERE id = ?').bind(id).run();
+}
+
+// --- ward maps -------------------------------------------------------------------
+// Markers sit on the Summoner's Rift minimap; x and y are 0–100 % from the top-left corner.
+
+export const MARKER_TYPES = ['ward', 'control', 'farsight', 'sweep', 'note'] as const;
+
+function cleanMarkers(v: unknown) {
+  if (!Array.isArray(v)) throw new HttpError(400, 'invalid', 'Značky musí být seznam.');
+  if (v.length > 80) throw new HttpError(400, 'invalid', 'Na mapě může být nejvýš 80 značek.');
+  return v.map((m) => {
+    const o = (m ?? {}) as Record<string, unknown>;
+    const type = String(o.type);
+    if (!(MARKER_TYPES as readonly string[]).includes(type)) throw new HttpError(400, 'invalid', `Neznámý typ značky: ${type}`);
+    const coord = (c: unknown) => {
+      const n = Number(c);
+      if (!Number.isFinite(n) || n < 0 || n > 100) throw new HttpError(400, 'invalid', 'Značka je mimo mapu.');
+      return Math.round(n * 10) / 10;
+    };
+    const label = str(o.label, 'Popisek značky', 60);
+    return { type, x: coord(o.x), y: coord(o.y), ...(label ? { label } : {}) };
+  });
+}
+
+export async function saveMap(env: Env, actor: Actor, body: Body, id?: number): Promise<number> {
+  const db = env.DB;
+  const existing = id ? await db.prepare('SELECT * FROM coaching_maps WHERE id = ?').bind(id).first<Record<string, unknown>>() : null;
+  if (id && !existing) throw new HttpError(404, 'not_found', 'Mapa neexistuje.');
+  const has = (k: string) => k in body;
+  const place = has('folder_id') || has('player_id') || !existing
+    ? await resolvePlace(db, body)
+    : { player_id: existing.player_id as number | null, folder_id: existing.folder_id as number | null };
+  const title = str(has('title') ? body.title : existing?.title, 'Název', 80);
+  if (!title) throw new HttpError(400, 'invalid', 'Zadej název mapy, např. Wardy před drakem.');
+  const sideIn = has('side') ? body.side : existing?.side;
+  const side = sideIn ? String(sideIn).toUpperCase() : null;
+  if (side && side !== 'BLUE' && side !== 'RED') throw new HttpError(400, 'invalid', 'Strana musí být BLUE nebo RED.');
+  const markers = JSON.stringify(has('markers') ? cleanMarkers(body.markers) : JSON.parse(String(existing?.markers ?? '[]')));
+  const notes = str(has('notes') ? body.notes : existing?.notes, 'Poznámka', 5000);
+
+  let outId = id ?? 0;
+  if (existing) {
+    await db.prepare(
+      `UPDATE coaching_maps SET player_id = ?, folder_id = ?, title = ?, side = ?, markers = ?, notes = ?, updated_at = datetime('now') WHERE id = ?`,
+    ).bind(place.player_id, place.folder_id, title, side, markers, notes, id).run();
+  } else {
+    const res = await db.prepare(
+      `INSERT INTO coaching_maps (player_id, folder_id, title, side, markers, notes, created_by_kind, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).bind(place.player_id, place.folder_id, title, side, markers, notes, actor.kind, actor.userId).run();
+    outId = res.meta.last_row_id;
+  }
+  await logActivity(db, actor, existing ? 'coaching.map.update' : 'coaching.map.create', 'coaching_map', outId, {
+    name: `${await placeName(db, place.player_id)} – ${title}`,
+  });
+  return outId;
+}
+
+export async function deleteMap(env: Env, id: number): Promise<void> {
+  await env.DB.prepare('DELETE FROM coaching_maps WHERE id = ?').bind(id).run();
 }

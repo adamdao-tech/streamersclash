@@ -5,7 +5,7 @@ import { getLiveChannels, syncTwitchVods } from './vods';
 import { listDrafts, playerGames, relinkDraftPlayers, summarizeGames } from './drafts';
 import { getChampionData } from './champions';
 import { listSchedule, opponentLabel, requireOpponent, scheduleFields } from './schedule';
-import { createFolder, deleteFolder, deleteNote, deleteRunePage, loadCoaching, renameFolder, saveNote, saveRunePage } from './coaching';
+import { createFolder, deleteFolder, deleteMap, deleteNote, deleteRunePage, loadCoaching, renameFolder, saveMap, saveNote, saveRunePage } from './coaching';
 import { getRuneData } from './runes';
 
 const ROLES = ['TOP', 'JUNGLE', 'MID', 'ADC', 'SUPPORT', 'SUB'] as const;
@@ -347,6 +347,13 @@ async function route(req: Request, env: Env, url: URL, user: User): Promise<Resp
   if ((m = path.match(/^\/api\/coaching\/runes\/(\d+)$/))) {
     if (method === 'PUT') return json({ id: await saveRunePage(env, actor, await readBody(req), Number(m[1])) });
     if (method === 'DELETE') return (await deleteRunePage(env, Number(m[1])), json({ ok: true }));
+  }
+  if (path === '/api/coaching/maps' && method === 'POST') {
+    return json({ id: await saveMap(env, actor, await readBody(req)) }, 201);
+  }
+  if ((m = path.match(/^\/api\/coaching\/maps\/(\d+)$/))) {
+    if (method === 'PUT') return json({ id: await saveMap(env, actor, await readBody(req), Number(m[1])) });
+    if (method === 'DELETE') return (await deleteMap(env, Number(m[1])), json({ ok: true }));
   }
   if (path === '/api/coaching/notes' && method === 'POST') {
     return json({ id: await saveNote(env, actor, await readBody(req)) }, 201);

@@ -672,3 +672,27 @@ dialog.viewer { width: min(1600px, calc(100vw - 24px)); max-height: calc(100vh -
 dialog.viewer img { display: block; max-width: 100%; max-height: calc(100vh - 140px); margin: 0 auto; border-radius: 8px; }
 .viewer-notes { color: var(--muted); white-space: pre-wrap; margin: 10px 4px 0; }
 .viewer-notes:empty { display: none; }
+
+/* --- coaching: big map view --- */
+dialog.map-viewer {
+  width: calc(100vw - 24px); max-width: none; height: calc(100vh - 24px); max-height: none; padding: 16px;
+  display: none; grid-template-columns: minmax(0, 1fr) 300px; gap: 18px;
+}
+dialog.map-viewer[open] { display: grid; }
+dialog.map-viewer:fullscreen { width: 100vw; height: 100vh; border: 0; border-radius: 0; }
+.mv-map { min-width: 0; min-height: 0; display: grid; place-items: center; }
+.mv-map .map-box { width: min(100%, calc(100vh - 56px)); }
+dialog.map-viewer:fullscreen .mv-map .map-box { width: min(100%, calc(100vh - 32px)); }
+.mv-side { display: flex; flex-direction: column; gap: 14px; overflow-y: auto; min-height: 0; }
+.mv-side h2 { font-size: 1.7rem; margin-bottom: 4px; }
+.mv-legend { display: flex; flex-wrap: wrap; gap: 6px; }
+.mv-note-list { list-style: none; padding: 0; margin: 6px 0 0; width: 100%; display: flex; flex-direction: column; gap: 6px; }
+.mv-note-list li { display: flex; align-items: center; gap: 8px; font-size: 0.92rem; }
+.mv-num { width: 22px; height: 22px; border-radius: 50%; background: #fff; color: #0b0f19; font-weight: 700; font-size: 0.78rem; display: grid; place-items: center; flex: none; }
+.mv-notes { white-space: pre-wrap; margin: 0; color: var(--text); line-height: 1.5; }
+.mv-notes:empty { display: none; }
+.mv-actions { display: flex; flex-direction: column; gap: 8px; margin-top: auto; }
+@media (max-width: 860px) {
+  dialog.map-viewer { grid-template-columns: 1fr; height: auto; max-height: calc(100vh - 24px); overflow-y: auto; }
+  .mv-map .map-box { width: 100%; }
+}

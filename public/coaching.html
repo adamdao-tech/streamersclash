@@ -167,6 +167,24 @@
     </form>
   </dialog>
 
+  <dialog id="map-viewer" class="map-viewer">
+    <div class="mv-map" id="mv-map"></div>
+    <aside class="mv-side">
+      <div>
+        <h2 id="mv-title"></h2>
+        <div class="muted" id="mv-sub"></div>
+      </div>
+      <div class="mv-legend" id="mv-legend"></div>
+      <p class="mv-notes" id="mv-notes"></p>
+      <div class="mv-actions">
+        <button type="button" class="btn" id="mv-fullscreen">⛶ Celá obrazovka</button>
+        <button type="button" class="btn" id="mv-copy">🔗 Kopírovat odkaz</button>
+        <button type="button" class="btn" id="mv-edit">Upravit</button>
+        <button type="button" class="btn btn-primary" id="mv-close">Zavřít ✕</button>
+      </div>
+    </aside>
+  </dialog>
+
   <dialog id="shot-viewer" class="viewer">
     <div class="viewer-head">
       <b id="viewer-title"></b>
@@ -333,7 +351,7 @@
         .filter(([, n]) => n)
         .map(([t, n]) => `<span class="chip"><span class="dot-${t}"></span>${n}× ${MARKERS[t].label}</span>`).join('');
       return `
-        <div class="rp-card map-card" data-open-map="${m.id}">
+        <div class="rp-card map-card" data-view-map="${m.id}" title="Otevřít ve velkém">
           ${mapHtml(markers)}
           <div class="rp-top"><div class="t"><b>${esc(m.title)}</b><small>${m.side === 'BLUE' ? 'Modrá strana' : m.side === 'RED' ? 'Červená strana' : ''}</small></div></div>
           ${counts ? `<div class="chips">${counts}</div>` : ''}
@@ -341,7 +359,8 @@
           <div class="rp-foot">
             ${folder ? `<span class="chip">📁 ${esc(folder.name)}</span>` : ''}
             <span class="spacer"></span>
-            <button type="button" class="btn btn-small" data-open-map="${m.id}">Otevřít</button>
+            <button type="button" class="btn btn-small" data-open-map="${m.id}">Upravit</button>
+            <button type="button" class="btn btn-small btn-primary" data-view-map="${m.id}">Zvětšit</button>
           </div>
         </div>`;
     }
@@ -580,6 +599,51 @@
     document.getElementById('viewer-close').addEventListener('click', () => viewer.close());
     document.getElementById('viewer-edit').addEventListener('click', () => { viewer.close(); openShotDialog(viewing); });
     viewer.addEventListener('click', (e) => { if (e.target === viewer) viewer.close(); });
+
+    // --- big read-only map view (and a link that opens it) ------------------------------------
+    const mapViewer = document.getElementById('map-viewer');
+    let viewingMap = null;
+    function openMapViewer(m) {
+      if (!m) return;
+      viewingMap = m;
+      const markers = JSON.parse(m.markers || '[]');
+      document.getElementById('mv-map').innerHTML = mapHtml(markers);
+      document.getElementById('mv-title').textContent = m.title;
+      const who = m.player_id ? data.players.find((p) => p.id === m.player_id)?.nickname : 'Celý tým';
+      const folder = m.folder_id ? folderOf(m.folder_id)?.name : null;
+      document.getElementById('mv-sub').textContent = [who, folder, m.side === 'BLUE' ? 'Modrá strana' : m.side === 'RED' ? 'Červená strana' : null].filter(Boolean).join(' · ');
+      // Legend: each type used on the map, and the numbered notes with their labels.
+      const used = Object.keys(MARKERS).filter((t) => markers.some((k) => k.type === t));
+      let n = 0;
+      const notes = markers.filter((k) => k.type === 'note').map((k) => `<li><span class="mv-num">${++n}</span>${esc(k.label || '')}</li>`).join('');
+      document.getElementById('mv-legend').innerHTML =
+        used.map((t) => `<span class="chip"><span class="dot-${t}"></span>${markers.filter((k) => k.type === t).length}× ${MARKERS[t].label}</span>`).join('') +
+        (notes ? `<ol class="mv-note-list">${notes}</ol>` : '');
+      document.getElementById('mv-notes').textContent = m.notes || '';
+      const url = new URL(location.href);
+      url.searchParams.set('map', m.id);
+      history.replaceState(null, '', url);
+      mapViewer.showModal();
+    }
+    mapViewer.addEventListener('close', () => {
+      viewingMap = null;
+      const url = new URL(location.href);
+      url.searchParams.delete('map');
+      history.replaceState(null, '', url);
+      if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+    });
+    document.getElementById('mv-close').addEventListener('click', () => mapViewer.close());
+    document.getElementById('mv-edit').addEventListener('click', () => { const m = viewingMap; mapViewer.close(); openMap(m); });
+    document.getElementById('mv-fullscreen').addEventListener('click', () => {
+      if (document.fullscreenElement) document.exitFullscreen();
+      else mapViewer.requestFullscreen?.().catch(() => {});
+    });
+    document.getElementById('mv-copy').addEventListener('click', async (e) => {
+      const link = `${location.origin}/coaching?map=${viewingMap.id}`;
+      try { await navigator.clipboard.writeText(link); e.target.textContent = '✓ Odkaz zkopírován'; }
+      catch { prompt('Zkopíruj odkaz:', link); }
+      setTimeout(() => { e.target.textContent = '🔗 Kopírovat odkaz'; }, 2000);
+    });
 
     function render() {
       validateSel();
@@ -832,6 +896,8 @@
       const os = e.target.closest('[data-open-shot]');
       if (os) return openViewer(data.shots.find((x) => x.id === Number(os.dataset.openShot)));
       const om = e.target.closest('[data-open-map]');
+      const vm = !om && e.target.closest('[data-view-map]');
+      if (vm) return openMapViewer(data.maps.find((x) => x.id === Number(vm.dataset.viewMap)));
       if (om) return openMap(data.maps.find((x) => x.id === Number(om.dataset.openMap)));
       const en = e.target.closest('[data-edit-note]');
       if (en) return openNote(data.notes.find((x) => x.id === Number(en.dataset.editNote)));
@@ -845,6 +911,14 @@
 
     [runeData] = await Promise.all([api('/api/runes').catch(() => null), load()]);
     render();
+    // A shared link (?map=ID) opens that map straight away in the big view.
+    const linked = data.maps.find((x) => x.id === Number(new URLSearchParams(location.search).get('map')));
+    if (linked) {
+      sel = { player: linked.player_id ?? 'team', folder: linked.folder_id ?? null };
+      tab = 'maps';
+      render();
+      openMapViewer(linked);
+    }
   </script>
 </body>
 </html>

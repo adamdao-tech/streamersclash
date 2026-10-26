@@ -6,8 +6,8 @@ import { listDrafts, playerGames, relinkDraftPlayers, summarizeGames } from './d
 import { getChampionData } from './champions';
 import { listSchedule, opponentLabel, requireOpponent, scheduleFields } from './schedule';
 import {
-  createFolder, deleteFolder, deleteMap, deleteNote, deleteRunePage, getBoard, getMapImage, loadCoaching, mapVersion,
-  renameFolder, resetMapImage, saveBoard, saveMap, saveNote, saveRunePage, setMapImage,
+  createFolder, createShot, deleteFolder, deleteMap, deleteNote, deleteRunePage, deleteShot, getMapImage, getShotImage, loadCoaching,
+  mapVersion, renameFolder, resetMapImage, saveMap, saveNote, saveRunePage, setMapImage, updateShot,
 } from './coaching';
 import { getRuneData } from './runes';
 
@@ -346,11 +346,6 @@ async function route(req: Request, env: Env, url: URL, user: User): Promise<Resp
     if (method === 'PUT') return (await setMapImage(env, actor, await readBody(req)), json({ ok: true, map_version: await mapVersion(env) }));
     if (method === 'DELETE') return (await resetMapImage(env), json({ ok: true }));
   }
-  if (path === '/api/coaching/board') {
-    if (method === 'GET') return json({ ...(await getBoard(env)), map_version: await mapVersion(env) });
-    // POST too: the page saves its last edit with navigator.sendBeacon when it is closed.
-    if (method === 'PUT' || method === 'POST') return (await saveBoard(env, await readBody(req)), json({ ok: true }));
-  }
   if (path === '/api/coaching/folders' && method === 'POST') {
     return json({ id: await createFolder(env, actor, await readBody(req)) }, 201);
   }
@@ -364,6 +359,19 @@ async function route(req: Request, env: Env, url: URL, user: User): Promise<Resp
   if ((m = path.match(/^\/api\/coaching\/runes\/(\d+)$/))) {
     if (method === 'PUT') return json({ id: await saveRunePage(env, actor, await readBody(req), Number(m[1])) });
     if (method === 'DELETE') return (await deleteRunePage(env, Number(m[1])), json({ ok: true }));
+  }
+  if (path === '/api/coaching/shots' && method === 'POST') {
+    return json({ id: await createShot(env, actor, await readBody(req)) }, 201);
+  }
+  if ((m = path.match(/^\/api\/coaching\/shots\/(\d+)\/image$/)) && method === 'GET') {
+    const img = await getShotImage(env, Number(m[1]));
+    if (!img) throw new HttpError(404, 'not_found', 'Screenshot neexistuje.');
+    // A screenshot never changes under the same id.
+    return new Response(img.data, { headers: { 'Content-Type': img.mime, 'Cache-Control': 'private, max-age=31536000, immutable' } });
+  }
+  if ((m = path.match(/^\/api\/coaching\/shots\/(\d+)$/))) {
+    if (method === 'PUT') return (await updateShot(env, Number(m[1]), await readBody(req)), json({ ok: true }));
+    if (method === 'DELETE') return (await deleteShot(env, Number(m[1])), json({ ok: true }));
   }
   if (path === '/api/coaching/maps' && method === 'POST') {
     return json({ id: await saveMap(env, actor, await readBody(req)) }, 201);

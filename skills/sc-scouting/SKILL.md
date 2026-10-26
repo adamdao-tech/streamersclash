@@ -63,8 +63,8 @@ If `save_draft` says a champion is unknown, fix the spelling (e.g. "Kai'Sa", "Nu
 
 ## Workflow 5 – coaching ("runy pro supporta", "zapiš to do koučingu")
 
-- Coaching lives per player of our team, or team-wide. Dao sorts it into folders he names himself (e.g. "Supp – tank", "Supp – heal"). Each place holds **rune pages**, **notes (zápisky)** and **ward maps** (wards, control wards, farsight, sweeper zones and numbered notes drawn on the minimap).
-- **Riftkit** (/board) is one big shared map board Dao uses to show plans to the team; it can be saved as a ward map. Dao can upload his own high-resolution map picture there, used by all maps.
+- Coaching lives per player of our team, or team-wide. Dao sorts it into folders he names himself (e.g. "Supp – tank", "Supp – heal"). Each place holds **rune pages**, **notes (zápisky)**, **ward maps** and **screenshots** (wards, control wards, farsight, sweeper zones and numbered notes drawn on the minimap).
+- `get_coaching_screenshot` shows one screenshot (id from `get_coaching`) so you can comment on it – e.g. positioning in a teamfight.
 - Ward maps are drawn by Dao in the app; through the connector you only see their title, side, notes and marker counts/labels, not the positions – don't describe where wards are beyond that.
 - `get_coaching` (optionally `player_id`) – folders, rune pages (rune names, shards, summoners) and notes.
 - `save_rune_page` – runes, paths, shards and summoners by English name; `perks` = keystone, 3 primary, 2 secondary from two different rows. Pass `id` to change an existing page. Ask before saving.
@@ -92,4 +92,4 @@ If `save_draft` says a champion is unknown, fix the spelling (e.g. "Kai'Sa", "Nu
 | `add_team`, `add_player` | new data |
 | `rescan_vod`, `get_activity` | reader and app status |
 | `get_schedule`, `add_scheduled_match`, `update_scheduled_match` | our match schedule |
-| `get_coaching`, `save_rune_page`, `add_coaching_note`, `add_coaching_folder` | coaching: rune pages and notes per player/folder |
+| `get_coaching`, `get_coaching_screenshot`, `save_rune_page`, `add_coaching_note`, `add_coaching_folder` | coaching: rune pages and notes per player/folder |

@@ -307,7 +307,7 @@ export function startCountdowns() {
   return setInterval(tick, 30_000);
 }
 
-// --- maps (ward maps and the Riftkit board) ----------------------------------------------
+// --- ward maps ------------------------------------------------------------------------------
 
 export const MARKERS = {
   ward: { label: 'Ward', hint: 'Žlutý (stealth) ward' },
@@ -355,4 +355,40 @@ export function markersSvg(markers, selected = -1) {
 
 export function mapBoxHtml(markers, selected, image) {
   return `<div class="map-box"><img src="${esc(image.src)}"${image.alt ? ` data-alt="${esc(image.alt)}"` : ''} alt="Summoner's Rift" draggable="false">${markersSvg(markers, selected)}</div>`;
+}
+
+// --- image uploads -------------------------------------------------------------------------
+
+/**
+ * Shrinks an image file for upload: optionally cropped to a centred square, at most `maxSide`
+ * pixels, WebP (JPEG where WebP isn't supported), lowering quality and size until it fits `maxBytes`.
+ * Returns { blob, width, height }.
+ */
+export async function shrinkImage(file, { maxSide = 2560, square = false, maxBytes = 1_800_000 } = {}) {
+  const bmp = await createImageBitmap(file);
+  const sw = square ? Math.min(bmp.width, bmp.height) : bmp.width;
+  const sh = square ? sw : bmp.height;
+  const sx = (bmp.width - sw) / 2, sy = (bmp.height - sh) / 2;
+  const longest = Math.max(sw, sh);
+  for (const limit of [maxSide, Math.round(maxSide * 0.75), Math.round(maxSide * 0.5)]) {
+    const scale = Math.min(1, limit / longest);
+    const w = Math.max(1, Math.round(sw * scale)), h = Math.max(1, Math.round(sh * scale));
+    const c = Object.assign(document.createElement('canvas'), { width: w, height: h });
+    c.getContext('2d').drawImage(bmp, sx, sy, sw, sh, 0, 0, w, h);
+    for (const q of [0.9, 0.82, 0.72, 0.6]) {
+      let blob = await new Promise((res) => c.toBlob(res, 'image/webp', q));
+      if (!blob || blob.type !== 'image/webp') blob = await new Promise((res) => c.toBlob(res, 'image/jpeg', q));
+      if (blob && blob.size <= maxBytes) return { blob, width: w, height: h };
+    }
+  }
+  throw new Error('Obrázek se nepodařilo zmenšit pod limit.');
+}
+
+export function blobToBase64(blob) {
+  return new Promise((res, rej) => {
+    const r = new FileReader();
+    r.onload = () => res(String(r.result).split(',')[1]);
+    r.onerror = rej;
+    r.readAsDataURL(blob);
+  });
 }

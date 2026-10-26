@@ -8,7 +8,7 @@ import { listDrafts, playerGames, relinkDraftPlayers, saveDraft, summarizeGames,
 import { HttpError, json } from './http';
 import { userFromBearer } from './oauth';
 import { syncTwitchVods } from './vods';
-import { createFolder, loadCoaching, saveNote, saveRunePage } from './coaching';
+import { createFolder, getShotImage, loadCoaching, saveNote, saveRunePage } from './coaching';
 import { describeRunePage, getRuneData } from './runes';
 
 // Remote MCP server (Streamable HTTP transport, JSON responses only).
@@ -519,7 +519,8 @@ const TOOLS: Tool[] = [
     name: 'get_coaching',
     description:
       'Coaching material for our team: folders per player (e.g. "Supp – tank", "Supp – heal") or team-wide, rune pages, coaching notes ' +
-      'and ward maps (only counts and labels of the markers – the map itself is drawn by Dao in the app). ' +
+      'ward maps (only counts and labels of the markers – the map itself is drawn by Dao in the app) and screenshots ' +
+      '(look at one with get_coaching_screenshot). ' +
       'Without player_id returns everything; player_id narrows to one player (team-wide items are always included).',
     inputSchema: { type: 'object', properties: { player_id: { type: 'integer' } } },
     annotations: { readOnlyHint: true },
@@ -548,11 +549,33 @@ const TOOLS: Tool[] = [
             labelled_markers: markers.filter((k) => k.label).map((k) => ({ type: k.type, label: k.label })),
           };
         }),
+        screenshots: (data.shots as Record<string, any>[]).filter(inScope).map((sh) => ({
+          id: sh.id, player: playerName(sh.player_id), folder: folderName(sh.folder_id), title: sh.title, notes: sh.notes,
+          size: sh.width && sh.height ? `${sh.width}×${sh.height}` : null, added: sh.created_at,
+        })),
         notes: (data.notes as Record<string, any>[]).filter(inScope).map((n) => ({
           id: n.id, player: playerName(n.player_id), folder: folderName(n.folder_id), title: n.title, body: n.body,
           pinned: !!n.pinned, author: n.author_kind === 'claude' ? 'Claude' : n.author_name, updated_at: n.updated_at,
         })),
       });
+    },
+  },
+  {
+    name: 'get_coaching_screenshot',
+    description: 'Shows one coaching screenshot (id from get_coaching) so you can look at it, with its title and notes.',
+    inputSchema: { type: 'object', properties: { id: { type: 'integer' } }, required: ['id'] },
+    annotations: { readOnlyHint: true },
+    async run(a, { env }) {
+      const id = int(a.id, 'id');
+      const meta = await env.DB.prepare('SELECT title, notes FROM coaching_shots WHERE id = ?').bind(id).first<{ title: string | null; notes: string | null }>();
+      const img = await getShotImage(env, id);
+      if (!meta || !img) throw new HttpError(404, 'not_found', `Screenshot ${id} not found`);
+      return {
+        content: [
+          { type: 'image', data: toBase64(img.data), mimeType: img.mime },
+          { type: 'text', text: JSON.stringify({ id, title: meta.title, notes: meta.notes }) },
+        ],
+      };
     },
   },
   {

@@ -14,9 +14,8 @@
     <div class="page-head">
       <div>
         <h1>Koučing</h1>
-        <p>Runy, zápisky a mapy pro celý tým i pro každého hráče, rozdělené do složek podle tebe.</p>
+        <p>Runy, zápisky, mapy a screenshoty pro celý tým i pro každého hráče, rozdělené do složek podle tebe.</p>
       </div>
-      <a class="btn btn-primary board-link" href="/board">🗺️ Riftkit – velká tabule</a>
     </div>
 
     <div class="coach">
@@ -32,6 +31,7 @@
           <button data-tab="runes">Runy <span class="count" id="count-runes"></span></button>
           <button data-tab="notes">Zápisky <span class="count" id="count-notes"></span></button>
           <button data-tab="maps">Mapy <span class="count" id="count-maps"></span></button>
+          <button data-tab="shots">Screenshoty <span class="count" id="count-shots"></span></button>
         </div>
 
         <div id="tab-runes">
@@ -43,8 +43,23 @@
           <div id="notes" class="note-list"></div>
         </div>
         <div id="tab-maps" hidden>
-          <div style="display:flex;justify-content:flex-end;margin-bottom:12px"><button class="btn btn-primary" id="add-map">+ Mapa</button></div>
+          <div class="tab-bar">
+            <span class="muted map-image-state" id="map-image-state"></span>
+            <label class="btn btn-small">Nahrát obrázek mapy<input type="file" id="map-image-file" accept="image/png,image/jpeg,image/webp" hidden></label>
+            <button type="button" class="btn btn-small" id="map-image-reset" hidden>Vrátit výchozí</button>
+            <span class="spacer"></span>
+            <button class="btn btn-primary" id="add-map">+ Mapa</button>
+          </div>
+          <p class="form-error" id="map-image-error" style="margin:-4px 0 10px"></p>
           <div id="maps" class="rp-grid"></div>
+        </div>
+        <div id="tab-shots" hidden>
+          <div class="tab-bar">
+            <span class="muted">Tip: screenshot zkopíruj a tady zmáčkni <b>Ctrl+V</b>, nebo ho sem přetáhni.</span>
+            <span class="spacer"></span>
+            <button class="btn btn-primary" id="add-shot">+ Screenshot</button>
+          </div>
+          <div id="shots" class="shot-grid"></div>
         </div>
       </section>
     </div>
@@ -131,8 +146,41 @@
     </form>
   </dialog>
 
+  <dialog id="shot-dialog" class="wide">
+    <form>
+      <h2>Screenshot</h2>
+      <div class="drop" id="shot-drop" tabindex="0">
+        <img id="shot-preview" alt="" hidden>
+        <div id="shot-drop-hint">Vlož obrázek <b>Ctrl+V</b>, přetáhni ho sem, nebo <label class="link-like">vyber soubor<input type="file" id="shot-file" accept="image/*" hidden></label>.</div>
+      </div>
+      <div class="form-grid" style="margin-top:14px">
+        <div><label>Nadpis</label><input name="title" maxlength="120" placeholder="např. Pozice před Baronem"></div>
+        <div><label>Složka</label><select name="folder_id"></select></div>
+        <div class="full"><label>Poznámka</label><textarea name="notes" maxlength="5000" placeholder="Co je na obrázku špatně / dobře…"></textarea></div>
+      </div>
+      <p class="form-error"></p>
+      <div class="dialog-actions">
+        <button type="button" class="btn btn-danger" data-remove style="margin-right:auto">Smazat</button>
+        <button type="button" class="btn" data-cancel>Zrušit</button>
+        <button type="submit" class="btn btn-primary">Uložit</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="shot-viewer" class="viewer">
+    <div class="viewer-head">
+      <b id="viewer-title"></b>
+      <span class="spacer"></span>
+      <a class="btn btn-small" id="viewer-open" target="_blank" rel="noopener">Otevřít originál ↗</a>
+      <button type="button" class="btn btn-small" id="viewer-edit">Upravit</button>
+      <button type="button" class="btn btn-small" id="viewer-close">Zavřít ✕</button>
+    </div>
+    <img id="viewer-img" alt="">
+    <p class="viewer-notes" id="viewer-notes"></p>
+  </dialog>
+
   <script type="module">
-    import { api, esc, initPage, formDialog, ROLE_LABELS, loadChampions, timeAgo, MARKERS, markersSvg, mapBoxHtml, mapImageSrc } from '/app.js';
+    import { api, esc, initPage, formDialog, ROLE_LABELS, loadChampions, timeAgo, MARKERS, markersSvg, mapBoxHtml, mapImageSrc, shrinkImage, blobToBase64 } from '/app.js';
 
     await initPage('coaching');
 
@@ -147,7 +195,7 @@
     const champIcons = await loadChampions();
     // Selected place: player = 'team' or a player id; folder = folder id or null.
     let sel = JSON.parse(store.get('coach.sel') || 'null') || { player: 'team', folder: null };
-    let tab = ['notes', 'maps'].includes(store.get('coach.tab')) ? store.get('coach.tab') : 'runes';
+    let tab = ['notes', 'maps', 'shots'].includes(store.get('coach.tab')) ? store.get('coach.tab') : 'runes';
 
     // Broken icons (e.g. a renamed rune) turn into their short label instead of an empty circle.
     document.addEventListener('error', (e) => {
@@ -190,7 +238,7 @@
 
     // --- tree --------------------------------------------------------------------
     function renderTree() {
-      const count = (pid, fid) => data.runes.concat(data.notes, data.maps).filter((x) => (fid ? x.folder_id === fid : (x.player_id ?? null) === pid)).length;
+      const count = (pid, fid) => data.runes.concat(data.notes, data.maps, data.shots).filter((x) => (fid ? x.folder_id === fid : (x.player_id ?? null) === pid)).length;
       const group = (key, label, lead, pid) => {
         const folders = data.folders.filter((f) => (f.player_id ?? null) === pid);
         const active = sel.player === key;
@@ -398,6 +446,141 @@
       await load();
     });
 
+    // --- own map picture (used by all maps) --------------------------------------------------
+    function renderMapImageState() {
+      document.getElementById('map-image-state').textContent = data.map_version ? 'Mapa: tvůj obrázek' : 'Mapa: malá od Riotu';
+      document.getElementById('map-image-reset').hidden = !data.map_version;
+    }
+    document.getElementById('map-image-file').addEventListener('change', async (e) => {
+      const file = e.target.files[0];
+      e.target.value = '';
+      const err = document.getElementById('map-image-error');
+      err.textContent = '';
+      if (!file) return;
+      try {
+        document.getElementById('map-image-state').textContent = 'Nahrávám…';
+        const { blob } = await shrinkImage(file, { maxSide: 2048, square: true });
+        await api('/api/coaching/map-image', { method: 'PUT', body: { mime: blob.type, data: await blobToBase64(blob) } });
+        await load();
+      } catch (ex) {
+        err.textContent = ex.message;
+        renderMapImageState();
+      }
+    });
+    document.getElementById('map-image-reset').addEventListener('click', async () => {
+      if (!confirm('Smazat nahraný obrázek mapy a vrátit malou minimapu od Riotu?')) return;
+      await api('/api/coaching/map-image', { method: 'DELETE' });
+      await load();
+    });
+
+    // --- screenshots ------------------------------------------------------------------------
+    const shotUrl = (id) => `/api/coaching/shots/${id}/image`;
+    function shotCard(sh) {
+      const folder = !sel.folder && sh.folder_id ? folderOf(sh.folder_id) : null;
+      return `
+        <figure class="shot-card" data-open-shot="${sh.id}">
+          <img src="${shotUrl(sh.id)}" alt="${esc(sh.title || 'Screenshot')}" loading="lazy">
+          <figcaption>
+            <b>${esc(sh.title || 'Bez nadpisu')}</b>
+            ${sh.notes ? `<span class="muted">${esc(sh.notes.length > 90 ? sh.notes.slice(0, 90) + '…' : sh.notes)}</span>` : ''}
+            <span class="shot-meta">${folder ? `<span class="chip">📁 ${esc(folder.name)}</span>` : ''}<span class="muted">${timeAgo(sh.created_at)}</span></span>
+          </figcaption>
+        </figure>`;
+    }
+
+    let editingShot = null;
+    let pendingShot = null; // { blob, width, height } waiting to be uploaded
+    const shotDialogEl = document.getElementById('shot-dialog');
+    const preview = document.getElementById('shot-preview');
+    const shotDialog = formDialog(shotDialogEl, {
+      async onSubmit(v) {
+        const place = { folder_id: v.folder_id ? Number(v.folder_id) : null, player_id: editingShot ? editingShot.player_id ?? null : playerId() };
+        if (editingShot) {
+          await api(`/api/coaching/shots/${editingShot.id}`, { method: 'PUT', body: { title: v.title, notes: v.notes, ...place } });
+        } else {
+          if (!pendingShot) throw new Error('Nejdřív vlož obrázek (Ctrl+V, přetažení nebo soubor).');
+          await api('/api/coaching/shots', {
+            method: 'POST',
+            body: { title: v.title, notes: v.notes, ...place, mime: pendingShot.blob.type, width: pendingShot.width, height: pendingShot.height, data: await blobToBase64(pendingShot.blob) },
+          });
+        }
+        await load();
+      },
+    });
+
+    async function takeImage(file) {
+      if (!file || !file.type.startsWith('image/')) return;
+      const err = shotDialogEl.querySelector('.form-error');
+      err.textContent = 'Zpracovávám obrázek…';
+      try {
+        pendingShot = await shrinkImage(file, { maxSide: 2560 });
+        if (preview.src.startsWith('blob:')) URL.revokeObjectURL(preview.src);
+        preview.src = URL.createObjectURL(pendingShot.blob);
+        preview.hidden = false;
+        document.getElementById('shot-drop-hint').hidden = true;
+        err.textContent = '';
+      } catch (ex) {
+        err.textContent = ex.message;
+      }
+    }
+
+    function openShotDialog(sh, file) {
+      editingShot = sh ?? null;
+      pendingShot = null;
+      shotDialogEl.querySelector('h2').textContent = sh ? 'Upravit screenshot' : 'Nový screenshot';
+      shotDialogEl.querySelector('[data-remove]').hidden = !sh;
+      folderOptions(shotDialogEl.querySelector('[name=folder_id]'), sh ? sh.player_id ?? null : playerId());
+      shotDialog.open(sh ? { ...sh, folder_id: sh.folder_id ?? '' } : { folder_id: sel.folder ?? '' });
+      preview.hidden = !sh;
+      preview.src = sh ? shotUrl(sh.id) : '';
+      document.getElementById('shot-drop-hint').hidden = !!sh;
+      document.getElementById('shot-drop').classList.toggle('locked', !!sh);
+      if (file) takeImage(file);
+    }
+    document.getElementById('add-shot').addEventListener('click', () => openShotDialog(null));
+    document.getElementById('shot-file').addEventListener('change', (e) => { takeImage(e.target.files[0]); e.target.value = ''; });
+    const drop = document.getElementById('shot-drop');
+    drop.addEventListener('dragover', (e) => { if (!editingShot) { e.preventDefault(); drop.classList.add('over'); } });
+    drop.addEventListener('dragleave', () => drop.classList.remove('over'));
+    drop.addEventListener('drop', (e) => { e.preventDefault(); drop.classList.remove('over'); if (!editingShot) takeImage(e.dataTransfer.files[0]); });
+
+    const imageFrom = (items) => [...(items || [])].find((it) => it.kind === 'file' && it.type.startsWith('image/'))?.getAsFile();
+    // Ctrl+V: into the open screenshot dialog, or – on the Screenshoty tab – straight into a new one.
+    document.addEventListener('paste', (e) => {
+      const file = imageFrom(e.clipboardData?.items);
+      if (!file) return;
+      if (shotDialogEl.open && !editingShot) { e.preventDefault(); takeImage(file); }
+      else if (tab === 'shots' && !document.querySelector('dialog[open]')) { e.preventDefault(); openShotDialog(null, file); }
+    });
+    // Dropping a picture anywhere on the Screenshoty tab starts a new screenshot too.
+    const shotsTab = document.getElementById('tab-shots');
+    shotsTab.addEventListener('dragover', (e) => { if ([...e.dataTransfer.types].includes('Files')) e.preventDefault(); });
+    shotsTab.addEventListener('drop', (e) => {
+      const file = [...e.dataTransfer.files].find((f) => f.type.startsWith('image/'));
+      if (file) { e.preventDefault(); openShotDialog(null, file); }
+    });
+
+    shotDialogEl.querySelector('[data-remove]').addEventListener('click', async () => {
+      if (!confirm('Smazat screenshot?')) return;
+      await api(`/api/coaching/shots/${editingShot.id}`, { method: 'DELETE' });
+      shotDialogEl.close();
+      await load();
+    });
+
+    const viewer = document.getElementById('shot-viewer');
+    let viewing = null;
+    function openViewer(sh) {
+      viewing = sh;
+      document.getElementById('viewer-title').textContent = sh.title || 'Screenshot';
+      document.getElementById('viewer-img').src = shotUrl(sh.id);
+      document.getElementById('viewer-open').href = shotUrl(sh.id);
+      document.getElementById('viewer-notes').textContent = sh.notes || '';
+      viewer.showModal();
+    }
+    document.getElementById('viewer-close').addEventListener('click', () => viewer.close());
+    document.getElementById('viewer-edit').addEventListener('click', () => { viewer.close(); openShotDialog(viewing); });
+    viewer.addEventListener('click', (e) => { if (e.target === viewer) viewer.close(); });
+
     function render() {
       validateSel();
       store.set('coach.sel', JSON.stringify(sel));
@@ -411,13 +594,20 @@
       const runes = data.runes.filter(inPlace);
       const notes = data.notes.filter(inPlace);
       const maps = data.maps.filter(inPlace);
+      const shots = data.shots.filter(inPlace);
       document.getElementById('count-runes').textContent = runes.length || '';
       document.getElementById('count-notes').textContent = notes.length || '';
       document.getElementById('count-maps').textContent = maps.length || '';
+      document.getElementById('count-shots').textContent = shots.length || '';
       document.querySelectorAll('#tabs button').forEach((b) => b.classList.toggle('active', b.dataset.tab === tab));
       document.getElementById('tab-runes').hidden = tab !== 'runes';
       document.getElementById('tab-notes').hidden = tab !== 'notes';
       document.getElementById('tab-maps').hidden = tab !== 'maps';
+      document.getElementById('tab-shots').hidden = tab !== 'shots';
+      document.getElementById('shots').innerHTML = shots.length
+        ? shots.map(shotCard).join('')
+        : '<div class="empty" style="grid-column:1/-1">Zatím žádné screenshoty. Zkopíruj obrázek a zmáčkni Ctrl+V.</div>';
+      renderMapImageState();
       document.getElementById('maps').innerHTML = maps.length
         ? maps.map(mapCard).join('')
         : '<div class="empty" style="grid-column:1/-1">Zatím žádné mapy. Přidej mapu a naklikej, kam patří wardy.</div>';
@@ -465,7 +655,7 @@
     document.getElementById('rename-folder').addEventListener('click', () => openFolderDialog({ rename: sel.folder }));
     document.getElementById('delete-folder').addEventListener('click', async () => {
       const f = folderOf(sel.folder);
-      const n = data.runes.concat(data.notes, data.maps).filter((x) => x.folder_id === f.id).length;
+      const n = data.runes.concat(data.notes, data.maps, data.shots).filter((x) => x.folder_id === f.id).length;
       if (!confirm(`Smazat složku „${f.name}“${n ? ` i s ${n} položkami uvnitř` : ''}?`)) return;
       await api(`/api/coaching/folders/${f.id}`, { method: 'DELETE' });
       sel.folder = null;
@@ -639,6 +829,8 @@
     document.querySelector('main').addEventListener('click', async (e) => {
       const er = e.target.closest('[data-edit-runes]');
       if (er) return openRunes(data.runes.find((x) => x.id === Number(er.dataset.editRunes)));
+      const os = e.target.closest('[data-open-shot]');
+      if (os) return openViewer(data.shots.find((x) => x.id === Number(os.dataset.openShot)));
       const om = e.target.closest('[data-open-map]');
       if (om) return openMap(data.maps.find((x) => x.id === Number(om.dataset.openMap)));
       const en = e.target.closest('[data-edit-note]');

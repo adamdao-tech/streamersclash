@@ -29,7 +29,7 @@ const optId = (v: unknown): number | null => {
 /** Everything on the coaching page in one go – the data set is small. */
 export async function loadCoaching(env: Env) {
   const db = env.DB;
-  const [players, folders, runes, notes, maps] = await Promise.all([
+  const [players, folders, runes, notes, maps, shots] = await Promise.all([
     db.prepare(
       `SELECT p.id, p.nickname, p.role FROM players p JOIN teams t ON t.id = p.team_id
         WHERE t.is_own_team = 1
@@ -43,8 +43,16 @@ export async function loadCoaching(env: Env) {
         ORDER BY n.pinned DESC, n.updated_at DESC`,
     ).all(),
     db.prepare('SELECT * FROM coaching_maps ORDER BY updated_at DESC').all(),
+    // Everything but the picture itself, which is loaded per image.
+    db.prepare(
+      `SELECT s.id, s.player_id, s.folder_id, s.title, s.notes, s.mime, s.width, s.height, s.size, s.created_by_kind,
+              s.created_at, s.updated_at, u.display_name AS author_name
+         FROM coaching_shots s LEFT JOIN users u ON u.id = s.created_by ORDER BY s.created_at DESC`,
+    ).all(),
   ]);
-  return { players: players.results, folders: folders.results, runes: runes.results, notes: notes.results, maps: maps.results };
+  return {
+    players: players.results, folders: folders.results, runes: runes.results, notes: notes.results, maps: maps.results, shots: shots.results,
+  };
 }
 
 /** Works out where an item lives. A folder decides the player; otherwise player_id (or none = whole team). */
@@ -90,6 +98,7 @@ export async function deleteFolder(env: Env, id: number): Promise<void> {
     env.DB.prepare('DELETE FROM coaching_runes WHERE folder_id = ?').bind(id),
     env.DB.prepare('DELETE FROM coaching_notes WHERE folder_id = ?').bind(id),
     env.DB.prepare('DELETE FROM coaching_maps WHERE folder_id = ?').bind(id),
+    env.DB.prepare('DELETE FROM coaching_shots WHERE folder_id = ?').bind(id),
     env.DB.prepare('DELETE FROM coaching_folders WHERE id = ?').bind(id),
   ]);
 }
@@ -254,7 +263,7 @@ export async function deleteMap(env: Env, id: number): Promise<void> {
   await env.DB.prepare('DELETE FROM coaching_maps WHERE id = ?').bind(id).run();
 }
 
-// --- own map picture + the single board ------------------------------------------------
+// --- own map picture -----------------------------------------------------------------------
 
 const MAP_KEY = 'map';
 const MAX_IMAGE = 1_900_000; // D1 keeps a value up to ~2 MB; the browser shrinks the picture before upload.
@@ -274,7 +283,8 @@ export async function getMapImage(env: Env): Promise<Response | null> {
   });
 }
 
-export async function setMapImage(env: Env, actor: Actor, body: Body): Promise<void> {
+/** Decodes an uploaded image (base64 in JSON) and checks its type and size. */
+function decodeImage(body: Body): { mime: string; bytes: Uint8Array } {
   const mime = String(body.mime ?? '');
   if (!['image/webp', 'image/jpeg', 'image/png'].includes(mime)) throw new HttpError(400, 'invalid', 'Obrázek musí být WebP, JPEG nebo PNG.');
   let bytes: Uint8Array;
@@ -285,6 +295,11 @@ export async function setMapImage(env: Env, actor: Actor, body: Body): Promise<v
   }
   if (!bytes.length) throw new HttpError(400, 'invalid', 'Obrázek je prázdný.');
   if (bytes.length > MAX_IMAGE) throw new HttpError(400, 'invalid', 'Obrázek je moc velký (max ~1,9 MB).');
+  return { mime, bytes };
+}
+
+export async function setMapImage(env: Env, actor: Actor, body: Body): Promise<void> {
+  const { mime, bytes } = decodeImage(body);
   await env.DB.prepare(
     `INSERT INTO app_assets (key, mime, data, updated_at) VALUES (?, ?, ?, datetime('now'))
      ON CONFLICT(key) DO UPDATE SET mime = excluded.mime, data = excluded.data, updated_at = excluded.updated_at`,
@@ -296,15 +311,47 @@ export async function resetMapImage(env: Env): Promise<void> {
   await env.DB.prepare('DELETE FROM app_assets WHERE key = ?').bind(MAP_KEY).run();
 }
 
-export async function getBoard(env: Env) {
-  const row = await env.DB.prepare('SELECT markers, updated_at FROM coaching_board WHERE id = 1').first<{ markers: string; updated_at: string }>();
-  return { markers: JSON.parse(row?.markers ?? '[]'), updated_at: row?.updated_at ?? null };
+// --- screenshots -----------------------------------------------------------------------------
+
+export async function createShot(env: Env, actor: Actor, body: Body): Promise<number> {
+  const { mime, bytes } = decodeImage(body);
+  const place = await resolvePlace(env.DB, body);
+  const title = str(body.title, 'Nadpis', 120);
+  const notes = str(body.notes, 'Poznámka', 5000);
+  const dim = (v: unknown) => (Number.isInteger(Number(v)) && Number(v) > 0 && Number(v) < 20000 ? Number(v) : null);
+  const res = await env.DB.prepare(
+    `INSERT INTO coaching_shots (player_id, folder_id, title, notes, mime, width, height, size, data, created_by_kind, created_by)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  ).bind(place.player_id, place.folder_id, title, notes, mime, dim(body.width), dim(body.height), bytes.length, bytes, actor.kind, actor.userId).run();
+  const id = res.meta.last_row_id;
+  await logActivity(env.DB, actor, 'coaching.shot.create', 'coaching_shot', id, {
+    name: `${await placeName(env.DB, place.player_id)}${title ? ` – ${title}` : ''}`,
+  });
+  return id;
 }
 
-export async function saveBoard(env: Env, body: Body): Promise<void> {
-  const markers = JSON.stringify(cleanMarkers(body.markers));
+export async function updateShot(env: Env, id: number, body: Body): Promise<void> {
+  const existing = await env.DB.prepare('SELECT player_id, folder_id, title, notes FROM coaching_shots WHERE id = ?').bind(id).first<Record<string, unknown>>();
+  if (!existing) throw new HttpError(404, 'not_found', 'Screenshot neexistuje.');
+  const has = (k: string) => k in body;
+  const place = has('folder_id') || has('player_id')
+    ? await resolvePlace(env.DB, body)
+    : { player_id: existing.player_id as number | null, folder_id: existing.folder_id as number | null };
   await env.DB.prepare(
-    `INSERT INTO coaching_board (id, markers, updated_at) VALUES (1, ?, datetime('now'))
-     ON CONFLICT(id) DO UPDATE SET markers = excluded.markers, updated_at = excluded.updated_at`,
-  ).bind(markers).run();
+    `UPDATE coaching_shots SET player_id = ?, folder_id = ?, title = ?, notes = ?, updated_at = datetime('now') WHERE id = ?`,
+  ).bind(
+    place.player_id, place.folder_id,
+    str(has('title') ? body.title : existing.title, 'Nadpis', 120),
+    str(has('notes') ? body.notes : existing.notes, 'Poznámka', 5000),
+    id,
+  ).run();
+}
+
+export async function deleteShot(env: Env, id: number): Promise<void> {
+  await env.DB.prepare('DELETE FROM coaching_shots WHERE id = ?').bind(id).run();
+}
+
+export async function getShotImage(env: Env, id: number): Promise<{ mime: string; data: Uint8Array } | null> {
+  const row = await env.DB.prepare('SELECT mime, data FROM coaching_shots WHERE id = ?').bind(id).first<{ mime: string; data: number[] }>();
+  return row ? { mime: row.mime, data: new Uint8Array(row.data) } : null;
 }

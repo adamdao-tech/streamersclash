@@ -355,4 +355,27 @@ CREATE TABLE coaching_board (
 );
 INSERT INTO coaching_board (id) VALUES (1);
 `,
+
+  /* 10: coaching screenshots; the Riftkit board was removed */ `
+DROP TABLE coaching_board;
+
+CREATE TABLE coaching_shots (
+  id              INTEGER PRIMARY KEY AUTOINCREMENT,
+  player_id       INTEGER REFERENCES players(id) ON DELETE CASCADE,
+  folder_id       INTEGER REFERENCES coaching_folders(id) ON DELETE CASCADE,
+  title           TEXT,
+  notes           TEXT,
+  mime            TEXT NOT NULL,
+  width           INTEGER,
+  height          INTEGER,
+  size            INTEGER,
+  data            BLOB NOT NULL,
+  created_by_kind TEXT NOT NULL DEFAULT 'user' CHECK (created_by_kind IN ('user', 'claude')),
+  created_by      INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at      TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX idx_coaching_shots_player ON coaching_shots(player_id);
+CREATE INDEX idx_coaching_shots_folder ON coaching_shots(folder_id);
+`,
 ];

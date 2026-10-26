@@ -79,8 +79,8 @@
     <form>
       <h2>Runová stránka</h2>
       <div class="form-grid">
-        <div><label>Champion</label><input name="champion" list="champ-list" maxlength="40" placeholder="např. Leona" autocomplete="off"></div>
-        <div><label>Název</label><input name="title" maxlength="80" placeholder="např. Engage, proti poke botu"></div>
+        <div><label>Název *</label><input name="title" maxlength="80" required placeholder="např. Supp – tank, Engage"></div>
+        <div><label>Champion <span class="muted">(nepovinné)</span></label><input name="champion" list="champ-list" maxlength="40" placeholder="nech prázdné pro obecné runy" autocomplete="off"></div>
         <div class="full"><label>Složka</label><select name="folder_id"></select></div>
       </div>
       <datalist id="champ-list"></datalist>
@@ -188,15 +188,15 @@
       return `
         <div class="rp-card">
           <div class="rp-top">
-            ${champIconHtml(r.champion)}
-            <div class="t"><b>${esc(r.champion || r.title)}</b><small>${esc(r.champion && r.title ? r.title : '')}</small></div>
+            ${r.champion ? champIconHtml(r.champion) : runeIcon(runeById(perks[0]), 'ri-xl') || champIconHtml('?')}
+            <div class="t"><b>${esc(r.title || r.champion)}</b><small>${esc(r.title && r.champion ? r.champion : '')}</small></div>
             <div class="rp-sums">${sums.map((id) => sumIcon(sumById(id))).join('')}</div>
           </div>
           ${hasRunes ? `
           <div class="rp-runes">
             <div class="rp-line">
               ${prim ? icon(`${DD}/img/${prim.icon}`, prim.name, 'ri-path') : ''}
-              ${runeIcon(runeById(perks[0]), 'ri-xl')}
+              ${r.champion ? runeIcon(runeById(perks[0]), 'ri-xl') : ''}
               ${perks.slice(1, 4).map((id) => runeIcon(runeById(id), 'ri-md')).join('')}
             </div>
             <div class="rp-line">
@@ -428,6 +428,7 @@
 
     const runesDialog = formDialog(runesDialogEl, {
       async onSubmit(v) {
+        if (!String(v.title || '').trim()) throw new Error('Zadej název, např. Supp – tank.');
         const body = {
           title: v.title, champion: v.champion, notes: v.notes,
           folder_id: v.folder_id ? Number(v.folder_id) : null, player_id: editingRunes ? editingRunes.player_id ?? null : playerId(),

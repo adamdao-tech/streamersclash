@@ -593,7 +593,7 @@ const TOOLS: Tool[] = [
         player_id: { type: 'integer' },
         folder_id: { type: 'integer' },
         title: { type: 'string', description: 'e.g. "Tank supp – engage"' },
-        champion: { type: 'string' },
+        champion: { type: 'string', description: 'Optional – leave out for general pages like "Supp – tank"' },
         primary_style: { type: 'string', description: 'Precision, Domination, Sorcery, Resolve or Inspiration' },
         secondary_style: { type: 'string' },
         perks: { type: 'array', items: { type: 'string' }, maxItems: 6 },

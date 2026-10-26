@@ -113,9 +113,11 @@ export async function saveRunePage(env: Env, actor: Actor, body: Body, id?: numb
     const champions = await getChampions(env).catch(() => []);
     const resolved = resolveChampion(champions, champion);
     if (resolved) champion = resolved;
-    else if (champions.length) throw new HttpError(400, 'invalid', `Neznámý champion: ${champion}`);
+    else if (champions.length) {
+      throw new HttpError(400, 'invalid', `„${champion}“ není champion. Název stránky patří do pole Název, champion je nepovinný.`);
+    }
   }
-  if (!title && !champion) throw new HttpError(400, 'invalid', 'Zadej championa nebo název stránky.');
+  if (!title && !champion) throw new HttpError(400, 'invalid', 'Zadej název stránky, např. Supp – tank.');
 
   const page = cleanRunePage(await getRuneData(env), {
     primary_style: pick('primary_style'),

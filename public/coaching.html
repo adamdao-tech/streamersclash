@@ -31,6 +31,7 @@
           <button data-tab="runes">Runy <span class="count" id="count-runes"></span></button>
           <button data-tab="notes">Zápisky <span class="count" id="count-notes"></span></button>
           <button data-tab="maps">Mapy <span class="count" id="count-maps"></span></button>
+          <button data-tab="riftkit">Riftkit</button>
         </div>
 
         <div id="tab-runes">
@@ -44,6 +45,13 @@
         <div id="tab-maps" hidden>
           <div style="display:flex;justify-content:flex-end;margin-bottom:12px"><button class="btn btn-primary" id="add-map">+ Mapa</button></div>
           <div id="maps" class="rp-grid"></div>
+        </div>
+        <div id="tab-riftkit" hidden>
+          <div class="riftkit-head">
+            <span class="muted">Plánovač map od <b>map.riftkit.net</b> – kreslení, wardy a pozice. Co tam nakreslíš, se ukládá u nich, ne tady.</span>
+            <a class="btn btn-small" href="https://map.riftkit.net" target="_blank" rel="noopener">Otevřít v nové záložce ↗</a>
+          </div>
+          <div class="riftkit-frame" id="riftkit-frame"></div>
         </div>
       </section>
     </div>
@@ -146,12 +154,24 @@
     const champIcons = await loadChampions();
     // Selected place: player = 'team' or a player id; folder = folder id or null.
     let sel = JSON.parse(store.get('coach.sel') || 'null') || { player: 'team', folder: null };
-    let tab = ['notes', 'maps'].includes(store.get('coach.tab')) ? store.get('coach.tab') : 'runes';
+    let tab = ['notes', 'maps', 'riftkit'].includes(store.get('coach.tab')) ? store.get('coach.tab') : 'runes';
 
     // Broken icons (e.g. a renamed rune) turn into their short label instead of an empty circle.
     document.addEventListener('error', (e) => {
       const img = e.target;
-      if (img.tagName === 'IMG' && img.dataset.fb !== undefined) img.replaceWith(document.createTextNode(img.dataset.fb));
+      if (img.tagName !== 'IMG') return;
+      if (img.dataset.fb !== undefined) img.replaceWith(document.createTextNode(img.dataset.fb));
+      // Map image: try the next source; when none is left, show a plain background.
+      if (img.dataset.map !== undefined) {
+        const next = MAP_SOURCES()[Number(img.dataset.map) + 1];
+        if (next) { img.dataset.map = Number(img.dataset.map) + 1; img.src = next; }
+        else img.replaceWith(Object.assign(document.createElement('div'), { className: 'map-fallback', textContent: 'Mapa se nenačetla' }));
+      }
+    }, true);
+    // Remember which map source works so later maps start with it.
+    document.addEventListener('load', (e) => {
+      const img = e.target;
+      if (img.tagName === 'IMG' && img.dataset.map !== undefined) goodMap = Number(img.dataset.map);
     }, true);
 
     const short = (name) => String(name || '?').split(/\s+/).map((w) => w[0]).join('').slice(0, 3).toUpperCase();
@@ -279,7 +299,13 @@
       sweep: { label: 'Sweeper', hint: 'Oblast, kterou projet sweeperem' },
       note: { label: 'Poznámka', hint: 'Očíslovaný bod s popiskem' },
     };
-    const mapUrl = () => (runeData ? `${DD}/${runeData.version}/img/map/map11.png` : null);
+    // Sharp, large map from CommunityDragon first; Riot's small 512 px minimap as the fallback.
+    const MAP_SOURCES = () => [
+      'https://raw.communitydragon.org/latest/game/assets/maps/info/map11/2dlevelminimap_base_baron1.png',
+      'https://raw.communitydragon.org/latest/game/levels/map11/info/2dlevelminimap.png',
+      runeData ? `${DD}/${runeData.version}/img/map/map11.png` : `${DD}/15.1.1/img/map/map11.png`,
+    ];
+    let goodMap = 0;
 
     /** SVG for all markers; coordinates are 0–100 in both axes. */
     function markersSvg(markers, selected = -1) {
@@ -299,8 +325,8 @@
     }
 
     function mapHtml(markers, selected) {
-      const url = mapUrl();
-      return `<div class="map-box">${url ? `<img src="${esc(url)}" alt="Summoner's Rift" draggable="false">` : '<div class="map-fallback">Minimapa se nenačetla</div>'}${markersSvg(markers, selected)}</div>`;
+      const i = Math.min(goodMap, MAP_SOURCES().length - 1);
+      return `<div class="map-box"><img src="${esc(MAP_SOURCES()[i])}" data-map="${i}" alt="Summoner's Rift" draggable="false">${markersSvg(markers, selected)}</div>`;
     }
 
     function mapCard(m) {
@@ -444,6 +470,12 @@
       document.getElementById('tab-runes').hidden = tab !== 'runes';
       document.getElementById('tab-notes').hidden = tab !== 'notes';
       document.getElementById('tab-maps').hidden = tab !== 'maps';
+      document.getElementById('tab-riftkit').hidden = tab !== 'riftkit';
+      // Load the embedded planner only when its tab is opened, and only once.
+      const frame = document.getElementById('riftkit-frame');
+      if (tab === 'riftkit' && !frame.firstChild) {
+        frame.innerHTML = '<iframe src="https://map.riftkit.net" title="RiftKit – LoL Planner" loading="lazy" referrerpolicy="no-referrer" allow="clipboard-write; fullscreen"></iframe>';
+      }
       document.getElementById('maps').innerHTML = maps.length
         ? maps.map(mapCard).join('')
         : '<div class="empty" style="grid-column:1/-1">Zatím žádné mapy. Přidej mapu a naklikej, kam patří wardy.</div>';

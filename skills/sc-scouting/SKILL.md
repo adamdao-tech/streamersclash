@@ -63,7 +63,7 @@ If `save_draft` says a champion is unknown, fix the spelling (e.g. "Kai'Sa", "Nu
 
 ## Workflow 5 – coaching ("runy pro supporta", "zapiš to do koučingu")
 
-- Coaching lives per player of our team, or team-wide. Dao sorts it into folders he names himself (e.g. "Supp – tank", "Supp – heal"). Each place holds **rune pages**, **notes (zápisky)**, **ward maps** and **screenshots** (wards, control wards, farsight, sweeper zones and numbered notes drawn on the minimap).
+- Coaching lives per player of our team, or team-wide. Dao sorts it into folders he names himself (e.g. "Supp – tank", "Supp – heal"). Each place holds **rune pages**, **notes (zápisky)**, **ward maps** (wards, control wards, farsight, sweeper zones and numbered notes drawn on the minimap) and **screenshots**.
 - `get_coaching_screenshot` shows one screenshot (id from `get_coaching`) so you can comment on it – e.g. positioning in a teamfight.
 - Ward maps are drawn by Dao in the app; through the connector you only see their title, side, notes and marker counts/labels, not the positions – don't describe where wards are beyond that.
 - `get_coaching` (optionally `player_id`) – folders, rune pages (rune names, shards, summoners) and notes.

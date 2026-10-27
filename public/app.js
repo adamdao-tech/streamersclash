@@ -66,6 +66,7 @@ export function formDialog(dialog, { onSubmit }) {
     const values = {};
     for (const el of form.elements) {
       if (!el.name) continue;
+      if (el.type === 'radio') { if (el.checked) values[el.name] = el.value; continue; }
       values[el.name] = el.type === 'checkbox' ? el.checked : el.value;
     }
     const submit = form.querySelector('[type=submit]');
@@ -85,7 +86,8 @@ export function formDialog(dialog, { onSubmit }) {
       error.textContent = '';
       for (const el of form.elements) {
         if (!el.name || !(el.name in values)) continue;
-        if (el.type === 'checkbox') el.checked = !!values[el.name];
+        if (el.type === 'radio') el.checked = String(values[el.name]) === el.value;
+        else if (el.type === 'checkbox') el.checked = !!values[el.name];
         else el.value = values[el.name] ?? '';
       }
       dialog.showModal();
@@ -220,37 +222,55 @@ export function matchWhen(iso) {
   return { weekday: WEEKDAYS[d.getDay()], date: `${d.getDate()}. ${d.getMonth() + 1}.`, year: d.getFullYear(), time: hm };
 }
 
-/** "za 2 dny 4 h", "za 35 min", "právě se hraje". */
-export function countdown(iso) {
+const plural = (n, one, few, many) => (n === 1 ? one : n >= 2 && n <= 4 ? few : many);
+
+/** Whole calendar days from today to the day of `iso` (0 = today, negative = past). */
+function daysUntil(iso) {
+  const a = new Date(); a.setHours(0, 0, 0, 0);
+  const b = new Date(iso); b.setHours(0, 0, 0, 0);
+  return Math.round((b - a) / 86_400_000);
+}
+
+/** "za 2 dny 4 h", "za 35 min", "právě se hraje"; for a free day "dnes", "zítra", "za 3 dny". */
+export function countdown(iso, kind) {
+  if (kind === 'off') {
+    const d = daysUntil(iso);
+    if (d < 0) return 'proběhlo';
+    if (d === 0) return 'dnes';
+    if (d === 1) return 'zítra';
+    return `za ${d} ${plural(d, 'den', 'dny', 'dní')}`;
+  }
   const ms = new Date(iso).getTime() - Date.now();
   if (ms <= 0) return ms > -3 * 3600_000 ? 'právě se hraje' : 'odehráno';
   const min = Math.floor(ms / 60_000);
   const d = Math.floor(min / 1440), h = Math.floor((min % 1440) / 60), m = min % 60;
-  if (d >= 1) return `za ${d} ${d === 1 ? 'den' : d <= 4 ? 'dny' : 'dní'}${h ? ` ${h} h` : ''}`;
+  if (d >= 1) return `za ${d} ${plural(d, 'den', 'dny', 'dní')}${h ? ` ${h} h` : ''}`;
   if (h >= 1) return `za ${h} h ${m} min`;
   return `za ${m} min`;
 }
 
-/** A match still counts as upcoming until 3 hours after its start. */
+/** A free day lasts the whole day; other events count as upcoming until 3 hours after the start. */
 export function isUpcoming(m) {
-  return new Date(m.starts_at).getTime() + 3 * 3600_000 > Date.now();
+  return new Date(m.starts_at).getTime() + (m.kind === 'off' ? 24 : 3) * 3600_000 > Date.now();
 }
 
 export const KINDS = {
   match: { label: 'Turnaj', next: 'Další turnajový zápas' },
   scrim: { label: 'Scrim', next: 'Další scrim' },
   other: { label: 'Jiné', next: 'Další akce' },
+  off: { label: 'Volno', next: 'Volno' },
 };
 
-/** Opponent for matches and scrims, the title for other events (training, meeting…). */
+/** Opponent for matches and scrims, the title for other events (training, meeting…) and free days. */
 export function opponentName(m) {
+  if (m.kind === 'off') return m.title ? `Volno – ${m.title}` : 'Volno';
   if (m.kind === 'other') return m.title || '?';
   return m.team_name || m.opponent_name || '?';
 }
 
 /** "vs Soupeř" for matches and scrims, just the title for other events. */
 export function eventName(m) {
-  return m.kind === 'other' ? esc(opponentName(m)) : `vs ${esc(opponentName(m))}`;
+  return m.kind === 'other' || m.kind === 'off' ? esc(opponentName(m)) : `vs ${esc(opponentName(m))}`;
 }
 
 export function kindBadge(m) {
@@ -258,14 +278,27 @@ export function kindBadge(m) {
   return `<span class="kind kind-${k}">${KINDS[k].label}</span>`;
 }
 
+const ICONS = {
+  other: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg>',
+  off: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z"/></svg>',
+  cal: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg>',
+  pin: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 21s7-6.2 7-12a7 7 0 1 0-14 0c0 5.8 7 12 7 12z"/><circle cx="12" cy="9" r="2.5"/></svg>',
+  search: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>',
+  play: '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M7 5l12 7-12 7z"/></svg>',
+  edit: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16z"/></svg>',
+};
+export function icon(name) { return ICONS[name] || ''; }
+
 export function opponentLogo(m, large = false) {
-  if (m.kind === 'other') return `<div class="${large ? 'logo logo-lg' : 'logo'} logo-other" aria-hidden="true">●</div>`;
+  if (m.kind === 'other' || m.kind === 'off') {
+    return `<div class="${large ? 'logo logo-lg' : 'logo'} logo-${m.kind}" aria-hidden="true">${ICONS[m.kind]}</div>`;
+  }
   return logoHtml({ name: opponentName(m), tag: m.team_tag, logo_url: m.team_logo_url }, large);
 }
 
-/** The event to feature: the next tournament match, or the nearest event if no match is planned. */
+/** The event to feature: the next tournament match, or the nearest event if no match is planned (free days never). */
 export function featuredEvent(events) {
-  const upcoming = events.filter(isUpcoming);
+  const upcoming = events.filter((m) => m.kind !== 'off' && isUpcoming(m));
   return upcoming.find((m) => m.kind === 'match') || upcoming[0] || null;
 }
 
@@ -273,38 +306,87 @@ export function featuredEvent(events) {
 export function scoreBadge(m) {
   if (m.our_score === null || m.their_score === null) return '';
   const cls = m.our_score > m.their_score ? 'res-win' : m.our_score < m.their_score ? 'res-loss' : 'res-none';
-  return `<span class="score ${cls}">${m.our_score}:${m.their_score}</span>`;
+  const word = m.our_score > m.their_score ? 'Výhra' : m.our_score < m.their_score ? 'Prohra' : 'Remíza';
+  return `<span class="score ${cls}">${word} ${m.our_score} : ${m.their_score}</span>`;
 }
 
-/** The big "next match" card; compact = smaller version for the home page. */
-export function nextMatchHtml(m, { compact = false } = {}) {
-  const w = matchWhen(m.starts_at);
-  const chips = [m.kind !== 'other' && m.format, m.stage, m.location].filter(Boolean).map((c) => `<span class="chip">${esc(c)}</span>`).join('');
-  const k = KINDS[m.kind] ? m.kind : 'match';
+/** Tournament and scrim records from played events with a score: { match: {w, l}, scrim: {w, l} }. */
+export function seasonRecord(events) {
+  const rec = { match: { w: 0, l: 0 }, scrim: { w: 0, l: 0 } };
+  for (const m of events) {
+    if (!rec[m.kind] || m.our_score === null || m.their_score === null || m.our_score === m.their_score) continue;
+    rec[m.kind][m.our_score > m.their_score ? 'w' : 'l']++;
+  }
+  return rec;
+}
+
+function tiles(iso) {
   return `
-    <div class="next-match${compact ? ' compact' : ''}" style="--accent:${esc(m.team_accent_color || '#c8a64b')}">
-      <div class="nm-label">${KINDS[k].next} · <span data-countdown="${esc(m.starts_at)}">${countdown(m.starts_at)}</span></div>
-      <div class="nm-main">
-        ${opponentLogo(m, !compact)}
-        <div class="nm-text">
-          <div class="nm-vs">${m.kind === 'other' ? `<b>${esc(opponentName(m))}</b>` : `vs <b>${esc(opponentName(m))}</b>`}</div>
-          <div class="nm-when">${w.weekday} ${w.date} ${w.year} · <b>${w.time}</b></div>
-          ${chips ? `<div class="chips">${chips}</div>` : ''}
-        </div>
-        <div class="nm-actions">
-          ${m.opponent_team_id ? `<a class="btn btn-primary" href="/team?id=${m.opponent_team_id}">Scouting soupeře</a>` : ''}
-          ${m.stream_url ? `<a class="btn" href="${esc(m.stream_url)}" target="_blank" rel="noopener">Stream</a>` : ''}
-          ${compact ? '<a class="btn" href="/schedule">Celý harmonogram</a>' : ''}
-        </div>
-      </div>
+    <div class="cd-tiles" data-countdown-tiles="${esc(iso)}">
+      <div class="cd-tile"><b data-u="d">00</b><span>dny</span></div>
+      <div class="cd-tile"><b data-u="h">00</b><span>hodin</span></div>
+      <div class="cd-tile"><b data-u="m">00</b><span>minut</span></div>
     </div>`;
 }
 
-/** Keeps every [data-countdown] element on the page ticking. */
+/**
+ * The big "next match" card (Match Day). Options: own = our team row (crest on the left),
+ * record = "3 V – 1 P" under our name, compact = smaller version for the home page, editable = show "Upravit".
+ */
+export function nextMatchHtml(m, { compact = false, own = null, record = '', editable = false } = {}) {
+  const w = matchWhen(m.starts_at);
+  const k = KINDS[m.kind] ? m.kind : 'match';
+  const isGame = k === 'match' || k === 'scrim';
+  const label = [m.stage, `${KINDS[k].next}`].filter(Boolean).map(esc).join(' · ');
+  const oppName = esc(opponentName(m));
+  const opp = m.opponent_team_id ? `<a href="/team?id=${m.opponent_team_id}">${oppName}</a>` : oppName;
+  const side = (logo, name, sub, accent = '') => `
+    <div class="hero-team"${accent ? ` style="--accent:${esc(accent)}"` : ''}>${logo}<div><div class="hero-name">${name}</div>${sub ? `<div class="hero-sub">${sub}</div>` : ''}</div></div>`;
+  const teams = isGame
+    ? `${own ? side(logoHtml(own, !compact), esc(own.name), esc(record), own.accent_color || '#e8b84a') + '<span class="hero-x">VS</span>' : ''}${side(opponentLogo(m, !compact), opp, '')}`
+    : side(opponentLogo(m, !compact), oppName, '');
+  const meta = [
+    `<span>${ICONS.cal}${w.weekday} ${w.date} ${w.year} · <b>${w.time}</b></span>`,
+    m.location ? `<span>${ICONS.pin}${esc(m.location)}</span>` : '',
+    isGame && m.format ? `<span class="chip">${esc(m.format)}</span>` : '',
+  ].join('');
+  return `
+    <section class="hero${compact ? ' compact' : ''}" style="--accent:${esc(m.team_accent_color || '#e8b84a')}" aria-label="${esc(KINDS[k].next)}">
+      <div class="hero-main">
+        <div class="hero-label">${kindBadge(m)}<span>${label}</span></div>
+        <div class="hero-teams">${teams}</div>
+        <div class="hero-meta">${meta}</div>
+        <div class="hero-actions">
+          ${m.opponent_team_id ? `<a class="btn btn-light" href="/team?id=${m.opponent_team_id}">${ICONS.search}Scouting soupeře</a>` : ''}
+          ${m.stream_url ? `<a class="btn" href="${esc(m.stream_url)}" target="_blank" rel="noopener">${ICONS.play}Stream</a>` : ''}
+          ${editable ? `<button class="btn btn-ghost" data-edit="${m.id}">Upravit</button>` : ''}
+          ${compact ? '<a class="btn btn-ghost" href="/schedule">Celý harmonogram</a>' : ''}
+        </div>
+      </div>
+      <div class="hero-count">
+        <span class="hero-count-label">Začátek</span>
+        ${tiles(m.starts_at)}
+        <span class="hero-count-rel" data-countdown="${esc(m.starts_at)}">${countdown(m.starts_at)}</span>
+      </div>
+    </section>`;
+}
+
+/** Updates every [data-countdown] text and [data-countdown-tiles] block on the page once. */
+export function tickCountdowns() {
+  const p2 = (n) => String(n).padStart(2, '0');
+  document.querySelectorAll('[data-countdown]').forEach((el) => { el.textContent = countdown(el.dataset.countdown, el.dataset.kind); });
+  document.querySelectorAll('[data-countdown-tiles]').forEach((el) => {
+    const min = Math.max(0, Math.floor((new Date(el.dataset.countdownTiles).getTime() - Date.now()) / 60_000));
+    el.querySelector('[data-u=d]').textContent = p2(Math.floor(min / 1440));
+    el.querySelector('[data-u=h]').textContent = p2(Math.floor((min % 1440) / 60));
+    el.querySelector('[data-u=m]').textContent = p2(min % 60);
+  });
+}
+
+/** Keeps the countdowns ticking. */
 export function startCountdowns() {
-  const tick = () => document.querySelectorAll('[data-countdown]').forEach((el) => { el.textContent = countdown(el.dataset.countdown); });
-  tick();
-  return setInterval(tick, 30_000);
+  tickCountdowns();
+  return setInterval(tickCountdowns, 15_000);
 }
 
 // --- ward maps ------------------------------------------------------------------------------

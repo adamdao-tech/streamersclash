@@ -51,7 +51,7 @@
   </dialog>
 
   <script type="module">
-    import { api, esc, initPage, formDialog, logoHtml, timeAgo, featuredEvent, nextMatchHtml, startCountdowns } from '/app.js';
+    import { api, esc, initPage, formDialog, logoHtml, timeAgo, featuredEvent, nextMatchHtml, startCountdowns, seasonRecord } from '/app.js';
 
     await initPage('teams');
 
@@ -87,7 +87,11 @@
     async function load() {
       const [{ teams }, { activity }, { matches }] = await Promise.all([api('/api/teams'), api('/api/activity'), api('/api/schedule')]);
       const next = featuredEvent(matches);
-      document.getElementById('next-match').innerHTML = next ? nextMatchHtml(next, { compact: true }) : '';
+      const own = teams.find((t) => t.is_own_team) || null;
+      const rec = seasonRecord(matches).match;
+      document.getElementById('next-match').innerHTML = next
+        ? nextMatchHtml(next, { compact: true, own, record: rec.w + rec.l ? `${rec.w} V – ${rec.l} P` : '' })
+        : '';
       const el = document.getElementById('teams');
       el.innerHTML = teams.length
         ? teams.map((t) => `

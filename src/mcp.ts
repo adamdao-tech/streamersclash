@@ -1,7 +1,7 @@
 import type { Env } from './index';
 import { insert, parsePlayer, playerFields, teamFields, update } from './api';
 import {
-  formatPrague, KIND_LABELS, listSchedule, matchResult, opponentLabel, requireOpponent, scheduleFields, type ScheduledMatch,
+  formatPrague, isUpcoming, KIND_LABELS, listSchedule, matchResult, opponentLabel, requireOpponent, scheduleFields, type ScheduledMatch,
 } from './schedule';
 import { logActivity, type User } from './db';
 import { listDrafts, playerGames, relinkDraftPlayers, saveDraft, summarizeGames, validateDraft, type DraftInput } from './drafts';
@@ -423,26 +423,23 @@ const TOOLS: Tool[] = [
   {
     name: 'get_schedule',
     description:
-      "Our team's schedule (harmonogram): tournament matches (kind 'match'), scrims ('scrim') and other events like training ('other'). " +
+      "Our team's schedule (harmonogram): tournament matches (kind 'match'), scrims ('scrim'), other events like training ('other') and free days with no practice ('off', volno). " +
       'Upcoming events first (soonest first), then recently played ones. Times are given in UTC and in Prague local time. ' +
       'opponent_team_id links to the opponent for get_team / scouting.',
     inputSchema: {
       type: 'object',
       properties: {
         include_past: { type: 'integer', minimum: 0, maximum: 50, description: 'How many played events to include (default 5)' },
-        kind: { type: 'string', enum: ['match', 'scrim', 'other'], description: 'Only this type of event' },
+        kind: { type: 'string', enum: ['match', 'scrim', 'other', 'off'], description: 'Only this type of event' },
       },
     },
     annotations: { readOnlyHint: true },
     async run(a, { env }) {
       const all = await listSchedule(env, { kind: a.kind ? String(a.kind) : undefined });
-      const now = Date.now();
-      // A match counts as upcoming until 3 hours after its start (a Bo3 can run long).
-      const isUpcoming = (m: { starts_at: string }) => new Date(m.starts_at).getTime() + 3 * 3600_000 > now;
       const past = all.filter((m) => !isUpcoming(m)).reverse().slice(0, Math.min(Number(a.include_past ?? 5) || 0, 50));
       return text({
         now_prague: formatPrague(new Date().toISOString()),
-        upcoming: all.filter(isUpcoming).map(compactScheduled),
+        upcoming: all.filter((m) => isUpcoming(m)).map(compactScheduled),
         recent: past.map(compactScheduled),
       });
     },
@@ -450,14 +447,14 @@ const TOOLS: Tool[] = [
   {
     name: 'add_scheduled_match',
     description:
-      'Adds an event to our schedule: a tournament match (kind "match", default), a scrim ("scrim") or something else like training ("other", needs title). ' +
+      'Adds an event to our schedule: a tournament match (kind "match", default), a scrim ("scrim"), something else like training ("other", needs title) or a free day ("off", volno – starts_at is the day at 00:00, title optional, e.g. the reason). ' +
       'starts_at: "YYYY-MM-DD HH:MM" in Prague time (or ISO with a zone). For matches and scrims give opponent_team_id when the opponent is in the app ' +
       '(list_teams/search), otherwise opponent_name. Ask Dao before adding.',
     inputSchema: {
       type: 'object',
       properties: {
-        kind: { type: 'string', enum: ['match', 'scrim', 'other'] },
-        title: { type: 'string', description: 'Name of an "other" event, e.g. "Trénink", "Review VODek"' },
+        kind: { type: 'string', enum: ['match', 'scrim', 'other', 'off'] },
+        title: { type: 'string', description: 'Name of an "other" event, e.g. "Trénink", "Review VODek"; for "off" an optional reason' },
         starts_at: { type: 'string', description: 'e.g. "2026-11-02 18:00" (Prague time)' },
         opponent_team_id: { type: 'integer' },
         opponent_name: { type: 'string', description: 'Only when the opponent team is not in the app' },
@@ -487,8 +484,8 @@ const TOOLS: Tool[] = [
       type: 'object',
       properties: {
         id: { type: 'integer' },
-        kind: { type: 'string', enum: ['match', 'scrim', 'other'] },
-        title: { type: 'string', description: 'Name of an "other" event, e.g. "Trénink", "Review VODek"' },
+        kind: { type: 'string', enum: ['match', 'scrim', 'other', 'off'] },
+        title: { type: 'string', description: 'Name of an "other" event, e.g. "Trénink", "Review VODek"; for "off" an optional reason' },
         starts_at: { type: 'string' },
         opponent_team_id: { type: 'integer' },
         opponent_name: { type: 'string' },
@@ -707,7 +704,7 @@ function compactScheduled(m: ScheduledMatch) {
     type: KIND_LABELS[m.kind] ?? m.kind,
     starts_at_utc: m.starts_at,
     starts_at_prague: formatPrague(m.starts_at),
-    ...(m.kind === 'other' ? { title: m.title } : { opponent: opponentLabel(m) }),
+    ...(m.kind === 'other' || m.kind === 'off' ? { title: m.title } : { opponent: opponentLabel(m) }),
     opponent_team_id: m.opponent_team_id,
     format: m.format,
     stage: m.stage,

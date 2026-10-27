@@ -6,8 +6,8 @@ import { HttpError } from './http';
 // times typed without a zone (e.g. from Claude) are read as Prague time.
 
 export const FORMATS = ['BO1', 'BO2', 'BO3', 'BO5'] as const;
-/** match = tournament match, scrim = practice game vs another team, other = training, meeting… */
-export const KINDS = ['match', 'scrim', 'other'] as const;
+/** match = tournament match, scrim = practice game vs another team, other = training, meeting…, off = a free day (volno) */
+export const KINDS = ['match', 'scrim', 'other', 'off'] as const;
 export type Kind = (typeof KINDS)[number];
 const TZ = 'Europe/Prague';
 
@@ -96,7 +96,7 @@ export async function scheduleFields(db: D1Database, body: Record<string, unknow
   const has = (k: string) => !partial || k in body;
   if (has('kind')) {
     const k = String(body.kind ?? 'match').toLowerCase();
-    if (!(KINDS as readonly string[]).includes(k)) throw new HttpError(400, 'invalid', 'Typ musí být match, scrim nebo other.');
+    if (!(KINDS as readonly string[]).includes(k)) throw new HttpError(400, 'invalid', 'Typ musí být match, scrim, other nebo off.');
     out.kind = k;
   }
   if (has('title')) out.title = str(body.title, 'Název', 80);
@@ -133,9 +133,10 @@ export async function scheduleFields(db: D1Database, body: Record<string, unknow
 
 /**
  * Checks a complete row (after merging an update): matches and scrims need an opponent,
- * other events (training, meeting) need a title.
+ * other events (training, meeting) need a title, a free day (off) needs nothing.
  */
 export function requireOpponent(row: { kind?: unknown; title?: unknown; opponent_team_id?: unknown; opponent_name?: unknown }): void {
+  if (row.kind === 'off') return;
   if ((row.kind ?? 'match') === 'other') {
     if (!row.title) throw new HttpError(400, 'invalid', 'Napiš, co se děje (např. Trénink).');
     return;
@@ -143,7 +144,7 @@ export function requireOpponent(row: { kind?: unknown; title?: unknown; opponent
   if (!row.opponent_team_id && !row.opponent_name) throw new HttpError(400, 'invalid', 'Vyber soupeře, nebo napiš jeho jméno.');
 }
 
-export const KIND_LABELS: Record<Kind, string> = { match: 'Turnaj', scrim: 'Scrim', other: 'Jiné' };
+export const KIND_LABELS: Record<Kind, string> = { match: 'Turnaj', scrim: 'Scrim', other: 'Jiné', off: 'Volno' };
 
 export async function listSchedule(env: Env, opts: { teamId?: number; id?: number; kind?: string } = {}): Promise<ScheduledMatch[]> {
   const where: string[] = [];
@@ -162,13 +163,19 @@ export async function listSchedule(env: Env, opts: { teamId?: number; id?: numbe
   return results;
 }
 
-/** What the event is called: the opponent for matches and scrims, the title for other events. */
+/** What the event is called: the opponent for matches and scrims, the title for other events and free days. */
 export function opponentLabel(m: { kind?: string; title?: string | null; team_name?: string | null; opponent_name?: string | null }): string {
+  if (m.kind === 'off') return m.title ? `Volno – ${m.title}` : 'Volno';
   if (m.kind === 'other') return m.title || '?';
   return m.team_name || m.opponent_name || '?';
 }
 
 /** Result from our side, or null while the score isn't filled in or is a draw. */
+/** A free day lasts the whole day; other events count as upcoming until 3 hours after the start (a Bo3 can run long). */
+export function isUpcoming(m: { kind?: string; starts_at: string }, now = Date.now()): boolean {
+  return new Date(m.starts_at).getTime() + (m.kind === 'off' ? 24 : 3) * 3600_000 > now;
+}
+
 export function matchResult(m: { our_score: number | null; their_score: number | null }): 'WIN' | 'LOSS' | 'DRAW' | null {
   if (m.our_score === null || m.their_score === null) return null;
   return m.our_score > m.their_score ? 'WIN' : m.our_score < m.their_score ? 'LOSS' : 'DRAW';

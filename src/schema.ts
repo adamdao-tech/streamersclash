@@ -392,4 +392,31 @@ CREATE TABLE champion_pool (
 );
 CREATE INDEX idx_champion_pool_player ON champion_pool(player_id);
 `,
+
+  /* 12: schedule - "off" event type (volno, a free day) */ `
+CREATE TABLE schedule_new (
+  id               INTEGER PRIMARY KEY AUTOINCREMENT,
+  starts_at        TEXT NOT NULL,
+  opponent_team_id INTEGER REFERENCES teams(id) ON DELETE SET NULL,
+  opponent_name    TEXT,
+  format           TEXT NOT NULL DEFAULT 'BO1' CHECK (format IN ('BO1', 'BO2', 'BO3', 'BO5')),
+  stage            TEXT,
+  location         TEXT,
+  stream_url       TEXT,
+  our_score        INTEGER,
+  their_score      INTEGER,
+  notes            TEXT,
+  created_by_kind  TEXT NOT NULL DEFAULT 'user' CHECK (created_by_kind IN ('user', 'claude')),
+  created_by       INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  created_at       TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at       TEXT NOT NULL DEFAULT (datetime('now')),
+  kind             TEXT NOT NULL DEFAULT 'match' CHECK (kind IN ('match', 'scrim', 'other', 'off')),
+  title            TEXT
+);
+INSERT INTO schedule_new (id, starts_at, opponent_team_id, opponent_name, format, stage, location, stream_url, our_score, their_score, notes, created_by_kind, created_by, created_at, updated_at, kind, title)
+  SELECT id, starts_at, opponent_team_id, opponent_name, format, stage, location, stream_url, our_score, their_score, notes, created_by_kind, created_by, created_at, updated_at, kind, title FROM schedule;
+DROP TABLE schedule;
+ALTER TABLE schedule_new RENAME TO schedule;
+CREATE INDEX idx_schedule_starts ON schedule(starts_at);
+`,
 ];

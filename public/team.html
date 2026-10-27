@@ -10,29 +10,41 @@
   <link rel="stylesheet" href="/app.css">
 </head>
 <body>
-  <main>
-    <p style="margin:0 0 10px"><a href="/">← Všechny týmy</a></p>
-    <section id="hero" class="team-hero compact"></section>
+  <main class="team-page">
+    <p class="back"><a href="/">← Všechny týmy</a></p>
+
+    <div class="tp-head">
+      <div class="tp-title" id="hero"></div>
+      <div class="tp-tools">
+        <div class="gseg" id="type-filter" role="group" aria-label="Typ her"></div>
+        <button class="btn btn-small btn-ghost" id="edit-team">Upravit tým</button>
+        <button class="btn btn-small btn-ghost btn-danger" id="delete-team">Smazat</button>
+      </div>
+    </div>
 
     <nav class="tabs" id="tabs">
-      <button data-tab="overview" class="active">Přehled</button>
+      <button data-tab="overview" class="active">Statistiky</button>
       <button data-tab="drafts">Hry a drafty <span class="count" id="draft-count"></span></button>
       <button data-tab="vods">VODky</button>
       <button data-tab="notes">Poznámky</button>
     </nav>
 
     <section class="tab-panel" data-panel="overview">
-      <div class="section-head">
-        <h2>Soupiska</h2>
-        <button class="btn btn-primary btn-small" id="add-player">+ Přidat hráče</button>
+      <div class="gboxes">
+        <section class="gbox"><h2>Tým</h2><table class="gtable kv" id="summary"></table></section>
+        <section class="gbox"><h2>Nejčastěji banují</h2><table class="gtable kv" id="bans-by"></table></section>
+        <section class="gbox"><h2>Banují proti nim</h2><table class="gtable kv" id="bans-vs"></table></section>
       </div>
-      <div id="roster" class="roster-compact"></div>
 
-      <div class="section-head" style="margin-top:22px">
-        <h2>Poslední hry</h2>
-        <button class="btn btn-small" data-goto="drafts">Všechny →</button>
-      </div>
-      <div id="recent" class="drow-list"></div>
+      <section class="gbox">
+        <h2>Hráči <button class="btn btn-small" id="add-player">+ Přidat hráče</button></h2>
+        <div class="gscroll"><table class="gtable" id="players"></table></div>
+      </section>
+
+      <section class="gbox">
+        <h2>Poslední zápasy <button class="btn btn-small" data-goto="drafts">Všechny hry →</button></h2>
+        <div class="gscroll"><table class="gtable" id="recent"></table></div>
+      </section>
     </section>
 
     <section class="tab-panel" data-panel="drafts" hidden>
@@ -95,11 +107,21 @@
   </dialog>
 
   <script type="module">
-    import { api, esc, initPage, formDialog, logoHtml, ROLE_LABELS, loadChampions, champIcon, draftRow } from '/app.js';
+    import { api, esc, initPage, formDialog, logoHtml, loadChampions, champIcon, draftRow, vodLink, fmtDuration } from '/app.js';
 
     await initPage('teams');
     const teamId = new URLSearchParams(location.search).get('id');
-    let team, players = [], drafts = [], icons = new Map(), live = {}, editingPlayer = null;
+    let team, players = [], allDrafts = [], icons = new Map(), live = {}, editingPlayer = null;
+    let typeFilter = '';
+
+    const ROLE_ORDER = ['TOP', 'JUNGLE', 'MID', 'ADC', 'SUPPORT', 'SUB'];
+    const ROLE_NAME = { TOP: 'Top', JUNGLE: 'Jungle', MID: 'Mid', ADC: 'Bot', SUPPORT: 'Support', SUB: 'Náhradník' };
+    const typeOf = (d) => d.game_type || 'Neznámý';
+    const drafts = () => allDrafts.filter((d) => !typeFilter || typeOf(d) === typeFilter);
+    const pct = (a, b) => (b ? Math.round((a / b) * 100) : null);
+    const num = (n, digits = 1) => n.toFixed(digits).replace('.', ',');
+    const kdaRatio = (k, d, a) => num((k + a) / Math.max(d, 1), 2);
+    const wrSpan = (wr) => wr === null ? '<span class="muted">–</span>' : `<span class="wrv ${wr >= 55 ? 'good' : wr < 45 ? 'bad' : ''}">${wr} %</span>`;
 
     // --- tabs ---------------------------------------------------------------
     const tabs = document.getElementById('tabs');
@@ -110,101 +132,204 @@
       if (name === 'vods') loadVods();
     }
     tabs.addEventListener('click', (e) => e.target.closest('button[data-tab]') && showTab(e.target.closest('button').dataset.tab));
-    document.addEventListener('click', (e) => e.target.dataset.goto && showTab(e.target.dataset.goto));
+    document.addEventListener('click', (e) => e.target.closest('[data-goto]') && showTab(e.target.closest('[data-goto]').dataset.goto));
 
-    // --- per-player stats from drafts -----------------------------------------
-    function statsFor(playerId) {
-      let games = 0, wins = 0, losses = 0;
-      const champs = new Map();
-      for (const d of drafts) {
-        const a = d.actions.find((x) => x.action === 'PICK' && x.player_id === playerId);
-        if (!a) continue;
-        games++;
-        champs.set(a.champion, (champs.get(a.champion) || 0) + 1);
-        if (d.result) {
-          const win = (a.side === 'ALLY') === (d.result === 'WIN');
-          win ? wins++ : losses++;
-        }
-      }
-      return { games, wins, losses, top: [...champs.entries()].sort((x, y) => y[1] - x[1]).slice(0, 4) };
+    // --- which side of a game is this team ------------------------------------
+    const teamIds = () => new Set(players.map((p) => p.id));
+    function ourSide(d) {
+      const ids = teamIds();
+      const a = d.actions.find((x) => x.action === 'PICK' && ids.has(x.player_id));
+      if (a) return a.side;
+      return ids.has(d.pov_player_id) ? 'ALLY' : null;
     }
-
-    function wrHtml(w, l) {
-      if (!w && !l) return '<span class="muted">–</span>';
-      const wr = Math.round((w / (w + l)) * 100);
-      return `<span class="wr ${wr >= 55 ? 'good' : wr < 45 ? 'bad' : ''}">${w}V ${l}P · ${wr} %</span>`;
+    const other = (side) => (side === 'ALLY' ? 'ENEMY' : 'ALLY');
+    function won(d, side) {
+      if (!d.result || !side) return null;
+      return (side === 'ALLY') === (d.result === 'WIN');
+    }
+    /** The opposing team: the team most of the other side's linked players belong to. */
+    function opponentOf(d, side) {
+      const count = new Map();
+      for (const a of d.actions) {
+        if (a.side !== other(side) || a.action !== 'PICK' || !a.player_team_id || String(a.player_team_id) === String(teamId)) continue;
+        const k = a.player_team_id;
+        count.set(k, { id: k, name: a.player_team_name, n: (count.get(k)?.n || 0) + 1 });
+      }
+      return [...count.values()].sort((x, y) => y.n - x.n)[0] || null;
     }
 
     // --- rendering -------------------------------------------------------------
     function renderHero() {
-      const ours = new Set(players.map((p) => p.id));
-      let w = 0, l = 0;
-      for (const d of drafts) {
-        if (!d.result) continue;
-        const onAlly = d.actions.some((a) => a.side === 'ALLY' && ours.has(a.player_id)) || ours.has(d.pov_player_id);
-        ((d.result === 'WIN') === onAlly) ? w++ : l++;
-      }
       document.getElementById('hero').innerHTML = `
         ${logoHtml(team)}
-        <div class="info">
-          <h1>${esc(team.name)} ${team.is_own_team ? '<span class="badge badge-own">Náš tým</span>' : ''}</h1>
-          <div class="meta">
-            ${team.tag ? `<span>[${esc(team.tag)}]</span>` : ''}
-            ${team.tournament ? `<span>${esc(team.tournament)}</span>` : ''}
-            <span>${drafts.length} her</span>
-            ${w + l ? `<span class="record"><span class="w">${w} V</span> / <span class="l">${l} P</span></span>` : ''}
-          </div>
-        </div>
-        <div class="actions">
-          <button class="btn btn-small" id="edit-team">Upravit</button>
-          <button class="btn btn-small btn-danger" id="delete-team">Smazat</button>
+        <div>
+          <h1>${esc(team.name)}${team.is_own_team ? ' <span class="badge badge-own">Náš tým</span>' : ''}</h1>
+          <div class="muted">${[team.tag && `[${esc(team.tag)}]`, team.tournament && esc(team.tournament), `${players.length} hráčů`].filter(Boolean).join(' · ')}</div>
         </div>`;
-      document.getElementById('edit-team').onclick = () => teamDialog.open({ ...team, accent_color: team.accent_color || '#c8a64b' });
-      document.getElementById('delete-team').onclick = async () => {
-        if (!confirm(`Smazat tým ${team.name}? Hráči zůstanou v databázi bez týmu.`)) return;
-        await api(`/api/teams/${teamId}`, { method: 'DELETE' });
-        location.href = '/';
+    }
+
+    function renderTypeFilter() {
+      const counts = new Map();
+      for (const d of allDrafts) counts.set(typeOf(d), (counts.get(typeOf(d)) || 0) + 1);
+      const opts = [['', 'Vše', allDrafts.length], ...[...counts.entries()].sort((a, b) => b[1] - a[1]).map(([t, n]) => [t, t, n])];
+      const el = document.getElementById('type-filter');
+      el.hidden = counts.size < 2;
+      el.innerHTML = opts.map(([v, label, n]) =>
+        `<button data-type="${esc(v)}" class="${v === typeFilter ? 'active' : ''}" aria-pressed="${v === typeFilter}">${esc(label)} (${n})</button>`).join('');
+    }
+
+    function renderSummary(list) {
+      let w = 0, l = 0, durSum = 0, durN = 0, kills = 0, deaths = 0, pg = 0;
+      for (const d of list) {
+        const side = ourSide(d);
+        const r = won(d, side);
+        if (r === true) w++; else if (r === false) l++;
+        if (d.duration_s) (durSum += d.duration_s, durN++);
+        const ours = d.actions.filter((a) => a.action === 'PICK' && a.side === side && a.kills !== null && a.kills !== undefined);
+        if (side && ours.length) {
+          pg++;
+          for (const a of ours) (kills += a.kills, deaths += a.deaths);
+        }
+      }
+      const wr = pct(w, w + l);
+      const rows = [
+        ['Hry', list.length],
+        ['Bilance', w + l ? `${w} V – ${l} P` : '–'],
+        ['Winrate', wrSpan(wr)],
+        ['Ø délka hry', durN ? fmtDuration(Math.round(durSum / durN)) : '–'],
+        ['Ø zabití / smrti na hru', pg ? `${num(kills / pg)} / ${num(deaths / pg)}` : '–'],
+        ['Hry s post-game daty', `${pg} z ${list.length}`],
+      ];
+      document.getElementById('summary').innerHTML = rows.map(([k, v]) => `<tr><td>${k}</td><td>${v}</td></tr>`).join('');
+    }
+
+    function renderBans(list) {
+      const by = new Map(), vs = new Map();
+      for (const d of list) {
+        const side = ourSide(d);
+        if (!side) continue;
+        for (const a of d.actions) {
+          if (a.action !== 'BAN') continue;
+          const m = a.side === side ? by : vs;
+          m.set(a.champion, (m.get(a.champion) || 0) + 1);
+        }
+      }
+      const rows = (m) => {
+        const top = [...m.entries()].sort((a, b) => b[1] - a[1]).slice(0, 5);
+        return top.length
+          ? top.map(([c, n]) => `<tr><td><span class="gchamp">${champIcon(icons, c, 'row')}${esc(c)}</span></td><td class="muted">${n}× · ${pct(n, list.length)} %</td></tr>`).join('')
+          : '<tr><td class="muted" colspan="2">Žádné přečtené bany.</td></tr>';
       };
+      document.getElementById('bans-by').innerHTML = rows(by);
+      document.getElementById('bans-vs').innerHTML = rows(vs);
     }
 
-    function renderRoster() {
-      const el = document.getElementById('roster');
-      el.innerHTML = players.length
-        ? players.map((p) => {
-            const s = statsFor(p.id);
-            const channel = p.twitch_login
-              ? `<span class="chip chip-twitch">${live[p.twitch_login] ? '<span class="live-dot"></span>LIVE' : '<span class="dot"></span>'}${esc(p.twitch_login)}</span>`
-              : p.kick_slug ? `<span class="chip chip-kick"><span class="dot"></span>${esc(p.kick_slug)}</span>` : '';
-            return `
-            <a class="rcard" href="/player?id=${p.id}">
-              <div class="tools">
-                <button class="btn btn-small" data-edit="${p.id}">Upravit</button>
-                <button class="btn btn-small btn-danger" data-delete="${p.id}">✕</button>
-              </div>
-              <div class="top">
-                <div class="role role-${esc(p.role || '')}">${ROLE_LABELS[p.role] || '—'}</div>
-                <div><h3>${esc(p.nickname)}</h3><div class="sub">${p.riot_id ? esc(p.riot_id) : 'Riot ID nevyplněné'}</div></div>
-              </div>
-              <div class="line"><span>${s.games} her</span>${wrHtml(s.wins, s.losses)}</div>
-              <div class="line">
-                <span class="strip" style="display:flex;gap:3px">${s.top.map(([c, n]) => `<span title="${esc(c)}: ${n}×">${champIcon(icons, c, 'row')}</span>`).join('') || '<span class="muted">zatím žádné hry</span>'}</span>
-                ${channel}
-              </div>
-            </a>`;
-          }).join('')
-        : '<div class="empty" style="grid-column:1/-1">Tým zatím nemá žádné hráče.</div>';
+    function playerStats(p, list) {
+      let g = 0, w = 0, l = 0, k = 0, de = 0, as = 0, kn = 0;
+      const champs = new Map();
+      for (const d of list) {
+        const a = d.actions.find((x) => x.action === 'PICK' && x.player_id === p.id);
+        if (!a) continue;
+        g++;
+        const r = won(d, a.side);
+        if (r === true) w++; else if (r === false) l++;
+        const c = champs.get(a.champion) || { name: a.champion, g: 0, w: 0, l: 0, k: 0, d: 0, a: 0, kn: 0 };
+        c.g++;
+        if (r === true) c.w++; else if (r === false) c.l++;
+        if (a.kills !== null && a.kills !== undefined) {
+          kn++; k += a.kills; de += a.deaths; as += a.assists;
+          c.kn++; c.k += a.kills; c.d += a.deaths; c.a += a.assists;
+        }
+        champs.set(a.champion, c);
+      }
+      return { g, w, l, k, d: de, a: as, kn, champs: [...champs.values()].sort((x, y) => y.g - x.g || y.w - x.w) };
     }
 
-    function renderDrafts() {
-      const ours = new Set(players.map((p) => p.id));
-      document.getElementById('draft-count').textContent = drafts.length ? `(${drafts.length})` : '';
-      const empty = '<div class="empty">Zatím žádné hry. Čtečka je doplní z VODek hráčů, nebo je přidá Claude přes konektor.</div>';
-      document.getElementById('recent').innerHTML = drafts.length ? drafts.slice(0, 5).map((d) => draftRow(d, icons, ours)).join('') : empty;
-      document.getElementById('drafts').innerHTML = drafts.length ? drafts.map((d) => draftRow(d, icons, ours)).join('') : empty;
+    function renderPlayers(list) {
+      const sorted = [...players].sort((a, b) => ROLE_ORDER.indexOf(a.role) - ROLE_ORDER.indexOf(b.role));
+      const el = document.getElementById('players');
+      if (!sorted.length) {
+        el.innerHTML = '<tr><td class="muted">Tým zatím nemá žádné hráče.</td></tr>';
+        return;
+      }
+      el.innerHTML = `
+        <thead><tr>
+          <th>Role</th><th>Hráč</th><th class="num">Hry</th><th class="num">V–P</th><th class="num">WR</th>
+          <th class="num">KDA</th><th class="num">Ø K / D / A</th><th>Odehraní championi <span class="muted">(hry · WR · KDA)</span></th><th></th>
+        </tr></thead>
+        <tbody>${sorted.map((p) => {
+          const s = playerStats(p, list);
+          const channel = p.twitch_login && live[p.twitch_login] ? ' <span class="live-tag">LIVE</span>' : '';
+          const champs = s.champs.slice(0, 5).map((c) => `
+            <span class="gpool" title="${esc(c.name)}">${champIcon(icons, c.name, 'md')}
+              <span><span>${c.g} · ${wrSpan(pct(c.w, c.w + c.l))}</span><span class="muted">${c.kn ? `${kdaRatio(c.k, c.d, c.a)} KDA` : '–'}</span></span>
+            </span>`).join('');
+          const more = s.champs.length > 5 ? `<span class="muted">+${s.champs.length - 5}</span>` : '';
+          return `<tr>
+            <td class="role-cell role-${esc(p.role || '')}">${ROLE_NAME[p.role] || '–'}</td>
+            <td><a class="pname" href="/player?id=${p.id}">${esc(p.nickname)}</a>${channel}${p.riot_id ? '' : '<div class="warn">Riot ID chybí</div>'}</td>
+            <td class="num">${s.g}</td>
+            <td class="num muted">${s.w + s.l ? `${s.w}–${s.l}` : '–'}</td>
+            <td class="num">${wrSpan(pct(s.w, s.w + s.l))}</td>
+            <td class="num strong">${s.kn ? kdaRatio(s.k, s.d, s.a) : '–'}</td>
+            <td class="num muted">${s.kn ? `${num(s.k / s.kn)} / ${num(s.d / s.kn)} / ${num(s.a / s.kn)}` : '–'}</td>
+            <td><div class="gpools">${champs || '<span class="muted">zatím žádné hry</span>'}${more}</div></td>
+            <td class="num nowrap">
+              <button class="btn btn-small btn-ghost" data-edit="${p.id}">Upravit</button>
+              <button class="btn btn-small btn-ghost btn-danger" data-delete="${p.id}" aria-label="Smazat hráče ${esc(p.nickname)}">✕</button>
+            </td>
+          </tr>`;
+        }).join('')}</tbody>`;
+    }
+
+    function renderRecent(list) {
+      const el = document.getElementById('recent');
+      if (!list.length) {
+        el.innerHTML = '<tr><td class="muted">Zatím žádné hry. Čtečka je doplní z VODek hráčů, nebo je přidá Claude přes konektor.</td></tr>';
+        return;
+      }
+      el.innerHTML = `
+        <thead><tr><th>Datum</th><th>Výsledek</th><th>Soupeř</th><th>Typ</th><th class="num">Délka</th><th>Draft týmu</th><th></th></tr></thead>
+        <tbody>${list.slice(0, 10).map((d) => {
+          const side = ourSide(d);
+          const r = won(d, side);
+          const opp = side ? opponentOf(d, side) : null;
+          const picks = d.actions.filter((a) => a.action === 'PICK' && a.side === side)
+            .sort((x, y) => (x.lane ?? 9) - (y.lane ?? 9) || x.seq - y.seq);
+          const when = d.played_at ? new Date(d.played_at).toLocaleDateString('cs-CZ', { day: 'numeric', month: 'numeric' }) : '–';
+          const link = vodLink(d.vod_url, d.vod_timestamp_s);
+          return `<tr>
+            <td class="muted">${when}</td>
+            <td>${r === null ? '<span class="muted">–</span>' : r ? '<span class="wrv good">Výhra</span>' : '<span class="wrv bad">Prohra</span>'}</td>
+            <td>${opp ? `<a href="/team?id=${opp.id}">${esc(opp.name)}</a>` : '<span class="muted">neznámý</span>'}</td>
+            <td class="muted">${esc(typeOf(d))}</td>
+            <td class="num muted">${d.duration_s ? fmtDuration(d.duration_s) : '–'}</td>
+            <td><div class="gstrip">${picks.map((a) => champIcon(icons, a.champion, 'row')).join('')}</div></td>
+            <td class="num">${link ? `<a href="${esc(link)}" target="_blank" rel="noopener" title="Champ select ve VODce">VOD ▶</a>` : ''}</td>
+          </tr>`;
+        }).join('')}</tbody>`;
+    }
+
+    function renderDrafts(list) {
+      const ours = teamIds();
+      document.getElementById('draft-count').textContent = list.length ? `(${list.length})` : '';
+      document.getElementById('drafts').innerHTML = list.length
+        ? list.map((d) => draftRow(d, icons, ours)).join('')
+        : '<div class="empty">Zatím žádné hry. Čtečka je doplní z VODek hráčů, nebo je přidá Claude přes konektor.</div>';
     }
 
     function renderNotes() {
-      document.getElementById('team-notes').textContent = team.notes || 'Žádné poznámky. Přidáš je přes „Upravit“.';
+      document.getElementById('team-notes').textContent = team.notes || 'Žádné poznámky. Přidáš je přes „Upravit tým“.';
+    }
+
+    function renderStats() {
+      const list = drafts();
+      renderTypeFilter();
+      renderSummary(list);
+      renderBans(list);
+      renderPlayers(list);
+      renderRecent(list);
+      renderDrafts(list);
     }
 
     let vodsLoaded = false;
@@ -227,13 +352,20 @@
     async function load() {
       ({ team, players } = await api(`/api/teams/${teamId}`));
       document.title = `${team.name} · SGooBovo šedl scouting`;
-      document.body.style.setProperty('--accent', team.accent_color || '#c8a64b');
-      [{ drafts }, icons] = await Promise.all([api(`/api/drafts?team_id=${teamId}&limit=100`), loadChampions()]);
+      document.body.style.setProperty('--accent', team.accent_color || '#e8b84a');
+      let ds;
+      [{ drafts: ds }, icons] = await Promise.all([api(`/api/drafts?team_id=${teamId}&limit=100`), loadChampions()]);
+      allDrafts = ds;
+      if (typeFilter && !allDrafts.some((d) => typeOf(d) === typeFilter)) typeFilter = '';
       renderHero();
-      renderRoster();
-      renderDrafts();
       renderNotes();
+      renderStats();
     }
+
+    document.getElementById('type-filter').addEventListener('click', (e) => {
+      const b = e.target.closest('[data-type]'); if (!b) return;
+      typeFilter = b.dataset.type; renderStats();
+    });
 
     // --- dialogs -------------------------------------------------------------
     const teamDialog = formDialog(document.getElementById('team-dialog'), {
@@ -242,6 +374,12 @@
         await load();
       },
     });
+    document.getElementById('edit-team').onclick = () => teamDialog.open({ ...team, accent_color: team.accent_color || '#e8b84a' });
+    document.getElementById('delete-team').onclick = async () => {
+      if (!confirm(`Smazat tým ${team.name}? Hráči zůstanou v databázi bez týmu.`)) return;
+      await api(`/api/teams/${teamId}`, { method: 'DELETE' });
+      location.href = '/';
+    };
     const playerDialogEl = document.getElementById('player-dialog');
     const playerDialog = formDialog(playerDialogEl, {
       async onSubmit(values) {
@@ -255,12 +393,12 @@
       playerDialogEl.querySelector('[data-title]').textContent = 'Nový hráč';
       playerDialog.open({});
     };
-    document.getElementById('roster').addEventListener('click', async (e) => {
-      const editId = e.target.dataset.edit, deleteId = e.target.dataset.delete;
-      if (!editId && !deleteId) return;
-      e.preventDefault();
-      const p = players.find((x) => String(x.id) === (editId || deleteId));
-      if (editId) {
+    document.getElementById('players').addEventListener('click', async (e) => {
+      const btn = e.target.closest('[data-edit], [data-delete]');
+      if (!btn) return;
+      const id = btn.dataset.edit || btn.dataset.delete;
+      const p = players.find((x) => String(x.id) === id);
+      if (btn.dataset.edit) {
         editingPlayer = p.id;
         playerDialogEl.querySelector('[data-title]').textContent = `Upravit: ${p.nickname}`;
         playerDialog.open({ ...p, tags: p.tags.join(', ') });
@@ -270,7 +408,7 @@
       }
     });
 
-    api('/api/live').then((r) => { live = r.twitch; if (players.length) renderRoster(); }).catch(() => {});
+    api('/api/live').then((r) => { live = r.twitch; if (players.length) renderPlayers(drafts()); }).catch(() => {});
     load()
       .then(() => { const h = location.hash.slice(1); if (h) showTab(h); })
       .catch((err) => {

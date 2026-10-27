@@ -891,3 +891,53 @@ dialog.map-viewer:fullscreen .mv-map .map-box { width: min(100%, calc(100vh - 32
   .tier-label b { font-size: 1.2rem; }
   .pc { width: 62px; }
 }
+
+/* --- team page: statistics in plain tables (gol.gg-like) --- */
+.team-page .back { margin: 0 0 14px; }
+.tp-head { display: flex; justify-content: space-between; align-items: center; gap: 14px; flex-wrap: wrap; margin-bottom: 14px; }
+.tp-title { display: flex; align-items: center; gap: 14px; min-width: 0; }
+.tp-title h1 { font-size: clamp(1.7rem, 3.5vw, 2.2rem); }
+.tp-title .muted { font-size: 0.88rem; margin-top: 4px; }
+.tp-tools { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.gseg { display: inline-flex; border: 1px solid var(--line-2); border-radius: 8px; overflow: hidden; }
+.gseg button { border: 0; background: var(--panel); color: var(--muted); font: 600 0.82rem var(--font); min-height: 34px; padding: 0 12px; cursor: pointer; }
+.gseg button + button { border-left: 1px solid var(--line-2); }
+.gseg button:hover { color: var(--text); }
+.gseg button.active { background: var(--gold); color: var(--on-gold); }
+.gboxes { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; margin-bottom: 14px; }
+.gbox { border: 1px solid var(--line); border-radius: 8px; background: var(--panel); margin-bottom: 14px; overflow: hidden; }
+.gboxes .gbox { margin-bottom: 0; }
+.gbox > h2 {
+  display: flex; justify-content: space-between; align-items: center; gap: 10px;
+  margin: 0; padding: 8px 12px; min-height: 40px; background: var(--panel-2); border-bottom: 1px solid var(--line);
+  font: 700 0.85rem var(--font); letter-spacing: 0;
+}
+.gscroll { overflow-x: auto; }
+.gtable { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+.gtable th { text-align: left; color: var(--muted); font-weight: 600; padding: 8px; white-space: nowrap; }
+.gtable td { padding: 7px 8px; border-top: 1px solid var(--line); vertical-align: middle; }
+.gtable th:first-child, .gtable td:first-child { padding-left: 12px; }
+.gtable th:last-child, .gtable td:last-child { padding-right: 12px; }
+.gtable .num { text-align: right; font-variant-numeric: tabular-nums; }
+.gtable .strong { font-weight: 700; }
+.gtable .nowrap { white-space: nowrap; }
+.gtable.kv tr:first-child td { border-top: 0; }
+.gtable.kv td:last-child { text-align: right; font-weight: 600; }
+.gtable.kv td:first-child { color: var(--muted); }
+#players { min-width: 980px; }
+#recent { min-width: 760px; }
+.wrv { font-weight: 700; }
+.wrv.good { color: #5be3a2; }
+.wrv.bad { color: #ff8a8a; }
+.role-cell { color: var(--role, var(--muted)); font-weight: 700; white-space: nowrap; }
+.pname { color: var(--text); font-weight: 600; }
+.warn { color: var(--gold-2); font-size: 0.75rem; }
+.live-tag { margin-left: 6px; padding: 1px 6px; border-radius: 4px; background: var(--red); color: #fff; font-size: 0.65rem; font-weight: 700; vertical-align: 2px; }
+.gchamp { display: inline-flex; align-items: center; gap: 8px; }
+.gchamp .champ { width: 24px; height: 24px; border-radius: 5px; }
+.gpools { display: flex; flex-wrap: wrap; gap: 6px 14px; align-items: center; }
+.gpool { display: inline-flex; align-items: center; gap: 7px; }
+.gpool .champ-md { width: 30px; height: 30px; border-radius: 6px; }
+.gpool > span:last-child { display: flex; flex-direction: column; font-size: 0.72rem; line-height: 1.3; }
+.gstrip { display: flex; gap: 3px; }
+.gstrip .champ-row { width: 26px; height: 26px; border-radius: 5px; }

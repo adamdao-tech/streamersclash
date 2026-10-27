@@ -208,7 +208,8 @@ export async function listDrafts(
 
   const { results: actions } = await db
     .prepare(
-      `SELECT a.*, p.nickname AS player_nickname FROM draft_actions a LEFT JOIN players p ON p.id = a.player_id
+      `SELECT a.*, p.nickname AS player_nickname, p.team_id AS player_team_id, t.name AS player_team_name
+         FROM draft_actions a LEFT JOIN players p ON p.id = a.player_id LEFT JOIN teams t ON t.id = p.team_id
         WHERE a.match_id IN (${matches.map(() => '?').join(',')}) ORDER BY a.match_id, a.seq`,
     )
     .bind(...matches.map((m) => m.id))

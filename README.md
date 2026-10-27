@@ -24,6 +24,13 @@ Claude logs in through the normal Twitch login and a consent page; its changes s
 ## Claude skill
 [`skills/sc-scouting/SKILL.md`](skills/sc-scouting/SKILL.md) teaches Claude how to use the connector: reviewing drafts, scouting reports, adding players, checking the reader.
 
+## Web UI style
+Dark navy + gold, Rajdhani for headings, Inter for text. Colours and event-type colours are CSS variables at the top of
+`public/app.css` (`--gold`, `--panel`, `--c-match`, `--c-scrim`, `--c-other`, `--c-off`…); buttons are `.btn` with
+`.btn-primary` (gold), `.btn-light`, `.btn-ghost`, `.btn-icon`. The schedule page follows the "Match Day" design: a hero
+for the next match (`nextMatchHtml` in `app.js`, also used compact on the home page), grouped rows (`.srow`) and an event
+dialog with type cards and segmented format picker. Reuse these classes for new pages.
+
 ## Draft reader
 See [`reader/README.md`](reader/README.md). Needs the `READER_TOKEN` secret in Cloudflare.
 
@@ -32,6 +39,6 @@ See [`reader/README.md`](reader/README.md). Needs the `READER_TOKEN` secret in C
 2. ~~Twitch VOD sync, live status~~ (Kick later)
 3. ~~Remote MCP connector (OAuth) for Claude~~
 4. ~~Draft reader (VOD → champ select → draft)~~, tuning on real VODs
-5. ~~Schedule (Harmonogram): tournament matches, scrims and other events, list + calendar view, next-match countdown~~
+5. ~~Schedule (Harmonogram): tournament matches, scrims, other events and free days (volno), list + calendar view, next-match hero with countdown~~
 6. ~~Koučing: folders per player, rune pages (rune picker from Data Dragon), coaching notes, ward maps on the minimap, own uploaded map picture, screenshots (paste/drop), champion pool tier lists linked to draft stats~~
 7. Drafts in the web UI, Riot API sync, champion pools, compare view

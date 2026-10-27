@@ -211,6 +211,63 @@ export function draftRow(d, icons, ours = new Set()) {
     </details>`;
 }
 
+// --- champion statistics table (team and player pages) ----------------------------
+
+/**
+ * Aggregates picks per champion. A pick: { champion, win (true/false/null), kills, deaths, assists, who, played_at }.
+ * Returns rows with games, wins, losses, KDA sums, who played it (name → count) and the last time it was played.
+ */
+export function aggregateChampions(picks) {
+  const map = new Map();
+  for (const p of picks) {
+    const c = map.get(p.champion) || { name: p.champion, g: 0, w: 0, l: 0, k: 0, d: 0, a: 0, kn: 0, who: new Map(), last: null };
+    c.g++;
+    if (p.win === true) c.w++; else if (p.win === false) c.l++;
+    if (p.kills !== null && p.kills !== undefined) { c.kn++; c.k += p.kills; c.d += p.deaths; c.a += p.assists; }
+    if (p.who) c.who.set(p.who, (c.who.get(p.who) || 0) + 1);
+    if (p.played_at && (!c.last || p.played_at > c.last)) c.last = p.played_at;
+    map.set(p.champion, c);
+  }
+  return [...map.values()].map((c) => ({
+    ...c,
+    wr: c.w + c.l ? Math.round((c.w / (c.w + c.l)) * 100) : null,
+    kda: c.kn ? (c.k + c.a) / Math.max(c.d, 1) : null,
+  }));
+}
+
+const CHAMP_SORTS = {
+  g: (x, y) => y.g - x.g || y.w - x.w,
+  wr: (x, y) => (y.wr ?? -1) - (x.wr ?? -1) || y.g - x.g,
+  kda: (x, y) => (y.kda ?? -1) - (x.kda ?? -1) || y.g - x.g,
+  last: (x, y) => String(y.last || '').localeCompare(String(x.last || '')),
+  name: (x, y) => x.name.localeCompare(y.name, 'cs'),
+};
+
+/** The champion table; headers with data-sort switch the order (the page keeps the sort key and re-renders). */
+export function championTableHtml(rows, icons, { sort = 'g', showWho = false, whoLabel = 'Hráli' } = {}) {
+  if (!rows.length) return '<tr><td class="muted">Zatím žádné odehrané hry.</td></tr>';
+  const sorted = [...rows].sort(CHAMP_SORTS[sort] || CHAMP_SORTS.g);
+  const n = (v, digits = 1) => v.toFixed(digits).replace('.', ',');
+  const th = (key, label, cls = '') => `<th class="${cls}"><button class="th-sort${sort === key ? ' on' : ''}" data-sort="${key}">${label}${sort === key ? ' ↓' : ''}</button></th>`;
+  const wr = (v) => v === null ? '<span class="muted">–</span>'
+    : `<span class="wrbar"><span class="bar"><span style="width:${v}%"></span></span><span class="wrv ${v >= 55 ? 'good' : v < 45 ? 'bad' : ''}">${v} %</span></span>`;
+  return `
+    <thead><tr>
+      ${th('name', 'Champion')}${th('g', 'Hry', 'num')}<th class="num">V–P</th>${th('wr', 'Winrate')}${th('kda', 'KDA', 'num')}
+      <th class="num">Ø K / D / A</th>${showWho ? `<th>${whoLabel}</th>` : ''}${th('last', 'Naposledy', 'num')}
+    </tr></thead>
+    <tbody>${sorted.map((c) => `<tr>
+      <td><span class="gchamp">${champIcon(icons, c.name, 'row')}<b>${esc(c.name)}</b></span></td>
+      <td class="num">${c.g}</td>
+      <td class="num muted">${c.w + c.l ? `${c.w}–${c.l}` : '–'}</td>
+      <td>${wr(c.wr)}</td>
+      <td class="num strong">${c.kda === null ? '–' : n(c.kda, 2)}</td>
+      <td class="num muted">${c.kn ? `${n(c.k / c.kn)} / ${n(c.d / c.kn)} / ${n(c.a / c.kn)}` : '–'}</td>
+      ${showWho ? `<td class="muted">${[...c.who.entries()].sort((a, b) => b[1] - a[1]).map(([w, k]) => `${esc(w)}${c.who.size > 1 ? ` (${k})` : ''}`).join(', ')}</td>` : ''}
+      <td class="num muted">${c.last ? new Date(c.last).toLocaleDateString('cs-CZ', { day: 'numeric', month: 'numeric' }) : '–'}</td>
+    </tr>`).join('')}</tbody>`;
+}
+
 // --- schedule (harmonogram) ------------------------------------------------------
 
 const WEEKDAYS = ['ne', 'po', 'út', 'st', 'čt', 'pá', 'so'];

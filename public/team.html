@@ -24,6 +24,7 @@
 
     <nav class="tabs" id="tabs">
       <button data-tab="overview" class="active">Statistiky</button>
+      <button data-tab="champions">Championi <span class="count" id="champ-count"></span></button>
       <button data-tab="drafts">Hry a drafty <span class="count" id="draft-count"></span></button>
       <button data-tab="vods">VODky</button>
       <button data-tab="notes">Poznámky</button>
@@ -44,6 +45,13 @@
       <section class="gbox">
         <h2>Poslední zápasy <button class="btn btn-small" data-goto="drafts">Všechny hry →</button></h2>
         <div class="gscroll"><table class="gtable" id="recent"></table></div>
+      </section>
+    </section>
+
+    <section class="tab-panel" data-panel="champions" hidden>
+      <section class="gbox">
+        <h2>Championi týmu <span class="gseg" id="champ-roles" role="group" aria-label="Role"></span></h2>
+        <div class="gscroll"><table class="gtable" id="champs"></table></div>
       </section>
     </section>
 
@@ -107,12 +115,14 @@
   </dialog>
 
   <script type="module">
-    import { api, esc, initPage, formDialog, logoHtml, loadChampions, champIcon, draftRow, vodLink, fmtDuration } from '/app.js';
+    import { api, esc, initPage, formDialog, logoHtml, loadChampions, champIcon, draftRow, vodLink, fmtDuration, aggregateChampions, championTableHtml } from '/app.js';
 
     await initPage('teams');
     const teamId = new URLSearchParams(location.search).get('id');
     let team, players = [], allDrafts = [], icons = new Map(), live = {}, editingPlayer = null;
     let typeFilter = '';
+    let champRole = '';
+    let champSort = 'g';
 
     const ROLE_ORDER = ['TOP', 'JUNGLE', 'MID', 'ADC', 'SUPPORT', 'SUB'];
     const ROLE_NAME = { TOP: 'Top', JUNGLE: 'Jungle', MID: 'Mid', ADC: 'Bot', SUPPORT: 'Support', SUB: 'Náhradník' };
@@ -255,16 +265,14 @@
       el.innerHTML = `
         <thead><tr>
           <th>Role</th><th>Hráč</th><th class="num">Hry</th><th class="num">V–P</th><th class="num">WR</th>
-          <th class="num">KDA</th><th class="num">Ø K / D / A</th><th>Odehraní championi <span class="muted">(hry · WR · KDA)</span></th><th></th>
+          <th class="num">KDA</th><th class="num">Ø K / D / A</th><th>Nejhranější championi</th><th></th>
         </tr></thead>
         <tbody>${sorted.map((p) => {
           const s = playerStats(p, list);
           const channel = p.twitch_login && live[p.twitch_login] ? ' <span class="live-tag">LIVE</span>' : '';
-          const champs = s.champs.slice(0, 5).map((c) => `
-            <span class="gpool" title="${esc(c.name)}">${champIcon(icons, c.name, 'md')}
-              <span><span>${c.g} · ${wrSpan(pct(c.w, c.w + c.l))}</span><span class="muted">${c.kn ? `${kdaRatio(c.k, c.d, c.a)} KDA` : '–'}</span></span>
-            </span>`).join('');
-          const more = s.champs.length > 5 ? `<span class="muted">+${s.champs.length - 5}</span>` : '';
+          const champs = s.champs.slice(0, 5).map((c) =>
+            `<span class="gmini" title="${esc(c.name)}: ${c.g} her">${champIcon(icons, c.name, 'row')}<span>${c.g}</span></span>`).join('');
+          const more = s.champs.length > 5 ? `<button class="link-like muted" data-goto="champions">+${s.champs.length - 5}</button>` : '';
           return `<tr>
             <td class="role-cell role-${esc(p.role || '')}">${ROLE_NAME[p.role] || '–'}</td>
             <td><a class="pname" href="/player?id=${p.id}">${esc(p.nickname)}</a>${channel}${p.riot_id ? '' : '<div class="warn">Riot ID chybí</div>'}</td>
@@ -322,6 +330,25 @@
       document.getElementById('team-notes').textContent = team.notes || 'Žádné poznámky. Přidáš je přes „Upravit tým“.';
     }
 
+    function renderChampions(list) {
+      const roles = [['', 'Vše'], ['TOP', 'Top'], ['JUNGLE', 'Jungle'], ['MID', 'Mid'], ['ADC', 'Bot'], ['SUPPORT', 'Support']];
+      document.getElementById('champ-roles').innerHTML = roles.map(([r, label]) =>
+        `<button data-role="${r}" class="${r === champRole ? 'active' : ''}" aria-pressed="${r === champRole}">${label}</button>`).join('');
+      const byId = new Map(players.map((p) => [p.id, p]));
+      const picks = [];
+      for (const d of list) {
+        for (const a of d.actions) {
+          if (a.action !== 'PICK' || !byId.has(a.player_id)) continue;
+          const p = byId.get(a.player_id);
+          if (champRole && p.role !== champRole) continue;
+          picks.push({ champion: a.champion, win: won(d, a.side), kills: a.kills, deaths: a.deaths, assists: a.assists, who: p.nickname, played_at: d.played_at });
+        }
+      }
+      const rows = aggregateChampions(picks);
+      document.getElementById('champ-count').textContent = rows.length && !champRole ? `(${rows.length})` : '';
+      document.getElementById('champs').innerHTML = championTableHtml(rows, icons, { sort: champSort, showWho: true });
+    }
+
     function renderStats() {
       const list = drafts();
       renderTypeFilter();
@@ -329,6 +356,7 @@
       renderBans(list);
       renderPlayers(list);
       renderRecent(list);
+      renderChampions(list);
       renderDrafts(list);
     }
 
@@ -362,6 +390,14 @@
       renderStats();
     }
 
+    document.getElementById('champ-roles').addEventListener('click', (e) => {
+      const b = e.target.closest('[data-role]'); if (!b) return;
+      champRole = b.dataset.role; renderChampions(drafts());
+    });
+    document.getElementById('champs').addEventListener('click', (e) => {
+      const b = e.target.closest('[data-sort]'); if (!b) return;
+      champSort = b.dataset.sort; renderChampions(drafts());
+    });
     document.getElementById('type-filter').addEventListener('click', (e) => {
       const b = e.target.closest('[data-type]'); if (!b) return;
       typeFilter = b.dataset.type; renderStats();

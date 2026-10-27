@@ -941,3 +941,11 @@ dialog.map-viewer:fullscreen .mv-map .map-box { width: min(100%, calc(100vh - 32
 .gpool > span:last-child { display: flex; flex-direction: column; font-size: 0.72rem; line-height: 1.3; }
 .gstrip { display: flex; gap: 3px; }
 .gstrip .champ-row { width: 26px; height: 26px; border-radius: 5px; }
+.th-sort { background: none; border: 0; padding: 0; color: inherit; font: inherit; cursor: pointer; white-space: nowrap; }
+.th-sort:hover, .th-sort.on { color: var(--text); }
+.wrbar { display: inline-flex; align-items: center; gap: 8px; }
+.wrbar .bar { width: 70px; }
+.gmini { display: inline-flex; align-items: center; gap: 4px; font-size: 0.75rem; color: var(--muted); }
+.gmini .champ-row { width: 28px; height: 28px; border-radius: 5px; }
+.gbox > h2 .gseg button { min-height: 28px; padding: 0 10px; font-size: 0.78rem; }
+#champs, #pool { min-width: 760px; }

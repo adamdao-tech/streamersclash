@@ -53,7 +53,11 @@
   <script type="module">
     import { api, esc, initPage, formDialog, logoHtml, timeAgo, featuredEvent, nextMatchHtml, startCountdowns, seasonRecord } from '/app.js';
 
-    await initPage('teams');
+    const me = await initPage('teams');
+    if (!me.is_superadmin) {
+      document.querySelector('.layout aside').remove();
+      document.querySelector('.layout').classList.add('layout-single');
+    }
 
     const ACTIONS = {
       'login': 'se přihlásil(a)',
@@ -85,7 +89,7 @@
     };
 
     async function load() {
-      const [{ teams }, { activity }, { matches }] = await Promise.all([api('/api/teams'), api('/api/activity'), api('/api/schedule')]);
+      const [{ teams }, { activity }, { matches }] = await Promise.all([api('/api/teams'), me.is_superadmin ? api('/api/activity') : { activity: [] }, api('/api/schedule')]);
       const next = featuredEvent(matches);
       const own = teams.find((t) => t.is_own_team) || null;
       const rec = seasonRecord(matches).match;
@@ -110,7 +114,7 @@
           </a>`).join('')
         : '<div class="empty" style="grid-column:1/-1">Zatím tu nejsou žádné týmy. Začni přidáním vašeho týmu.</div>';
 
-      document.getElementById('activity').innerHTML = activity.length
+      if (me.is_superadmin) document.getElementById('activity').innerHTML = activity.length
         ? activity.slice(0, 15).map((a) => {
             const who = a.actor_kind === 'claude' ? 'Claude' : a.actor_kind === 'sync' ? (a.action.startsWith('vods') ? 'Sync' : 'Čtečka') : a.actor_name || 'Někdo';
             let what = '';

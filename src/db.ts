@@ -39,6 +39,12 @@ export interface User {
   role: 'admin' | 'member';
 }
 
+/** Superadmins (SUPERADMINS var, Twitch logins) are the only ones who see the activity log, admins included. */
+export function isSuperadmin(env: { SUPERADMINS?: string }, user: Pick<User, 'twitch_login'>): boolean {
+  const logins = String(env.SUPERADMINS ?? '').split(',').map((s) => s.trim().toLowerCase()).filter(Boolean);
+  return logins.includes(String(user.twitch_login).toLowerCase());
+}
+
 export async function logActivity(
   db: D1Database,
   actor: { kind: 'user' | 'claude' | 'sync'; userId?: number | null },

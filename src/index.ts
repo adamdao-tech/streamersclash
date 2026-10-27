@@ -13,6 +13,8 @@ export interface Env {
   TWITCH_CLIENT_ID: string;
   TWITCH_CLIENT_SECRET: string;
   READER_TOKEN?: string;
+  /** Twitch logins (comma-separated) that see the activity log – superadmins, above admins. */
+  SUPERADMINS?: string;
 }
 
 /** Paths reachable without logging in. */

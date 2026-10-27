@@ -17,7 +17,9 @@
     }
   ],
   "vars": {
-    "TWITCH_CLIENT_ID": "jfq4y3dpmayp3srqtylgpjtz7hn9oa"
+    "TWITCH_CLIENT_ID": "jfq4y3dpmayp3srqtylgpjtz7hn9oa",
+    // Superadmins (Twitch logins, comma-separated): the only ones who see the activity log.
+    "SUPERADMINS": "ddddddao"
   },
   // TWITCH_CLIENT_SECRET is a secret: set it in the Cloudflare dashboard
   // (Worker → Settings → Variables and Secrets) or in .dev.vars locally.

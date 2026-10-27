@@ -3,7 +3,7 @@ import { insert, parsePlayer, playerFields, teamFields, update } from './api';
 import {
   formatPrague, isUpcoming, KIND_LABELS, listSchedule, matchResult, opponentLabel, requireOpponent, scheduleFields, type ScheduledMatch,
 } from './schedule';
-import { logActivity, type User } from './db';
+import { isSuperadmin, logActivity, type User } from './db';
 import { listDrafts, playerGames, relinkDraftPlayers, saveDraft, summarizeGames, validateDraft, type DraftInput } from './drafts';
 import { HttpError, json } from './http';
 import { userFromBearer } from './oauth';
@@ -683,10 +683,11 @@ const TOOLS: Tool[] = [
   },
   {
     name: 'get_activity',
-    description: 'Recent changes in the app (who added or changed what), newest first.',
+    description: 'Recent changes in the app (who added or changed what), newest first. Only for the superadmin (Dao); others get an error.',
     inputSchema: { type: 'object', properties: { limit: { type: 'integer', maximum: 100 } } },
     annotations: { readOnlyHint: true },
-    async run(a, { env }) {
+    async run(a, { env, user }) {
+      if (!isSuperadmin(env, user)) throw new HttpError(403, 'forbidden', 'The activity log is only visible to the superadmin.');
       const limit = Math.min(Number(a.limit) || 30, 100);
       const { results } = await env.DB.prepare(
         `SELECT a.created_at, a.actor_kind, u.display_name AS actor, a.action, a.target_type, a.target_id, a.details

@@ -75,7 +75,7 @@ If `save_draft` says a champion is unknown, fix the spelling (e.g. "Kai'Sa", "Nu
 
 ## Workflow 6 – checking that things run ("co je nového", "jede čtečka?")
 
-- `get_activity` – recent changes: new VODs (`Sync`), games saved by the reader, frames sent for review, Claude's changes.
+- `get_activity` – only for the superadmin (Dao, Twitch `ddddddao`); for anyone else it errors, so use `list_vods` instead. Recent changes: new VODs (`Sync`), games saved by the reader, frames sent for review, Claude's changes.
 - `list_vods` – `scan_status`: `pending` waits for the reader, `scanning` is in progress (a claim expires after 6 h), `done` read, `skipped` no draft found, `failed` couldn't be read (often a sub-only or deleted VOD).
 - `rescan_vod` re-queues a VOD; a rescan updates existing games instead of duplicating them.
 - If nothing new appears for a long time, the reader on Dao's PC is probably not running: `docker compose up -d` in `~/streamersclash/reader` (WSL), logs with `docker compose logs -f reader`.

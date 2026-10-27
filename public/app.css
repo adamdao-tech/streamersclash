@@ -239,6 +239,7 @@ dialog h2 { margin-bottom: 16px; }
 .activity li:last-child { border-bottom: 0; }
 .activity b { color: var(--text); font-weight: 600; }
 .layout { display: grid; grid-template-columns: 1fr 320px; gap: 28px; align-items: start; }
+.layout.layout-single { grid-template-columns: 1fr; }
 
 /* --- vods --- */
 .vod-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 14px; }

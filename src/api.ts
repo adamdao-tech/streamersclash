@@ -1,5 +1,5 @@
 import type { Env } from './index';
-import { logActivity, type User } from './db';
+import { isSuperadmin, logActivity, type User } from './db';
 import { HttpError, json } from './http';
 import { getLiveChannels, syncTwitchVods } from './vods';
 import { listDrafts, playerGames, relinkDraftPlayers, summarizeGames } from './drafts';
@@ -36,7 +36,7 @@ async function route(req: Request, env: Env, url: URL, user: User): Promise<Resp
   }
 
   // --- me ---------------------------------------------------------------
-  if (path === '/api/me' && method === 'GET') return json({ user });
+  if (path === '/api/me' && method === 'GET') return json({ user: { ...user, is_superadmin: isSuperadmin(env, user) } });
 
   // --- users (allowlist, admin only) -------------------------------------
   if (path === '/api/users') {
@@ -415,6 +415,7 @@ async function route(req: Request, env: Env, url: URL, user: User): Promise<Resp
 
   // --- activity ----------------------------------------------------------
   if (path === '/api/activity' && method === 'GET') {
+    if (!isSuperadmin(env, user)) throw new HttpError(403, 'forbidden', 'Aktivitu vidí jen superadmin.');
     const { results } = await db
       .prepare(
         `SELECT a.*, u.display_name AS actor_name FROM activity_log a

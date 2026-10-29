@@ -52,7 +52,7 @@ export async function loadCoaching(env: Env) {
     ).all(),
     db.prepare('SELECT player_id, champion, tier, note, sort FROM champion_pool ORDER BY player_id, sort').all(),
     db.prepare(
-      `SELECT d.id, d.player_id, d.folder_id, d.title, d.slides, d.created_by_kind, d.created_at, d.updated_at, u.display_name AS author_name
+      `SELECT d.id, d.player_id, d.folder_id, d.title, d.theme, d.slides, d.created_by_kind, d.created_at, d.updated_at, u.display_name AS author_name
          FROM coaching_decks d LEFT JOIN users u ON u.id = d.created_by ORDER BY d.updated_at DESC`,
     ).all(),
   ]);
@@ -411,28 +411,95 @@ export async function savePool(env: Env, actor: Actor, playerId: number, items: 
 
 // --- presentations (slide decks) -----------------------------------------------------------
 
-const MAX_SLIDES = 60;
-type Slide = { title: string | null; body: string | null; image_id: number | null };
+const MAX_SLIDES = 80;
+const MAX_ELEMENTS = 60;
+export const DECK_THEMES = ['sc', 'light', 'dark', 'blue'] as const;
 
-/** Checks the slides sent by the page: [{ title, body, image_id }] in order. Pictures must belong to the deck. */
+// A slide is a free-form canvas of 1600 × 900 units (like a PowerPoint slide):
+//   { elements: [...], notes, bg }
+//   text:  { id, type: 'text', x, y, w, h, html, size, font, color, align, valign, fill, stroke, shape, role }
+//   image: { id, type: 'image', x, y, w, h, image_id (null = placeholder), fit }
+//   line:  { id, type: 'line', x1, y1, x2, y2, color, width, head, dash }
+// The text HTML is sanitized by the page when it is shown; here it is only size-checked.
+// Old slides ({ title, body, image_id }) are still accepted and converted by the page.
+type Slide = Record<string, unknown>;
+
+const num = (v: unknown, min: number, max: number, def: number) => {
+  const n = Number(v);
+  return Number.isFinite(n) ? Math.round(Math.min(max, Math.max(min, n)) * 10) / 10 : def;
+};
+const color = (v: unknown): string | null => (typeof v === 'string' && /^#[0-9a-f]{3,8}$/i.test(v) ? v : null);
+const oneOf = <T extends string>(v: unknown, list: readonly T[], def: T): T => (list.includes(v as T) ? (v as T) : def);
+const elId = (v: unknown) => (typeof v === 'string' && /^[a-z0-9]{1,16}$/i.test(v) ? v : Math.random().toString(36).slice(2, 9));
+
+function cleanElement(raw: unknown, own: Set<number>, where: string): Record<string, unknown> {
+  const o = (raw ?? {}) as Record<string, unknown>;
+  const box = { x: num(o.x, -1600, 3200, 100), y: num(o.y, -900, 1800, 100), w: num(o.w, 4, 4800, 400), h: num(o.h, 4, 2700, 200) };
+  if (o.type === 'text') {
+    const html = typeof o.html === 'string' ? o.html : '';
+    if (html.length > 20000) throw new HttpError(400, 'invalid', `${where}: moc dlouhý text.`);
+    return {
+      id: elId(o.id), type: 'text', ...box, html,
+      size: num(o.size, 8, 240, 32), font: oneOf(o.font, ['inter', 'display'], 'inter'), color: color(o.color),
+      align: oneOf(o.align, ['l', 'c', 'r'], 'l'), valign: oneOf(o.valign, ['t', 'm', 'b'], 't'),
+      fill: color(o.fill), stroke: color(o.stroke), shape: oneOf(o.shape, ['none', 'rect', 'round', 'ellipse'], 'none'),
+      role: oneOf(o.role, ['title', 'sub', 'body', 'none'], 'none'),
+    };
+  }
+  if (o.type === 'image') {
+    const imageId = optId(o.image_id);
+    if (imageId && !own.has(imageId)) throw new HttpError(400, 'invalid', `${where}: obrázek nepatří k prezentaci.`);
+    return { id: elId(o.id), type: 'image', ...box, image_id: imageId, fit: oneOf(o.fit, ['contain', 'cover'], 'contain') };
+  }
+  if (o.type === 'line') {
+    return {
+      id: elId(o.id), type: 'line',
+      x1: num(o.x1, -1600, 3200, 0), y1: num(o.y1, -900, 1800, 0), x2: num(o.x2, -1600, 3200, 100), y2: num(o.y2, -900, 1800, 100),
+      color: color(o.color) ?? '#e8b84a', width: num(o.width, 1, 40, 8), head: oneOf(o.head, ['none', 'end', 'both'], 'end'), dash: !!o.dash,
+    };
+  }
+  throw new HttpError(400, 'invalid', `${where}: neznámý typ prvku.`);
+}
+
+/** Checks the slides sent by the page. Pictures must belong to the deck. */
 async function cleanSlides(db: D1Database, deckId: number, raw: unknown): Promise<Slide[]> {
-  if (!Array.isArray(raw)) throw new HttpError(400, 'invalid', 'Slidy chybí.');
-  if (raw.length > MAX_SLIDES) throw new HttpError(400, 'invalid', `Max ${MAX_SLIDES} slidů.`);
+  if (!Array.isArray(raw)) throw new HttpError(400, 'invalid', 'Snímky chybí.');
+  if (raw.length > MAX_SLIDES) throw new HttpError(400, 'invalid', `Max ${MAX_SLIDES} snímků.`);
   const { results } = await db.prepare('SELECT id FROM coaching_deck_images WHERE deck_id = ?').bind(deckId).all<{ id: number }>();
   const own = new Set(results.map((r) => r.id));
-  return raw.map((it, i) => {
+  const slides = raw.map((it, i) => {
     const o = (it ?? {}) as Record<string, unknown>;
-    const imageId = optId(o.image_id);
-    if (imageId && !own.has(imageId)) throw new HttpError(400, 'invalid', `Slide ${i + 1}: obrázek nepatří k prezentaci.`);
-    return { title: str(o.title, `Slide ${i + 1} – nadpis`, 160), body: str(o.body, `Slide ${i + 1} – text`, 4000), image_id: imageId };
+    const where = `Snímek ${i + 1}`;
+    if (!Array.isArray(o.elements)) {
+      // Old format.
+      const imageId = optId(o.image_id);
+      if (imageId && !own.has(imageId)) throw new HttpError(400, 'invalid', `${where}: obrázek nepatří k prezentaci.`);
+      return { title: str(o.title, `${where} – nadpis`, 160), body: str(o.body, `${where} – text`, 4000), image_id: imageId };
+    }
+    if (o.elements.length > MAX_ELEMENTS) throw new HttpError(400, 'invalid', `${where}: max ${MAX_ELEMENTS} prvků.`);
+    return {
+      elements: o.elements.map((e) => cleanElement(e, own, where)),
+      notes: str(o.notes, `${where} – poznámky`, 5000),
+      bg: color(o.bg),
+    };
   });
+  if (JSON.stringify(slides).length > 900_000) throw new HttpError(400, 'invalid', 'Prezentace je moc velká – rozděl ji na víc menších.');
+  return slides;
 }
 
 export async function createDeck(env: Env, actor: Actor, body: Body): Promise<number> {
   const title = str(body.title, 'Název', 120);
   if (!title) throw new HttpError(400, 'invalid', 'Zadej název prezentace.');
   const place = await resolvePlace(env.DB, body);
-  const slides = JSON.stringify([{ title, body: null, image_id: null }]);
+  const esc = (t: string) => t.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!);
+  // A title slide, like a new PowerPoint file.
+  const slides = JSON.stringify([{
+    elements: [
+      { id: 't1', type: 'text', x: 120, y: 260, w: 1360, h: 220, html: esc(title), size: 88, font: 'display', color: null, align: 'c', valign: 'b', fill: null, stroke: null, shape: 'none', role: 'title' },
+      { id: 't2', type: 'text', x: 220, y: 500, w: 1160, h: 120, html: '', size: 36, font: 'inter', color: null, align: 'c', valign: 't', fill: null, stroke: null, shape: 'none', role: 'sub' },
+    ],
+    notes: null, bg: null,
+  }]);
   const res = await env.DB.prepare(
     'INSERT INTO coaching_decks (player_id, folder_id, title, slides, created_by_kind, created_by) VALUES (?, ?, ?, ?, ?, ?)',
   ).bind(place.player_id, place.folder_id, title, slides, actor.kind, actor.userId).run();
@@ -443,7 +510,7 @@ export async function createDeck(env: Env, actor: Actor, body: Body): Promise<nu
 
 export async function updateDeck(env: Env, id: number, body: Body): Promise<void> {
   const db = env.DB;
-  const existing = await db.prepare('SELECT player_id, folder_id, title, slides FROM coaching_decks WHERE id = ?').bind(id).first<Record<string, unknown>>();
+  const existing = await db.prepare('SELECT player_id, folder_id, title, theme, slides FROM coaching_decks WHERE id = ?').bind(id).first<Record<string, unknown>>();
   if (!existing) throw new HttpError(404, 'not_found', 'Prezentace neexistuje.');
   const has = (k: string) => k in body;
   const place = has('folder_id') || has('player_id')
@@ -451,16 +518,11 @@ export async function updateDeck(env: Env, id: number, body: Body): Promise<void
     : { player_id: existing.player_id as number | null, folder_id: existing.folder_id as number | null };
   const title = has('title') ? str(body.title, 'Název', 120) : (existing.title as string);
   if (!title) throw new HttpError(400, 'invalid', 'Zadej název prezentace.');
-  const slides = has('slides') ? await cleanSlides(db, id, body.slides) : (JSON.parse(String(existing.slides)) as Slide[]);
-  const used = slides.map((s) => s.image_id).filter((x): x is number => !!x);
-  await db.batch([
-    db.prepare(`UPDATE coaching_decks SET player_id = ?, folder_id = ?, title = ?, slides = ?, updated_at = datetime('now') WHERE id = ?`)
-      .bind(place.player_id, place.folder_id, title, JSON.stringify(slides), id),
-    // Pictures no slide uses any more are dropped.
-    used.length
-      ? db.prepare(`DELETE FROM coaching_deck_images WHERE deck_id = ? AND id NOT IN (${used.map(() => '?').join(',')})`).bind(id, ...used)
-      : db.prepare('DELETE FROM coaching_deck_images WHERE deck_id = ?').bind(id),
-  ]);
+  const theme = has('theme') ? oneOf(body.theme, DECK_THEMES, 'sc') : (existing.theme as string);
+  const slides = has('slides') ? JSON.stringify(await cleanSlides(db, id, body.slides)) : (existing.slides as string);
+  // Pictures stay stored until the deck is deleted, so undo in the editor can bring a removed one back.
+  await db.prepare(`UPDATE coaching_decks SET player_id = ?, folder_id = ?, title = ?, theme = ?, slides = ?, updated_at = datetime('now') WHERE id = ?`)
+    .bind(place.player_id, place.folder_id, title, theme, slides, id).run();
 }
 
 export async function deleteDeck(env: Env, id: number): Promise<void> {

@@ -445,4 +445,8 @@ CREATE TABLE coaching_deck_images (
 );
 CREATE INDEX idx_coaching_deck_images_deck ON coaching_deck_images(deck_id);
 `,
+
+  /* 14: presentation theme (colours of all slides in a deck) */ `
+ALTER TABLE coaching_decks ADD COLUMN theme TEXT NOT NULL DEFAULT 'sc';
+`,
 ];

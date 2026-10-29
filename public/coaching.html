@@ -711,37 +711,67 @@
       }
       const list = poolOf(pid);
       const inPool = new Set(list.map((e) => e.champion));
-      // Linked to the drafts: champions this player actually played that aren't in the tier list yet.
-      const played = (data.pool_stats?.[pid] || []).filter((st) => !inPool.has(st.champion)).slice(0, 12);
+      // Linked to the drafts: champions this player actually played that aren't in the tier list yet – shown first in the bank.
+      const played = (data.pool_stats?.[pid] || []).filter((st) => !inPool.has(st.champion));
+      const playedSet = new Set(played.map((st) => st.champion));
+      const others = [...champIcons.keys()].filter((n) => !inPool.has(n) && !playedSet.has(n)).sort((a, b) => a.localeCompare(b));
+      const bankChip = (name, st) => `<div class="pc pc-bank ${st ? 'pc-played' : ''}" draggable="true" data-bank-champ="${esc(name)}" data-search="${esc(name.toLowerCase().replace(/[^a-z0-9]/g, ''))}"
+          title="${esc(name)} – přetáhni do tieru, nebo klikni a přidá se do ${esc(TIERS.find(([t]) => t === poolClickTier)[1])}">
+          ${icon(champIcons.get(name), name, 'ri-lg ri-sq')}<span class="pc-name">${esc(name)}</span>${st ? statBadge(st) : ''}</div>`;
       el.innerHTML = `
-        <div class="pool-add">
-          <input id="pool-search" list="pool-champs" placeholder="Přidat championa…" autocomplete="off">
-          <select id="pool-tier">${TIERS.map(([t, label, hint]) => `<option value="${t}" ${t === 'B' ? 'selected' : ''}>${label} – ${hint}</option>`).join('')}</select>
-          <button type="button" class="btn btn-primary" id="pool-add">Přidat</button>
-          <datalist id="pool-champs">${[...champIcons.keys()].filter((n) => !inPool.has(n)).sort((a, b) => a.localeCompare(b)).map((n) => `<option value="${esc(n)}">`).join('')}</datalist>
-        </div>
         <p class="form-error" id="pool-error" style="margin:0 0 8px"></p>
-        <div class="tierlist">
-          ${TIERS.map(([t, label, hint]) => `
-            <div class="tier-row" data-tier="${t}">
-              <div class="tier-label tier-${t}"><b>${label}</b><small>${hint}</small></div>
-              <div class="tier-drop" data-drop-tier="${t}">${list.filter((e) => e.tier === t).map((e) => poolChip(pid, e)).join('') || '<span class="tier-empty">Přetáhni sem championa</span>'}</div>
-            </div>`).join('')}
-        </div>
-        ${played.length ? `
-          <div class="pool-played">
-            <h3>Hraje v draftech, ale není v tier listu</h3>
-            <div class="pool-played-list">${played.map((st) => `<button type="button" class="pc pc-add" data-add-played="${esc(st.champion)}" title="Přidat do tieru B">
-              ${icon(champIcons.get(st.champion), st.champion, 'ri-md ri-sq')}<span class="pc-name">${esc(st.champion)}</span>${statBadge(st)}</button>`).join('')}</div>
-          </div>` : ''}
-        <p class="muted" style="font-size:.82rem;margin-top:12px">Championy přetahuj mezi řádky, kliknutím otevřeš poznámku a změnu tieru. Čísla u championů jsou počet her a winrate z nahraných draftů.</p>`;
+        <div class="pool-layout">
+          <div class="tierlist">
+            ${TIERS.map(([t, label, hint]) => `
+              <div class="tier-row" data-tier="${t}">
+                <div class="tier-label tier-${t}"><b>${label}</b><small>${hint}</small></div>
+                <div class="tier-drop" data-drop-tier="${t}">${list.filter((e) => e.tier === t).map((e) => poolChip(pid, e)).join('') || '<span class="tier-empty">Přetáhni sem championa</span>'}</div>
+              </div>`).join('')}
+            <p class="muted" style="font-size:.82rem;margin:6px 0 0">Championy přetahuj ze seznamu vpravo do tierů a mezi nimi. Zpátky do seznamu je vrátíš přetažením – tím je z poolu odebereš. Kliknutím na championa v tieru otevřeš poznámku. Čísla jsou počet her a winrate z nahraných draftů.</p>
+          </div>
+          <aside class="pool-bank" data-drop-bank>
+            <div class="pool-bank-head">
+              <input id="pool-search" type="search" placeholder="Hledat championa…" autocomplete="off" value="${esc(poolSearch)}">
+              <div class="pool-click-tier" title="Kam se champion přidá kliknutím">
+                <span class="muted">Klik&nbsp;→</span>${TIERS.map(([t, label]) => `<button type="button" class="tier-tag tier-${t} ${t === poolClickTier ? 'on' : ''}" data-click-tier="${t}">${label}</button>`).join('')}
+              </div>
+            </div>
+            <div class="pool-bank-list" id="pool-bank-list">
+              ${played.length ? `<div class="pool-bank-sec">Hraje v draftech</div>${played.map((st) => bankChip(st.champion, st)).join('')}<div class="pool-bank-sec">Všichni championi</div>` : ''}
+              ${others.map((n) => bankChip(n)).join('')}
+              <div class="pool-bank-none muted" hidden>Nic nenalezeno.</div>
+            </div>
+            <div class="pool-bank-hint">Sem přetáhni championa z tieru, pokud ho chceš z poolu odebrat.</div>
+          </aside>
+        </div>`;
+      filterBank();
+    }
+
+    let poolSearch = '';
+    let poolClickTier = 'B';
+    const normSearch = (q) => q.toLowerCase().replace(/[^a-z0-9]/g, '');
+    function filterBank() {
+      const box = document.getElementById('pool-bank-list');
+      if (!box) return;
+      const q = normSearch(poolSearch);
+      let shown = 0;
+      box.querySelectorAll('[data-bank-champ]').forEach((c) => {
+        const hit = !q || c.dataset.search.includes(q);
+        c.hidden = !hit;
+        if (hit) shown++;
+      });
+      box.querySelectorAll('.pool-bank-sec').forEach((x) => { x.hidden = !!q; });
+      box.querySelector('.pool-bank-none').hidden = shown > 0;
     }
 
     async function savePoolList(pid, list) {
       const items = list.map((e) => ({ champion: e.champion, tier: e.tier, note: e.note || null }));
       // Show the change right away; reload from the server only if saving fails.
       data.pool = data.pool.filter((e) => e.player_id !== pid).concat(list.map((e, i) => ({ ...e, player_id: pid, sort: i })));
+      const bankScroll = document.getElementById('pool-bank-list')?.scrollTop || 0;
       render();
+      const bank = document.getElementById('pool-bank-list');
+      if (bank) bank.scrollTop = bankScroll;
       try {
         await api(`/api/coaching/pool/${pid}`, { method: 'PUT', body: { items } });
       } catch (err) {
@@ -762,52 +792,80 @@
     poolTab.addEventListener('click', (e) => {
       const go = e.target.closest('[data-goto-player]');
       if (go) { sel = { player: Number(go.dataset.gotoPlayer), folder: null }; render(); return; }
-      if (e.target.id === 'pool-add') {
-        const q = document.getElementById('pool-search').value;
-        if (q.trim()) addToPool(poolPlayer(), q, document.getElementById('pool-tier').value);
+      const ct = e.target.closest('[data-click-tier]');
+      if (ct) {
+        poolClickTier = ct.dataset.clickTier;
+        poolTab.querySelectorAll('[data-click-tier]').forEach((b) => b.classList.toggle('on', b === ct));
         return;
       }
-      const played = e.target.closest('[data-add-played]');
-      if (played) return addToPool(poolPlayer(), played.dataset.addPlayed, 'B');
+      const bankChamp = e.target.closest('[data-bank-champ]');
+      if (bankChamp) { poolSearch = ''; return addToPool(poolPlayer(), bankChamp.dataset.bankChamp, poolClickTier); }
       const chip = e.target.closest('[data-pool-champ]');
       if (chip) openPoolDialog(Number(chip.dataset.poolPlayer), chip.dataset.poolChamp);
     });
+    poolTab.addEventListener('input', (e) => {
+      if (e.target.id === 'pool-search') { poolSearch = e.target.value; filterBank(); }
+    });
     poolTab.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter' && e.target.id === 'pool-search') { e.preventDefault(); document.getElementById('pool-add').click(); }
+      // Enter adds the first champion that matches the search to the "click" tier.
+      if (e.key !== 'Enter' || e.target.id !== 'pool-search') return;
+      e.preventDefault();
+      const first = [...poolTab.querySelectorAll('[data-bank-champ]')].find((c) => !c.hidden);
+      if (first && poolSearch.trim()) { poolSearch = ''; addToPool(poolPlayer(), first.dataset.bankChamp, poolClickTier); }
     });
 
-    // Drag & drop between tiers (and to reorder inside a tier).
+    // Drag & drop: from the champion bank into a tier, between tiers (and to reorder inside a tier), back to the bank to remove.
     let dragChamp = null;
+    let dragFromBank = false;
+    const clearOver = (keep) => poolTab.querySelectorAll('.over').forEach((x) => x !== keep && x.classList.remove('over'));
     poolTab.addEventListener('dragstart', (e) => {
-      const chip = e.target.closest('[data-pool-champ]');
+      const chip = e.target.closest('[data-pool-champ], [data-bank-champ]');
       if (!chip) return;
-      dragChamp = chip.dataset.poolChamp;
-      e.dataTransfer.effectAllowed = 'move';
+      dragFromBank = chip.dataset.bankChamp !== undefined;
+      dragChamp = dragFromBank ? chip.dataset.bankChamp : chip.dataset.poolChamp;
+      e.dataTransfer.effectAllowed = dragFromBank ? 'copyMove' : 'move';
       e.dataTransfer.setData('text/plain', dragChamp);
       chip.classList.add('dragging');
+      poolTab.classList.add(dragFromBank ? 'drag-from-bank' : 'drag-from-pool');
     });
-    poolTab.addEventListener('dragend', () => { dragChamp = null; poolTab.querySelectorAll('.over').forEach((x) => x.classList.remove('over')); });
+    // The dragged chip is often re-rendered away before dragend fires, so the drop resets the state too.
+    function resetDrag() {
+      dragChamp = null;
+      poolTab.classList.remove('drag-from-bank', 'drag-from-pool');
+      poolTab.querySelectorAll('.dragging').forEach((x) => x.classList.remove('dragging'));
+      clearOver();
+    }
+    poolTab.addEventListener('dragend', resetDrag);
     poolTab.addEventListener('dragover', (e) => {
-      const zone = e.target.closest('[data-drop-tier]');
-      if (!zone || !dragChamp) return;
+      if (!dragChamp) return;
+      const zone = e.target.closest('[data-drop-tier]') || (!dragFromBank && e.target.closest('[data-drop-bank]'));
+      if (!zone) { clearOver(); return; }
       e.preventDefault();
-      poolTab.querySelectorAll('.over').forEach((x) => x !== zone && x.classList.remove('over'));
+      clearOver(zone);
       zone.classList.add('over');
     });
     poolTab.addEventListener('drop', (e) => {
-      const zone = e.target.closest('[data-drop-tier]');
-      if (!zone || !dragChamp) return;
-      e.preventDefault();
+      if (!dragChamp) return;
       const pid = poolPlayer();
-      const tier = zone.dataset.dropTier;
       const list = poolOf(pid);
-      const moving = list.find((x) => x.champion === dragChamp);
-      if (!moving) return;
-      const rest = list.filter((x) => x.champion !== dragChamp);
+      const champ = dragChamp;
+      const fromBank = dragFromBank;
+      resetDrag();
+      if (!fromBank && e.target.closest('[data-drop-bank]')) {
+        e.preventDefault();
+        savePoolList(pid, list.filter((x) => x.champion !== champ));
+        return;
+      }
+      const zone = e.target.closest('[data-drop-tier]');
+      if (!zone) return;
+      e.preventDefault();
+      const tier = zone.dataset.dropTier;
+      const moving = list.find((x) => x.champion === champ) || { champion: champ, tier, note: null };
+      const rest = list.filter((x) => x.champion !== champ);
       // Dropped onto another champion: go in front of it; otherwise to the end of the tier.
       const target = e.target.closest('[data-pool-champ]')?.dataset.poolChamp;
       const updated = { ...moving, tier };
-      let idx = target && target !== dragChamp ? rest.findIndex((x) => x.champion === target) : -1;
+      let idx = target && target !== champ ? rest.findIndex((x) => x.champion === target) : -1;
       if (idx < 0) {
         const lastInTier = rest.map((x) => x.tier).lastIndexOf(tier);
         idx = lastInTier >= 0 ? lastInTier + 1 : rest.length;

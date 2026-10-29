@@ -708,6 +708,7 @@ dialog.ev-dialog { width: min(680px, calc(100vw - 24px)); }
 .ri img { width: 100%; height: 100%; object-fit: cover; }
 .ri-xl { width: 46px; height: 46px; background: #000; }
 .ri-md { width: 30px; height: 30px; }
+.ri-lg { width: 40px; height: 40px; background: #000; }
 .ri-sm { width: 22px; height: 22px; }
 .ri-path { width: 24px; height: 24px; border: 0; background: transparent; }
 .ri-sq { border-radius: 6px; }
@@ -842,9 +843,26 @@ dialog.map-viewer:fullscreen .mv-map .map-box { width: min(100%, calc(100vh - 32
 }
 
 /* --- coaching: champion pool tier list --- */
-.pool-add { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
-.pool-add input { flex: 1; min-width: 180px; }
-.pool-add select { width: auto; }
+.pool-layout { display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 14px; align-items: start; }
+.pool-bank {
+  position: sticky; top: 12px; display: flex; flex-direction: column; max-height: calc(100vh - 40px);
+  background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; transition: border-color 0.1s, background 0.1s;
+}
+.pool-bank-head { display: flex; flex-direction: column; gap: 8px; padding: 10px; border-bottom: 1px solid var(--line); }
+.pool-bank-head input { width: 100%; }
+.pool-click-tier { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; font-size: 0.78rem; }
+.pool-click-tier .tier-tag { border: 2px solid transparent; cursor: pointer; opacity: 0.5; }
+.pool-click-tier .tier-tag.on { opacity: 1; border-color: #fff; }
+.pool-bank-list { display: flex; flex-wrap: wrap; gap: 2px; align-content: flex-start; padding: 8px; overflow-y: auto; flex: 1; min-height: 200px; }
+.pool-bank-sec { flex-basis: 100%; font-size: 0.72rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; font-weight: 600; margin: 4px 2px 2px; }
+.pool-bank-none { flex-basis: 100%; padding: 12px 4px; font-size: 0.85rem; }
+.pc-bank { width: 62px; cursor: grab; }
+.pc-bank .pc-name { max-width: 58px; font-size: 0.66rem; }
+.pc-played { border: 1px dashed var(--line); }
+.pool-bank-hint { display: none; padding: 10px; font-size: 0.82rem; color: var(--gold-2); text-align: center; border-top: 1px dashed var(--gold); }
+.drag-from-pool .pool-bank-hint { display: block; }
+.pool-bank.over { border-color: #ff8f93; background: rgba(255, 143, 147, 0.08); }
+.drag-from-bank .tier-drop { background: rgba(232, 184, 74, 0.04); }
 .tierlist { display: flex; flex-direction: column; gap: 6px; }
 .tier-row { display: grid; grid-template-columns: 96px minmax(0, 1fr); border-radius: 10px; overflow: hidden; border: 1px solid var(--line); background: var(--panel); }
 .tier-label { display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center; padding: 8px; color: #10131c; }
@@ -886,6 +904,10 @@ dialog.map-viewer:fullscreen .mv-map .map-box { width: min(100%, calc(100vh - 32
 .tier-btn small { font-size: 0.68rem; font-weight: 600; }
 .tier-btn.on { opacity: 1; border-color: #fff; }
 .pool-dlg-links { display: flex; flex-direction: column; gap: 6px; margin-top: 14px; font-size: 0.88rem; }
+@media (max-width: 980px) {
+  .pool-layout { grid-template-columns: 1fr; }
+  .pool-bank { position: static; max-height: 420px; }
+}
 @media (max-width: 640px) {
   .tier-row { grid-template-columns: 64px minmax(0, 1fr); }
   .tier-label b { font-size: 1.2rem; }

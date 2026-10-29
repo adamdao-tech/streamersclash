@@ -127,6 +127,9 @@ export function champIcon(icons, name, size = 'md') {
 
 export function vodLink(url, seconds) {
   if (!url) return null;
+  // Kick: the VOD id the app stores (from Kick's API) doesn't open on kick.com any more → the channel's videos
+  const kick = /^https?:\/\/(?:www\.)?kick\.com\/([^/]+)\/videos\//.exec(url);
+  if (kick) return `https://kick.com/${kick[1]}/videos`;
   if (!seconds) return url;
   const s = Math.max(0, seconds - 60); // start a minute before the draft ended
   const t = `${Math.floor(s / 3600)}h${Math.floor((s % 3600) / 60)}m${s % 60}s`;

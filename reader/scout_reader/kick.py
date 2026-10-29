@@ -108,3 +108,18 @@ def variants(master_url: str) -> list[dict]:
 
 def is_kick(url: str | None) -> bool:
     return bool(url) and "kick.com" in url
+
+
+_UUID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", re.I)
+
+
+def source_for(url: str) -> str | None:
+    """HLS playlist of a Kick VOD link (kick.com/<channel>/videos/<uuid>, the uuid the app stores)."""
+    m = _UUID.search(url or "")
+    if not m:
+        return None
+    try:
+        return _get(f"https://kick.com/api/v1/video/{m.group(0)}").json().get("source")
+    except Exception as e:
+        log.warning("Kick VOD %s: %s", m.group(0), e)
+        return None

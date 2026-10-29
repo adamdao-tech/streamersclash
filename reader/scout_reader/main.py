@@ -68,7 +68,17 @@ def cmd_test(args) -> None:
     debug = Path(env("DEBUG_DIR", "/debug")) / f"test_{int(parse_time(args.at))}"
     got = S.read_at(streams, parse_time(args.at), db, debug)
     if not got:
-        print("Champion select not found at this moment (try a few seconds earlier/later).")
+        # show how close it was, so a layout problem (cam over the client…) can be told from a wrong time
+        from .detect import is_screen
+
+        _, rect = is_screen(video.grab_frame(streams.hires_url, parse_time(args.at)), "champselect")
+        print(f"Champion select not found at this moment (best match {rect.score:.2f}, needed "
+              f"{0.74:.2f}). Try a few seconds earlier/later; a low score on a real champ select "
+              "means the stream layout hides the client (e.g. a webcam over it).")
+        debug.mkdir(parents=True, exist_ok=True)
+        import cv2
+
+        cv2.imwrite(str(debug / "frame.jpg"), video.grab_frame(streams.hires_url, parse_time(args.at)))
         return
     reading, crop = got
     print(summary(reading))

@@ -45,7 +45,7 @@
   </main>
 
   <script type="module">
-    import { api, esc, initPage, timeAgo } from '/app.js';
+    import { api, esc, initPage, timeAgo, vodLink } from '/app.js';
 
     await initPage('vods');
 
@@ -86,7 +86,7 @@
               ? `<span style="color:${esc(v.team_color || 'var(--gold)')}">${esc(v.player_nickname)}</span>${v.team_name ? ` · ${esc(v.team_name)}` : ''}`
               : esc(v.channel_label || v.channel_login);
             return `
-            <a class="vod" href="${esc(v.url)}" target="_blank" rel="noopener">
+            <a class="vod" href="${esc(vodLink(v.url))}" target="_blank" rel="noopener">
               <div class="thumb">
                 ${v.thumbnail_url ? `<img src="${esc(v.thumbnail_url)}" alt="" loading="lazy">` : ''}
                 ${isLive ? '<span class="badge badge-live">Live</span>' : `<span class="dur">${duration(v.duration_s)}</span>`}

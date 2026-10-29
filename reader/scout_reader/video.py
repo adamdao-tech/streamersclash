@@ -26,6 +26,11 @@ class Streams:
 
 def resolve(url: str, stream_url: str | None = None, duration: float | None = None, title: str | None = None) -> Streams:
     """Stream URLs for a VOD. Kick VODs come with a direct HLS playlist (stream_url); everything else goes through yt-dlp."""
+    if not stream_url and "kick.com" in url:
+        # manual `test` / `scan` with a Kick link: look up the playlist (yt-dlp can't open Kick reliably)
+        from . import kick
+
+        stream_url = kick.source_for(url)
     if stream_url and ".m3u8" in stream_url:
         from . import kick
 

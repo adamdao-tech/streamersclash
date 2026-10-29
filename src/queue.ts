@@ -171,11 +171,13 @@ export function parseProfile(html: string): { accounts: Account[]; preferred_rol
   return { accounts, preferred_role: pref ? ROLE_ALIASES[pref] ?? null : null };
 }
 
+const pause = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
 type ProfileResult =
   | { ok: true; accounts: Account[]; preferred_role: string | null }
   | { ok: false; error: string; throttled: boolean };
 
-async function fetchProfile(profileUrl: string): Promise<ProfileResult> {
+export async function fetchProfile(profileUrl: string, attempt = 1): Promise<ProfileResult> {
   let res: Response;
   try {
     res = await fetch(profileUrl, { headers: { accept: 'text/html', 'user-agent': UA }, redirect: 'follow' });
@@ -186,15 +188,22 @@ async function fetchProfile(profileUrl: string): Promise<ProfileResult> {
   if (!res.ok) return { ok: false, error: `HTTP ${res.status}`, throttled: res.status === 429 || res.status === 403 || res.status === 503 };
   const html = await res.text();
   const parsed = parseProfile(html);
-  // Links are there but none was read → the page changed, don't pretend the player has no accounts.
-  if (!parsed.accounts.length && /op\.gg\/(?:lol\/)?summoners\//i.test(html)) {
-    return { ok: false, error: 'stránku profilu se nepodařilo přečíst', throttled: false };
+  if (parsed.accounts.length) return { ok: true, ...parsed };
+
+  const title = html.match(/<title[^>]*>([^<]*)<\/title>/i)?.[1] ?? '';
+  if (/nenalezena/i.test(title)) return { ok: true, accounts: [], preferred_role: null };
+  // The "Účty" section (or op.gg links) is there but no account was read: under load their site sometimes
+  // renders the profile with the accounts still missing. Try once more, then leave it for the next run.
+  if (/ÚČTY|>\s*Účty\s*</.test(html) || /op\.gg\/(?:lol\/)?summoners\//i.test(html)) {
+    if (attempt < 2) {
+      await pause(1500);
+      return fetchProfile(profileUrl, attempt + 1);
+    }
+    return { ok: false, error: 'účty se na profilu nenačetly', throttled: false };
   }
-  if (!parsed.accounts.length && !/[ÚU]čty|ÚČTY|Preferovan/i.test(html)) {
-    // no profile content at all – most likely a bot-check / error page instead of the profile
-    return { ok: false, error: 'místo profilu přišla jiná stránka', throttled: true };
-  }
-  return { ok: true, ...parsed };
+  // A real profile page with no "Účty" section = the player has no linked accounts.
+  if (/·\s*Streamers Clash/i.test(title)) return { ok: true, ...parsed };
+  return { ok: false, error: 'místo profilu přišla jiná stránka', throttled: true };
 }
 
 async function saveProfile(db: D1Database, playerKey: string, data: ProfileResult): Promise<void> {
@@ -212,7 +221,6 @@ async function saveProfile(db: D1Database, playerKey: string, data: ProfileResul
     .run();
 }
 
-const pause = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 /**
  * Reads the next batch of profiles (never read, failed earlier, or older than a day). Gentle on their site:

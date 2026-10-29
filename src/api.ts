@@ -6,7 +6,7 @@ import { listDrafts, playerGames, relinkDraftPlayers, summarizeGames } from './d
 import { getChampionData } from './champions';
 import { listSchedule, opponentLabel, requireOpponent, scheduleFields } from './schedule';
 import {
-  createFolder, createShot, deleteFolder, deleteMap, deleteNote, deleteRunePage, deleteShot, getMapImage, getShotImage, loadCoaching,
+  addDeckImage, createDeck, createFolder, createShot, deleteDeck, getDeckImage, updateDeck, deleteFolder, deleteMap, deleteNote, deleteRunePage, deleteShot, getMapImage, getShotImage, loadCoaching,
   mapVersion, renameFolder, resetMapImage, saveMap, saveNote, savePool, saveRunePage, setMapImage, updateShot,
 } from './coaching';
 import { getRuneData } from './runes';
@@ -377,6 +377,21 @@ async function route(req: Request, env: Env, url: URL, user: User): Promise<Resp
   if ((m = path.match(/^\/api\/coaching\/shots\/(\d+)$/))) {
     if (method === 'PUT') return (await updateShot(env, Number(m[1]), await readBody(req)), json({ ok: true }));
     if (method === 'DELETE') return (await deleteShot(env, Number(m[1])), json({ ok: true }));
+  }
+  if (path === '/api/coaching/decks' && method === 'POST') {
+    return json({ id: await createDeck(env, actor, await readBody(req)) }, 201);
+  }
+  if ((m = path.match(/^\/api\/coaching\/decks\/(\d+)\/images$/)) && method === 'POST') {
+    return json({ id: await addDeckImage(env, Number(m[1]), await readBody(req)) }, 201);
+  }
+  if ((m = path.match(/^\/api\/coaching\/decks\/(\d+)$/))) {
+    if (method === 'PUT') return (await updateDeck(env, Number(m[1]), await readBody(req)), json({ ok: true }));
+    if (method === 'DELETE') return (await deleteDeck(env, Number(m[1])), json({ ok: true }));
+  }
+  if ((m = path.match(/^\/api\/coaching\/deck-images\/(\d+)$/)) && method === 'GET') {
+    const img = await getDeckImage(env, Number(m[1]));
+    if (!img) throw new HttpError(404, 'not_found', 'Obrázek neexistuje.');
+    return new Response(img.data, { headers: { 'Content-Type': img.mime, 'Cache-Control': 'private, max-age=31536000, immutable' } });
   }
   if (path === '/api/coaching/maps' && method === 'POST') {
     return json({ id: await saveMap(env, actor, await readBody(req)) }, 201);

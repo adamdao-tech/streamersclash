@@ -971,3 +971,83 @@ dialog.map-viewer:fullscreen .mv-map .map-box { width: min(100%, calc(100vh - 32
 .gmini .champ-row { width: 28px; height: 28px; border-radius: 5px; }
 .gbox > h2 .gseg button { min-height: 28px; padding: 0 10px; font-size: 0.78rem; }
 #champs, #pool { min-width: 760px; }
+
+/* --- coaching: presentations --- */
+/* A slide scales with its own width (container units), so the same markup works as a thumbnail, preview and full screen. */
+.slide { container-type: inline-size; position: relative; width: 100%; aspect-ratio: 16 / 9; overflow: hidden; border-radius: inherit; }
+.sl-in {
+  position: absolute; inset: 0; display: flex; flex-direction: column; gap: 2.2cqw; padding: 4.5cqw 5.5cqw 5cqw;
+  background: radial-gradient(120% 90% at 0% 0%, #1b2744 0%, #0d1424 55%, #0a0f1c 100%); color: var(--text);
+}
+.sl-in::before { content: ''; position: absolute; left: 5.5cqw; top: 0; width: 7cqw; height: 0.55cqw; background: var(--gold); }
+.slide h1 { margin: 0; font: 700 4.6cqw/1.05 var(--display); color: #fff; overflow-wrap: anywhere; }
+.slide h1.muted { color: var(--muted); }
+.sl-main { flex: 1; min-height: 0; display: flex; gap: 3.5cqw; }
+.sl-text { flex: 1; min-width: 0; font-size: 2.15cqw; line-height: 1.45; color: var(--text-2); overflow: hidden; overflow-wrap: anywhere; }
+.sl-text p { margin: 0 0 1.2cqw; }
+.sl-text b { color: var(--gold-2); font-weight: 700; }
+.sl-text ul { margin: 0 0 1.2cqw; padding-left: 2.6cqw; }
+.sl-text ul ul { margin: 0.4cqw 0 0; font-size: 0.88em; color: var(--muted); }
+.sl-text li { margin-bottom: 0.7cqw; }
+.sl-text li::marker { color: var(--gold); }
+.sl-img { flex: 1; min-width: 0; min-height: 0; display: flex; align-items: center; justify-content: center; }
+.sl-img img { max-width: 100%; max-height: 100%; object-fit: contain; border-radius: 1cqw; box-shadow: 0 1.5cqw 4cqw rgba(0, 0, 0, 0.45); }
+.lay-split .sl-text { flex: 0 0 40%; }
+.lay-image .sl-main { justify-content: center; }
+.lay-cover { justify-content: center; }
+.lay-cover h1 { font-size: 7cqw; }
+.lay-cover .sl-main { flex: 0; }
+.lay-text .sl-text { font-size: 2.5cqw; }
+.sl-brand { position: absolute; right: 3cqw; bottom: 2cqw; font: 700 1.3cqw var(--display); letter-spacing: 0.08em; text-transform: uppercase; color: rgba(232, 184, 74, 0.45); }
+
+.deck-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 14px; }
+.deck-card { position: relative; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; cursor: pointer; transition: border-color 0.12s, transform 0.12s; }
+.deck-card:hover { border-color: var(--line-2); transform: translateY(-1px); }
+.deck-thumb { border-bottom: 1px solid var(--line); pointer-events: none; }
+.deck-info { display: flex; flex-direction: column; gap: 4px; padding: 10px 12px; }
+.deck-info b { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.deck-play { position: absolute; top: 8px; right: 8px; }
+
+dialog.deck-editor { width: calc(100vw - 24px); max-width: none; height: calc(100vh - 24px); max-height: none; padding: 0; display: none; flex-direction: column; overflow: hidden; }
+dialog.deck-editor[open] { display: flex; }
+.de-head { display: flex; align-items: center; gap: 10px; padding: 12px 14px; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+.de-head #de-title { flex: 0 1 380px; font: 700 1.15rem var(--display); }
+.de-head select { width: auto; }
+.de-status { font-size: 0.82rem; min-width: 90px; }
+.de-body { flex: 1; min-height: 0; display: grid; grid-template-columns: 190px minmax(0, 1fr) 320px; }
+.de-slides { border-right: 1px solid var(--line); overflow-y: auto; padding: 10px; display: flex; flex-direction: column; gap: 10px; }
+.de-slides ol { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.de-slides li { display: flex; gap: 6px; align-items: flex-start; cursor: pointer; border-radius: 8px; padding: 3px; border: 2px solid transparent; }
+.de-slides li.on { border-color: var(--gold); }
+.de-slides li.over { border-color: var(--gold-2); border-style: dashed; }
+.de-slides li.dragging { opacity: 0.4; }
+.de-num { font-size: 0.75rem; color: var(--muted); width: 14px; text-align: right; padding-top: 2px; flex: none; }
+.de-mini { flex: 1; min-width: 0; border-radius: 4px; overflow: hidden; pointer-events: none; }
+.de-stage { display: flex; align-items: center; justify-content: center; padding: 20px; background: var(--bg); min-width: 0; overflow: auto; }
+.de-preview { width: 100%; max-width: calc((100vh - 140px) * 16 / 9); border-radius: 10px; overflow: hidden; box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5); }
+.de-form { border-left: 1px solid var(--line); padding: 14px; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; }
+.de-form label { margin-top: 6px; }
+.de-form textarea { min-height: 220px; font-size: 0.92rem; }
+.de-drop { min-height: 110px; }
+.de-drop img { max-height: 160px; }
+.de-slide-actions { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
+@media (max-width: 980px) {
+  .de-body { grid-template-columns: 1fr; grid-template-rows: auto auto auto; overflow-y: auto; }
+  .de-slides { border-right: 0; border-bottom: 1px solid var(--line); }
+  .de-slides ol { flex-direction: row; overflow-x: auto; }
+  .de-slides li { width: 140px; flex: none; }
+  .de-form { border-left: 0; }
+}
+
+.presenter { position: fixed; inset: 0; z-index: 1000; background: #000; display: flex; align-items: center; justify-content: center; outline: none; }
+.presenter[hidden] { display: none; }
+.pr-stage { width: min(100vw, calc(100vh * 16 / 9)); cursor: pointer; }
+.pr-bar {
+  position: absolute; bottom: 14px; left: 50%; transform: translateX(-50%); display: flex; align-items: center; gap: 6px;
+  background: rgba(10, 15, 28, 0.75); border: 1px solid var(--line-2); border-radius: 999px; padding: 4px 8px;
+  opacity: 0; transition: opacity 0.2s;
+}
+.presenter:hover .pr-bar, .pr-bar:focus-within { opacity: 1; }
+.pr-bar button { background: none; border: 0; color: var(--text); font-size: 1.2rem; width: 34px; height: 34px; border-radius: 50%; cursor: pointer; }
+.pr-bar button:hover { background: var(--panel-3); }
+.pr-bar span { font-size: 0.85rem; color: var(--text-2); min-width: 52px; text-align: center; font-variant-numeric: tabular-nums; }

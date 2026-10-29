@@ -419,4 +419,30 @@ DROP TABLE schedule;
 ALTER TABLE schedule_new RENAME TO schedule;
 CREATE INDEX idx_schedule_starts ON schedule(starts_at);
 `,
+
+  /* 13: presentations (slide decks) in coaching; slides are JSON, their pictures are stored separately */ `
+CREATE TABLE coaching_decks (
+  id              INTEGER PRIMARY KEY AUTOINCREMENT,
+  player_id       INTEGER REFERENCES players(id) ON DELETE CASCADE,
+  folder_id       INTEGER REFERENCES coaching_folders(id) ON DELETE CASCADE,
+  title           TEXT NOT NULL,
+  slides          TEXT NOT NULL DEFAULT '[]',
+  created_by_kind TEXT NOT NULL DEFAULT 'user' CHECK (created_by_kind IN ('user', 'claude')),
+  created_by      INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at      TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX idx_coaching_decks_player ON coaching_decks(player_id);
+CREATE INDEX idx_coaching_decks_folder ON coaching_decks(folder_id);
+
+CREATE TABLE coaching_deck_images (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  deck_id    INTEGER NOT NULL REFERENCES coaching_decks(id) ON DELETE CASCADE,
+  mime       TEXT NOT NULL,
+  size       INTEGER,
+  data       BLOB NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX idx_coaching_deck_images_deck ON coaching_deck_images(deck_id);
+`,
 ];

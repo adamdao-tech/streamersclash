@@ -14,7 +14,7 @@
     <div class="page-head">
       <div>
         <h1>Koučing</h1>
-        <p>Runy, zápisky, mapy, screenshoty a champion pooly pro celý tým i pro každého hráče, rozdělené do složek podle tebe.</p>
+        <p>Runy, zápisky, mapy, screenshoty, champion pooly a prezentace pro celý tým i pro každého hráče, rozdělené do složek podle tebe.</p>
       </div>
     </div>
 
@@ -33,6 +33,7 @@
           <button data-tab="maps">Mapy <span class="count" id="count-maps"></span></button>
           <button data-tab="shots">Screenshoty <span class="count" id="count-shots"></span></button>
           <button data-tab="pool">Champion pool <span class="count" id="count-pool"></span></button>
+          <button data-tab="decks">Prezentace <span class="count" id="count-decks"></span></button>
         </div>
 
         <div id="tab-runes">
@@ -55,6 +56,14 @@
           <div id="maps" class="rp-grid"></div>
         </div>
         <div id="tab-pool" hidden></div>
+        <div id="tab-decks" hidden>
+          <div class="tab-bar">
+            <span class="muted">Slidy s textem a obrázky. Přehráváš přes celou obrazovku, šipkami přepínáš.</span>
+            <span class="spacer"></span>
+            <button class="btn btn-primary" id="add-deck">+ Prezentace</button>
+          </div>
+          <div id="decks" class="deck-grid"></div>
+        </div>
         <div id="tab-shots" hidden>
           <div class="tab-bar">
             <span class="muted">Tip: screenshot zkopíruj a tady zmáčkni <b>Ctrl+V</b>, nebo ho sem přetáhni.</span>
@@ -204,6 +213,67 @@
     </aside>
   </dialog>
 
+  <dialog id="deck-new-dialog">
+    <form>
+      <h2>Nová prezentace</h2>
+      <div class="form-grid">
+        <div class="full"><label>Název *</label><input name="title" required maxlength="120" placeholder="např. Rozbor soupeře – Team X"></div>
+        <div class="full"><label>Složka</label><select name="folder_id"></select></div>
+      </div>
+      <p class="form-error"></p>
+      <div class="dialog-actions">
+        <button type="button" class="btn" data-cancel>Zrušit</button>
+        <button type="submit" class="btn btn-primary">Vytvořit</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="deck-editor" class="deck-editor">
+    <div class="de-head">
+      <input id="de-title" maxlength="120" aria-label="Název prezentace">
+      <select id="de-folder" aria-label="Složka"></select>
+      <span class="de-status muted" id="de-status"></span>
+      <span class="spacer"></span>
+      <button type="button" class="btn btn-danger btn-small" id="de-delete">Smazat</button>
+      <button type="button" class="btn btn-small" id="de-close">Zavřít ✕</button>
+      <button type="button" class="btn btn-primary" id="de-play">▶ Přehrát</button>
+    </div>
+    <div class="de-body">
+      <aside class="de-slides">
+        <ol id="de-list"></ol>
+        <button type="button" class="btn btn-small" id="de-add">+ Slide</button>
+      </aside>
+      <div class="de-stage"><div class="de-preview" id="de-preview"></div></div>
+      <aside class="de-form" id="de-form">
+        <label>Nadpis</label>
+        <input id="ds-title" maxlength="160" placeholder="Nadpis slidu">
+        <label>Text</label>
+        <textarea id="ds-body" maxlength="4000" placeholder="Řádek začínající pomlčkou je odrážka:&#10;- první bod&#10;- druhý bod&#10;  - podbod (odsazený)&#10;&#10;**tučně** pro zvýraznění"></textarea>
+        <label>Obrázek</label>
+        <div class="drop de-drop" id="ds-drop" tabindex="0">
+          <img id="ds-img" alt="" hidden>
+          <div id="ds-drop-hint">Vlož <b>Ctrl+V</b>, přetáhni sem, nebo <label class="link-like">vyber soubor<input type="file" id="ds-file" accept="image/*" hidden></label>.</div>
+        </div>
+        <button type="button" class="btn btn-small" id="ds-img-remove" hidden>Odebrat obrázek</button>
+        <div class="de-slide-actions">
+          <button type="button" class="btn btn-small" id="ds-dup">Duplikovat slide</button>
+          <button type="button" class="btn btn-small btn-danger" id="ds-del">Smazat slide</button>
+        </div>
+        <p class="form-error" id="de-error"></p>
+      </aside>
+    </div>
+  </dialog>
+
+  <div class="presenter" id="presenter" hidden tabindex="-1">
+    <div class="pr-stage" id="pr-stage"></div>
+    <div class="pr-bar">
+      <button type="button" id="pr-prev" aria-label="Předchozí">‹</button>
+      <span id="pr-count"></span>
+      <button type="button" id="pr-next" aria-label="Další">›</button>
+      <button type="button" id="pr-exit" aria-label="Ukončit">✕</button>
+    </div>
+  </div>
+
   <dialog id="shot-viewer" class="viewer">
     <div class="viewer-head">
       <b id="viewer-title"></b>
@@ -232,7 +302,7 @@
     const champIcons = await loadChampions();
     // Selected place: player = 'team' or a player id; folder = folder id or null.
     let sel = JSON.parse(store.get('coach.sel') || 'null') || { player: 'team', folder: null };
-    let tab = ['notes', 'maps', 'shots', 'pool'].includes(store.get('coach.tab')) ? store.get('coach.tab') : 'runes';
+    let tab = ['notes', 'maps', 'shots', 'pool', 'decks'].includes(store.get('coach.tab')) ? store.get('coach.tab') : 'runes';
 
     // Broken icons (e.g. a renamed rune) turn into their short label instead of an empty circle.
     document.addEventListener('error', (e) => {
@@ -275,7 +345,7 @@
 
     // --- tree --------------------------------------------------------------------
     function renderTree() {
-      const count = (pid, fid) => data.runes.concat(data.notes, data.maps, data.shots).filter((x) => (fid ? x.folder_id === fid : (x.player_id ?? null) === pid)).length;
+      const count = (pid, fid) => data.runes.concat(data.notes, data.maps, data.shots, data.decks || []).filter((x) => (fid ? x.folder_id === fid : (x.player_id ?? null) === pid)).length;
       const group = (key, label, lead, pid) => {
         const folders = data.folders.filter((f) => (f.player_id ?? null) === pid);
         const active = sel.player === key;
@@ -915,6 +985,365 @@
       savePoolList(pid, poolOf(pid).filter((e) => e.champion !== champion));
     });
 
+
+    // --- presentations (slide decks) ----------------------------------------------------------
+    const deckImg = (id) => `/api/coaching/deck-images/${id}`;
+    /** Text of a slide → HTML: "- " lines are bullets (indent = sub-bullet), blank line = new paragraph, **bold**. */
+    function slideText(body) {
+      const inline = (t) => esc(t).replace(/\*\*(.+?)\*\*/g, '<b>$1</b>');
+      const out = [];
+      let para = [];
+      let list = null; // [{ depth, text }]
+      const flushPara = () => { if (para.length) out.push(`<p>${para.map(inline).join('<br>')}</p>`); para = []; };
+      const flushList = () => {
+        if (!list) return;
+        let html = '', depth = -1;
+        for (const it of list) {
+          const d = Math.min(it.depth, depth + 1); // a sub-bullet can only go one level deeper
+          if (d > depth) { html += '<ul>'; depth = d; }
+          else { html += '</li>'; while (depth > d) { html += '</ul></li>'; depth--; } }
+          html += `<li>${inline(it.text)}`;
+        }
+        html += '</li>';
+        while (depth > 0) { html += '</ul></li>'; depth--; }
+        out.push(html + '</ul>');
+        list = null;
+      };
+      for (const raw of String(body || '').split('\n')) {
+        const m = raw.match(/^(\s*)[-•*]\s+(.*)$/);
+        if (m) {
+          flushPara();
+          list ??= [];
+          list.push({ depth: Math.min(2, Math.floor(m[1].replace(/\t/g, '  ').length / 2)), text: m[2] });
+        } else if (!raw.trim()) {
+          flushPara(); flushList();
+        } else {
+          flushList();
+          para.push(raw.trim());
+        }
+      }
+      flushPara(); flushList();
+      return out.join('');
+    }
+    function slideHtml(sl, deckTitle) {
+      const hasText = !!(sl.body && sl.body.trim());
+      const layout = sl.image_id ? (hasText ? 'split' : 'image') : (hasText ? 'text' : 'cover');
+      const title = sl.title ? `<h1>${esc(sl.title)}</h1>` : '';
+      const text = hasText ? `<div class="sl-text">${slideText(sl.body)}</div>` : '';
+      const img = sl.image_id ? `<div class="sl-img"><img src="${deckImg(sl.image_id)}" alt=""></div>` : '';
+      const cover = layout === 'cover' && !sl.title ? `<h1 class="muted">${esc(deckTitle || '')}</h1>` : '';
+      // .slide is the size container; container units only work on its children, so everything lives in .sl-in.
+      return `<div class="slide"><div class="sl-in lay-${layout}">${title}${cover}<div class="sl-main">${text}${img}</div><span class="sl-brand">SGooBovo šedl</span></div></div>`;
+    }
+
+    function renderDecks(decks) {
+      document.getElementById('decks').innerHTML = decks.length
+        ? decks.map((d) => {
+          const folder = !sel.folder && d.folder_id ? folderOf(d.folder_id) : null;
+          const n = d.slides.length;
+          return `<div class="deck-card" data-open-deck="${d.id}">
+            <div class="deck-thumb">${d.slides[0] ? slideHtml(d.slides[0], d.title) : ''}</div>
+            <div class="deck-info">
+              <b>${esc(d.title)}</b>
+              <span class="shot-meta">${folder ? `<span class="chip">📁 ${esc(folder.name)}</span>` : ''}<span class="muted">${n} ${n === 1 ? 'slide' : n <= 4 ? 'slidy' : 'slidů'} · ${timeAgo(d.updated_at)}</span></span>
+            </div>
+            <button type="button" class="btn btn-primary btn-small deck-play" data-play-deck="${d.id}" title="Přehrát">▶</button>
+          </div>`;
+        }).join('')
+        : '<div class="empty" style="grid-column:1/-1">Zatím žádné prezentace. Vytvoř první a naplň ji slidy.</div>';
+    }
+
+    // New deck
+    const deckNewEl = document.getElementById('deck-new-dialog');
+    const deckNew = formDialog(deckNewEl, {
+      async onSubmit(v) {
+        const folder_id = v.folder_id ? Number(v.folder_id) : null;
+        const { id } = await api('/api/coaching/decks', { method: 'POST', body: { title: v.title, folder_id, player_id: playerId() } });
+        await load();
+        openDeck(data.decks.find((d) => d.id === id));
+      },
+    });
+    document.getElementById('add-deck').addEventListener('click', () => {
+      folderOptions(deckNewEl.querySelector('[name=folder_id]'), playerId());
+      deckNew.open({ folder_id: sel.folder ?? '' });
+    });
+
+    // Editor
+    const deckEd = document.getElementById('deck-editor');
+    let deck = null; // working copy: { id, title, folder_id, player_id, slides }
+    let cur = 0;
+    let saveTimer = null;
+    let saving = Promise.resolve();
+    const status = (t) => { document.getElementById('de-status').textContent = t; };
+    const deErr = (t) => { document.getElementById('de-error').textContent = t || ''; };
+
+    function openDeck(d) {
+      if (!d) return;
+      deck = { id: d.id, title: d.title, folder_id: d.folder_id ?? null, player_id: d.player_id ?? null, slides: d.slides.map((x) => ({ ...x })) };
+      if (!deck.slides.length) deck.slides.push({ title: d.title, body: null, image_id: null });
+      cur = 0;
+      document.getElementById('de-title').value = deck.title;
+      const fs = document.getElementById('de-folder');
+      folderOptions(fs, deck.player_id);
+      fs.value = deck.folder_id ?? '';
+      status(''); deErr('');
+      renderEditor();
+      deckEd.showModal();
+    }
+    function renderList() {
+      document.getElementById('de-list').innerHTML = deck.slides.map((sl, i) =>
+        `<li class="${i === cur ? 'on' : ''}" draggable="true" data-slide="${i}"><span class="de-num">${i + 1}</span><div class="de-mini">${slideHtml(sl, deck.title)}</div></li>`).join('');
+    }
+    function renderPreview() {
+      document.getElementById('de-preview').innerHTML = slideHtml(deck.slides[cur], deck.title);
+      const mini = document.querySelector(`#de-list [data-slide="${cur}"] .de-mini`);
+      if (mini) mini.innerHTML = slideHtml(deck.slides[cur], deck.title);
+    }
+    function renderForm() {
+      const sl = deck.slides[cur];
+      document.getElementById('ds-title').value = sl.title || '';
+      document.getElementById('ds-body').value = sl.body || '';
+      const img = document.getElementById('ds-img');
+      img.hidden = !sl.image_id;
+      img.src = sl.image_id ? deckImg(sl.image_id) : '';
+      document.getElementById('ds-drop-hint').hidden = !!sl.image_id;
+      document.getElementById('ds-img-remove').hidden = !sl.image_id;
+      document.getElementById('ds-del').disabled = deck.slides.length < 2;
+    }
+    function renderEditor() { renderList(); renderPreview(); renderForm(); }
+
+    function scheduleSave(delay = 700) {
+      status('Neuloženo…');
+      clearTimeout(saveTimer);
+      saveTimer = setTimeout(saveDeck, delay);
+    }
+    function saveDeck() {
+      clearTimeout(saveTimer);
+      saveTimer = null;
+      const body = {
+        title: deck.title.trim() || 'Bez názvu',
+        folder_id: deck.folder_id, player_id: deck.player_id,
+        slides: deck.slides.map((x) => ({ title: x.title || null, body: x.body || null, image_id: x.image_id || null })),
+      };
+      const id = deck.id;
+      saving = saving.then(async () => {
+        status('Ukládám…');
+        try {
+          await api(`/api/coaching/decks/${id}`, { method: 'PUT', body });
+          const d = data.decks.find((x) => x.id === id);
+          if (d) Object.assign(d, { title: body.title, folder_id: body.folder_id, slides: body.slides, updated_at: new Date().toISOString().slice(0, 19).replace('T', ' ') });
+          status('✓ Uloženo'); deErr('');
+        } catch (err) {
+          status(''); deErr(err.message);
+        }
+      });
+      return saving;
+    }
+
+    document.getElementById('de-title').addEventListener('input', (e) => { deck.title = e.target.value; renderPreview(); scheduleSave(); });
+    document.getElementById('de-folder').addEventListener('change', (e) => { deck.folder_id = e.target.value ? Number(e.target.value) : null; scheduleSave(0); });
+    document.getElementById('ds-title').addEventListener('input', (e) => { deck.slides[cur].title = e.target.value; renderPreview(); scheduleSave(); });
+    document.getElementById('ds-body').addEventListener('input', (e) => { deck.slides[cur].body = e.target.value; renderPreview(); scheduleSave(); });
+    document.getElementById('ds-body').addEventListener('keydown', (e) => {
+      // Enter inside a bullet starts the next bullet; Tab / Shift+Tab indents it.
+      const ta = e.target;
+      const start = ta.value.lastIndexOf('\n', ta.selectionStart - 1) + 1;
+      const line = ta.value.slice(start, ta.selectionStart);
+      const m = line.match(/^(\s*)([-•*])\s+(.*)$/);
+      if (e.key === 'Enter' && m && !e.shiftKey) {
+        e.preventDefault();
+        if (!m[3].trim()) ta.setRangeText('', start, ta.selectionStart, 'end'); // empty bullet ends the list
+        else ta.setRangeText(`\n${m[1]}${m[2]} `, ta.selectionStart, ta.selectionEnd, 'end');
+      } else if (e.key === 'Tab' && m) {
+        e.preventDefault();
+        // Indent / outdent the line but keep the caret where it was in the text.
+        const pos = ta.selectionStart;
+        if (e.shiftKey) {
+          if (m[1].length < 2) return;
+          ta.setRangeText('', start, start + 2, 'preserve');
+          ta.setSelectionRange(pos - 2, pos - 2);
+        } else {
+          if (m[1].length >= 4) return;
+          ta.setRangeText('  ', start, start, 'preserve');
+          ta.setSelectionRange(pos + 2, pos + 2);
+        }
+      } else return;
+      ta.dispatchEvent(new Event('input'));
+    });
+
+    document.getElementById('de-add').addEventListener('click', () => {
+      deck.slides.splice(cur + 1, 0, { title: '', body: '', image_id: null });
+      cur++;
+      renderEditor();
+      scheduleSave(0);
+      document.getElementById('ds-title').focus();
+    });
+    document.getElementById('ds-dup').addEventListener('click', () => {
+      deck.slides.splice(cur + 1, 0, { ...deck.slides[cur] });
+      cur++;
+      renderEditor();
+      scheduleSave(0);
+    });
+    document.getElementById('ds-del').addEventListener('click', () => {
+      if (deck.slides.length < 2) return;
+      deck.slides.splice(cur, 1);
+      cur = Math.min(cur, deck.slides.length - 1);
+      renderEditor();
+      scheduleSave(0);
+    });
+    document.getElementById('ds-img-remove').addEventListener('click', () => {
+      deck.slides[cur].image_id = null;
+      renderPreview(); renderForm();
+      scheduleSave(0);
+    });
+
+    async function takeSlideImage(file) {
+      if (!file || !file.type.startsWith('image/')) return;
+      const slide = deck.slides[cur];
+      deErr('');
+      status('Nahrávám obrázek…');
+      try {
+        const { blob } = await shrinkImage(file, { maxSide: 2560 });
+        const { id } = await api(`/api/coaching/decks/${deck.id}/images`, { method: 'POST', body: { mime: blob.type, data: await blobToBase64(blob) } });
+        slide.image_id = id;
+        renderPreview(); renderForm();
+        await saveDeck();
+      } catch (err) {
+        status(''); deErr(err.message);
+      }
+    }
+    document.getElementById('ds-file').addEventListener('change', (e) => { takeSlideImage(e.target.files[0]); e.target.value = ''; });
+    const dsDrop = document.getElementById('ds-drop');
+    dsDrop.addEventListener('dragover', (e) => { if ([...e.dataTransfer.types].includes('Files')) { e.preventDefault(); dsDrop.classList.add('over'); } });
+    dsDrop.addEventListener('dragleave', () => dsDrop.classList.remove('over'));
+    dsDrop.addEventListener('drop', (e) => { e.preventDefault(); dsDrop.classList.remove('over'); takeSlideImage([...e.dataTransfer.files].find((f) => f.type.startsWith('image/'))); });
+    // Dropping a picture onto the big preview works too.
+    const dePreview = document.getElementById('de-preview');
+    dePreview.addEventListener('dragover', (e) => { if ([...e.dataTransfer.types].includes('Files')) e.preventDefault(); });
+    dePreview.addEventListener('drop', (e) => { const f = [...e.dataTransfer.files].find((x) => x.type.startsWith('image/')); if (f) { e.preventDefault(); takeSlideImage(f); } });
+    document.addEventListener('paste', (e) => {
+      if (!deckEd.open) return;
+      const file = [...(e.clipboardData?.items || [])].find((it) => it.kind === 'file' && it.type.startsWith('image/'))?.getAsFile();
+      if (file) { e.preventDefault(); takeSlideImage(file); }
+    });
+
+    // Slide list: click selects, drag reorders.
+    const deList = document.getElementById('de-list');
+    let dragSlide = null;
+    deList.addEventListener('click', (e) => {
+      const li = e.target.closest('[data-slide]');
+      if (!li) return;
+      cur = Number(li.dataset.slide);
+      renderEditor();
+    });
+    deList.addEventListener('dragstart', (e) => {
+      const li = e.target.closest('[data-slide]');
+      if (!li) return;
+      dragSlide = Number(li.dataset.slide);
+      e.dataTransfer.effectAllowed = 'move';
+      e.dataTransfer.setData('text/plain', String(dragSlide));
+      li.classList.add('dragging');
+    });
+    deList.addEventListener('dragover', (e) => {
+      if (dragSlide === null) return;
+      const li = e.target.closest('[data-slide]');
+      if (!li) return;
+      e.preventDefault();
+      deList.querySelectorAll('.over').forEach((x) => x !== li && x.classList.remove('over'));
+      li.classList.add('over');
+    });
+    deList.addEventListener('drop', (e) => {
+      const li = e.target.closest('[data-slide]');
+      if (dragSlide === null || !li) return;
+      e.preventDefault();
+      const to = Number(li.dataset.slide);
+      const from = dragSlide;
+      dragSlide = null;
+      if (to === from) { renderList(); return; }
+      const curSlide = deck.slides[cur];
+      const [moved] = deck.slides.splice(from, 1);
+      deck.slides.splice(to, 0, moved);
+      cur = deck.slides.indexOf(curSlide);
+      renderEditor();
+      scheduleSave(0);
+    });
+    deList.addEventListener('dragend', () => { dragSlide = null; deList.querySelectorAll('.over, .dragging').forEach((x) => x.classList.remove('over', 'dragging')); });
+
+    async function closeDeck() {
+      if (saveTimer) saveDeck();
+      await saving;
+      deckEd.close();
+    }
+    document.getElementById('de-close').addEventListener('click', closeDeck);
+    deckEd.addEventListener('cancel', (e) => { e.preventDefault(); if (!document.getElementById('presenter').hidden) return; closeDeck(); });
+    deckEd.addEventListener('close', () => render());
+    document.getElementById('de-delete').addEventListener('click', async () => {
+      if (!confirm(`Smazat prezentaci „${deck.title}“?`)) return;
+      clearTimeout(saveTimer); saveTimer = null;
+      await saving;
+      await api(`/api/coaching/decks/${deck.id}`, { method: 'DELETE' });
+      deckEd.close();
+      await load();
+    });
+    document.getElementById('de-play').addEventListener('click', async () => {
+      if (saveTimer) saveDeck();
+      present(deck.slides, deck.title, cur);
+    });
+
+    // Presenter: full screen, arrows / space / click to move, Esc to leave.
+    const presenter = document.getElementById('presenter');
+    let show = null; // { slides, title, i }
+    function present(slides, title, start = 0) {
+      if (!slides.length) return;
+      show = { slides, title, i: Math.max(0, Math.min(start, slides.length - 1)) };
+      // Warm the image cache so switching slides doesn't flash.
+      slides.forEach((s) => { if (s.image_id) new Image().src = deckImg(s.image_id); });
+      presenter.hidden = false;
+      // Inside an open <dialog> the presenter has to live in the top layer too.
+      if (deckEd.open) deckEd.appendChild(presenter); else document.body.appendChild(presenter);
+      showSlide();
+      presenter.focus();
+      presenter.requestFullscreen?.().catch(() => {});
+    }
+    function showSlide() {
+      document.getElementById('pr-stage').innerHTML = slideHtml(show.slides[show.i], show.title);
+      document.getElementById('pr-count').textContent = `${show.i + 1} / ${show.slides.length}`;
+    }
+    const step = (d) => {
+      if (!show) return;
+      const i = show.i + d;
+      if (i < 0 || i >= show.slides.length) return;
+      show.i = i;
+      showSlide();
+    };
+    function stopShow() {
+      if (!show) return;
+      if (deckEd.open && deck) { cur = Math.min(show.i, deck.slides.length - 1); renderEditor(); }
+      show = null;
+      presenter.hidden = true;
+      if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+    }
+    presenter.addEventListener('keydown', (e) => {
+      if (['ArrowRight', 'ArrowDown', 'PageDown', ' ', 'Enter'].includes(e.key)) { e.preventDefault(); step(1); }
+      else if (['ArrowLeft', 'ArrowUp', 'PageUp', 'Backspace'].includes(e.key)) { e.preventDefault(); step(-1); }
+      else if (e.key === 'Home') { e.preventDefault(); show.i = 0; showSlide(); }
+      else if (e.key === 'End') { e.preventDefault(); show.i = show.slides.length - 1; showSlide(); }
+      else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); stopShow(); }
+    });
+    document.getElementById('pr-stage').addEventListener('click', (e) => step(e.clientX < window.innerWidth / 3 ? -1 : 1));
+    document.getElementById('pr-prev').addEventListener('click', () => step(-1));
+    document.getElementById('pr-next').addEventListener('click', () => step(1));
+    document.getElementById('pr-exit').addEventListener('click', stopShow);
+    // Leaving full screen with the browser's own Esc ends the show too.
+    document.addEventListener('fullscreenchange', () => { if (!document.fullscreenElement && show) stopShow(); });
+
+    document.getElementById('decks').addEventListener('click', (e) => {
+      const play = e.target.closest('[data-play-deck]');
+      if (play) { const d = data.decks.find((x) => x.id === Number(play.dataset.playDeck)); if (d) present(d.slides, d.title); return; }
+      const open = e.target.closest('[data-open-deck]');
+      if (open) openDeck(data.decks.find((x) => x.id === Number(open.dataset.openDeck)));
+    });
+
     function render() {
       validateSel();
       store.set('coach.sel', JSON.stringify(sel));
@@ -939,6 +1368,10 @@
       document.getElementById('tab-maps').hidden = tab !== 'maps';
       document.getElementById('tab-shots').hidden = tab !== 'shots';
       document.getElementById('tab-pool').hidden = tab !== 'pool';
+      document.getElementById('tab-decks').hidden = tab !== 'decks';
+      const decks = (data.decks || []).filter(inPlace);
+      document.getElementById('count-decks').textContent = decks.length || '';
+      if (tab === 'decks') renderDecks(decks);
       const poolPid = poolPlayer();
       document.getElementById('count-pool').textContent = (poolPid ? data.pool.filter((e) => e.player_id === poolPid).length : data.pool.length) || '';
       if (tab === 'pool') renderPool();

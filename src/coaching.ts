@@ -30,7 +30,7 @@ const optId = (v: unknown): number | null => {
 /** Everything on the coaching page in one go – the data set is small. */
 export async function loadCoaching(env: Env) {
   const db = env.DB;
-  const [players, folders, runes, notes, maps, shots, pool] = await Promise.all([
+  const [players, folders, runes, notes, maps, shots, pool, decks] = await Promise.all([
     db.prepare(
       `SELECT p.id, p.nickname, p.role FROM players p JOIN teams t ON t.id = p.team_id
         WHERE t.is_own_team = 1
@@ -51,6 +51,10 @@ export async function loadCoaching(env: Env) {
          FROM coaching_shots s LEFT JOIN users u ON u.id = s.created_by ORDER BY s.created_at DESC`,
     ).all(),
     db.prepare('SELECT player_id, champion, tier, note, sort FROM champion_pool ORDER BY player_id, sort').all(),
+    db.prepare(
+      `SELECT d.id, d.player_id, d.folder_id, d.title, d.slides, d.created_by_kind, d.created_at, d.updated_at, u.display_name AS author_name
+         FROM coaching_decks d LEFT JOIN users u ON u.id = d.created_by ORDER BY d.updated_at DESC`,
+    ).all(),
   ]);
   // Per champion games and winrate from recorded drafts, shown next to the tier list.
   const poolStats: Record<number, unknown> = {};
@@ -62,6 +66,7 @@ export async function loadCoaching(env: Env) {
   return {
     players: players.results, folders: folders.results, runes: runes.results, notes: notes.results, maps: maps.results, shots: shots.results,
     pool: pool.results, pool_stats: poolStats,
+    decks: (decks.results as Record<string, unknown>[]).map((d) => ({ ...d, slides: JSON.parse(String(d.slides || '[]')) })),
   };
 }
 
@@ -109,6 +114,8 @@ export async function deleteFolder(env: Env, id: number): Promise<void> {
     env.DB.prepare('DELETE FROM coaching_notes WHERE folder_id = ?').bind(id),
     env.DB.prepare('DELETE FROM coaching_maps WHERE folder_id = ?').bind(id),
     env.DB.prepare('DELETE FROM coaching_shots WHERE folder_id = ?').bind(id),
+    env.DB.prepare('DELETE FROM coaching_deck_images WHERE deck_id IN (SELECT id FROM coaching_decks WHERE folder_id = ?)').bind(id),
+    env.DB.prepare('DELETE FROM coaching_decks WHERE folder_id = ?').bind(id),
     env.DB.prepare('DELETE FROM coaching_folders WHERE id = ?').bind(id),
   ]);
 }
@@ -400,4 +407,78 @@ export async function savePool(env: Env, actor: Actor, playerId: number, items: 
     ),
   ]);
   await logActivity(env.DB, actor, 'coaching.pool', 'player', playerId, { name: await placeName(env.DB, playerId) });
+}
+
+// --- presentations (slide decks) -----------------------------------------------------------
+
+const MAX_SLIDES = 60;
+type Slide = { title: string | null; body: string | null; image_id: number | null };
+
+/** Checks the slides sent by the page: [{ title, body, image_id }] in order. Pictures must belong to the deck. */
+async function cleanSlides(db: D1Database, deckId: number, raw: unknown): Promise<Slide[]> {
+  if (!Array.isArray(raw)) throw new HttpError(400, 'invalid', 'Slidy chybí.');
+  if (raw.length > MAX_SLIDES) throw new HttpError(400, 'invalid', `Max ${MAX_SLIDES} slidů.`);
+  const { results } = await db.prepare('SELECT id FROM coaching_deck_images WHERE deck_id = ?').bind(deckId).all<{ id: number }>();
+  const own = new Set(results.map((r) => r.id));
+  return raw.map((it, i) => {
+    const o = (it ?? {}) as Record<string, unknown>;
+    const imageId = optId(o.image_id);
+    if (imageId && !own.has(imageId)) throw new HttpError(400, 'invalid', `Slide ${i + 1}: obrázek nepatří k prezentaci.`);
+    return { title: str(o.title, `Slide ${i + 1} – nadpis`, 160), body: str(o.body, `Slide ${i + 1} – text`, 4000), image_id: imageId };
+  });
+}
+
+export async function createDeck(env: Env, actor: Actor, body: Body): Promise<number> {
+  const title = str(body.title, 'Název', 120);
+  if (!title) throw new HttpError(400, 'invalid', 'Zadej název prezentace.');
+  const place = await resolvePlace(env.DB, body);
+  const slides = JSON.stringify([{ title, body: null, image_id: null }]);
+  const res = await env.DB.prepare(
+    'INSERT INTO coaching_decks (player_id, folder_id, title, slides, created_by_kind, created_by) VALUES (?, ?, ?, ?, ?, ?)',
+  ).bind(place.player_id, place.folder_id, title, slides, actor.kind, actor.userId).run();
+  const id = res.meta.last_row_id;
+  await logActivity(env.DB, actor, 'coaching.deck.create', 'coaching_deck', id, { name: `${await placeName(env.DB, place.player_id)} – ${title}` });
+  return id;
+}
+
+export async function updateDeck(env: Env, id: number, body: Body): Promise<void> {
+  const db = env.DB;
+  const existing = await db.prepare('SELECT player_id, folder_id, title, slides FROM coaching_decks WHERE id = ?').bind(id).first<Record<string, unknown>>();
+  if (!existing) throw new HttpError(404, 'not_found', 'Prezentace neexistuje.');
+  const has = (k: string) => k in body;
+  const place = has('folder_id') || has('player_id')
+    ? await resolvePlace(db, body)
+    : { player_id: existing.player_id as number | null, folder_id: existing.folder_id as number | null };
+  const title = has('title') ? str(body.title, 'Název', 120) : (existing.title as string);
+  if (!title) throw new HttpError(400, 'invalid', 'Zadej název prezentace.');
+  const slides = has('slides') ? await cleanSlides(db, id, body.slides) : (JSON.parse(String(existing.slides)) as Slide[]);
+  const used = slides.map((s) => s.image_id).filter((x): x is number => !!x);
+  await db.batch([
+    db.prepare(`UPDATE coaching_decks SET player_id = ?, folder_id = ?, title = ?, slides = ?, updated_at = datetime('now') WHERE id = ?`)
+      .bind(place.player_id, place.folder_id, title, JSON.stringify(slides), id),
+    // Pictures no slide uses any more are dropped.
+    used.length
+      ? db.prepare(`DELETE FROM coaching_deck_images WHERE deck_id = ? AND id NOT IN (${used.map(() => '?').join(',')})`).bind(id, ...used)
+      : db.prepare('DELETE FROM coaching_deck_images WHERE deck_id = ?').bind(id),
+  ]);
+}
+
+export async function deleteDeck(env: Env, id: number): Promise<void> {
+  await env.DB.batch([
+    env.DB.prepare('DELETE FROM coaching_deck_images WHERE deck_id = ?').bind(id),
+    env.DB.prepare('DELETE FROM coaching_decks WHERE id = ?').bind(id),
+  ]);
+}
+
+/** Stores a picture for a deck; the page then puts its id into a slide and saves the slides. */
+export async function addDeckImage(env: Env, deckId: number, body: Body): Promise<number> {
+  if (!(await env.DB.prepare('SELECT 1 FROM coaching_decks WHERE id = ?').bind(deckId).first())) throw new HttpError(404, 'not_found', 'Prezentace neexistuje.');
+  const { mime, bytes } = decodeImage(body);
+  const res = await env.DB.prepare('INSERT INTO coaching_deck_images (deck_id, mime, size, data) VALUES (?, ?, ?, ?)').bind(deckId, mime, bytes.length, bytes).run();
+  return res.meta.last_row_id;
+}
+
+export async function getDeckImage(env: Env, id: number): Promise<{ mime: string; data: Uint8Array } | null> {
+  const row = await env.DB.prepare('SELECT mime, data FROM coaching_deck_images WHERE id = ?').bind(id).first<{ mime: string; data: number[] }>();
+  return row ? { mime: row.mime, data: new Uint8Array(row.data) } : null;
 }

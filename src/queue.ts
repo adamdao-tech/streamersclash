@@ -130,7 +130,7 @@ async function opggSuggestions(db: D1Database): Promise<Record<string, Partial<R
 // organizer's site isn't hammered: PROFILE_BATCH per run, each refreshed once a day.
 
 const PROFILE_BATCH = 25;
-const PROFILE_CONCURRENCY = 4;
+const PROFILE_CONCURRENCY = 2;
 
 export interface Account { region: string; riot: string; rank: string | null; url: string }
 
@@ -171,52 +171,90 @@ export function parseProfile(html: string): { accounts: Account[]; preferred_rol
   return { accounts, preferred_role: pref ? ROLE_ALIASES[pref] ?? null : null };
 }
 
-async function fetchProfile(profileUrl: string): Promise<{ accounts: Account[]; preferred_role: string | null } | null> {
-  const res = await fetch(profileUrl, { headers: { accept: 'text/html', 'user-agent': UA }, redirect: 'follow' });
-  if (res.status === 404) return { accounts: [], preferred_role: null };
-  if (!res.ok) return null;
-  return parseProfile(await res.text());
+type ProfileResult =
+  | { ok: true; accounts: Account[]; preferred_role: string | null }
+  | { ok: false; error: string; throttled: boolean };
+
+async function fetchProfile(profileUrl: string): Promise<ProfileResult> {
+  let res: Response;
+  try {
+    res = await fetch(profileUrl, { headers: { accept: 'text/html', 'user-agent': UA }, redirect: 'follow' });
+  } catch (err) {
+    return { ok: false, error: `síť: ${(err as Error).message}`, throttled: false };
+  }
+  if (res.status === 404) return { ok: true, accounts: [], preferred_role: null };
+  if (!res.ok) return { ok: false, error: `HTTP ${res.status}`, throttled: res.status === 429 || res.status === 403 || res.status === 503 };
+  const html = await res.text();
+  const parsed = parseProfile(html);
+  // Links are there but none was read → the page changed, don't pretend the player has no accounts.
+  if (!parsed.accounts.length && /op\.gg\/(?:lol\/)?summoners\//i.test(html)) {
+    return { ok: false, error: 'stránku profilu se nepodařilo přečíst', throttled: false };
+  }
+  if (!parsed.accounts.length && !/[ÚU]čty|ÚČTY|Preferovan/i.test(html)) {
+    // no profile content at all – most likely a bot-check / error page instead of the profile
+    return { ok: false, error: 'místo profilu přišla jiná stránka', throttled: true };
+  }
+  return { ok: true, ...parsed };
 }
 
-async function saveProfile(db: D1Database, playerKey: string, data: { accounts: Account[]; preferred_role: string | null } | null): Promise<void> {
-  if (!data) {
-    // temporary failure: try again in the next run, not tomorrow
-    await db.prepare(`UPDATE queue_players SET profile_checked_at = datetime('now', '-23 hours') WHERE key = ?`).bind(playerKey).run();
+async function saveProfile(db: D1Database, playerKey: string, data: ProfileResult): Promise<void> {
+  if (!data.ok) {
+    // try again in about an hour; keep whatever accounts were read before
+    await db
+      .prepare(`UPDATE queue_players SET profile_checked_at = datetime('now', '-23 hours'), profile_error = ? WHERE key = ?`)
+      .bind(data.error, playerKey)
+      .run();
     return;
   }
   await db
-    .prepare(`UPDATE queue_players SET accounts = ?, preferred_role = ?, profile_checked_at = datetime('now') WHERE key = ?`)
+    .prepare(`UPDATE queue_players SET accounts = ?, preferred_role = ?, profile_checked_at = datetime('now'), profile_error = NULL WHERE key = ?`)
     .bind(JSON.stringify(data.accounts), data.preferred_role, playerKey)
     .run();
 }
 
-/** Reads the next batch of profiles (never read, or older than a day). */
-export async function syncProfiles(env: Env, limit = PROFILE_BATCH): Promise<{ checked: number; with_accounts: number; remaining: number; total: number }> {
+const pause = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/**
+ * Reads the next batch of profiles (never read, failed earlier, or older than a day). Gentle on their site:
+ * two at a time with a short pause, and the batch stops as soon as the site starts throttling.
+ */
+export async function syncProfiles(env: Env, limit = PROFILE_BATCH): Promise<{
+  checked: number; with_accounts: number; failed: number; throttled: boolean; remaining: number; errors: number; total: number;
+}> {
   const db = env.DB;
   const { results } = await db
     .prepare(
       `SELECT key, profile FROM queue_players
-        WHERE profile IS NOT NULL AND (profile_checked_at IS NULL OR profile_checked_at < datetime('now', '-1 day'))
-        ORDER BY profile_checked_at IS NOT NULL, profile_checked_at, rank LIMIT ?`,
+        WHERE profile IS NOT NULL
+          AND (profile_checked_at IS NULL OR profile_checked_at < datetime('now', '-1 day')
+               OR (profile_error IS NOT NULL AND profile_checked_at < datetime('now', '-22 hours', '-50 minutes')))
+        ORDER BY profile_checked_at IS NOT NULL, profile_error IS NULL DESC, profile_checked_at, rank LIMIT ?`,
     )
     .bind(limit)
     .all<{ key: string; profile: string }>();
-  let withAccounts = 0;
-  for (let i = 0; i < results.length; i += PROFILE_CONCURRENCY) {
+  let withAccounts = 0, failed = 0, checked = 0, throttled = false;
+  for (let i = 0; i < results.length && !throttled; i += PROFILE_CONCURRENCY) {
+    if (i) await pause(300);
     await Promise.all(results.slice(i, i + PROFILE_CONCURRENCY).map(async (p) => {
-      const data = await fetchProfile(p.profile).catch(() => null);
-      if (data?.accounts.length) withAccounts++;
+      const data = await fetchProfile(p.profile);
+      checked++;
+      if (data.ok) { if (data.accounts.length) withAccounts++; }
+      else { failed++; if (data.throttled) throttled = true; }
       await saveProfile(db, p.key, data);
     }));
   }
   const left = await db
     .prepare(
       `SELECT COUNT(*) AS total,
-              SUM(CASE WHEN profile_checked_at IS NULL OR profile_checked_at < datetime('now', '-1 day') THEN 1 ELSE 0 END) AS remaining
+              SUM(CASE WHEN profile_checked_at IS NULL OR profile_checked_at < datetime('now', '-1 day') OR profile_error IS NOT NULL THEN 1 ELSE 0 END) AS remaining,
+              SUM(CASE WHEN profile_error IS NOT NULL THEN 1 ELSE 0 END) AS errors
          FROM queue_players WHERE profile IS NOT NULL`,
     )
-    .first<{ total: number; remaining: number | null }>();
-  return { checked: results.length, with_accounts: withAccounts, remaining: left?.remaining ?? 0, total: left?.total ?? 0 };
+    .first<{ total: number; remaining: number | null; errors: number | null }>();
+  return {
+    checked, with_accounts: withAccounts, failed, throttled,
+    remaining: left?.remaining ?? 0, errors: left?.errors ?? 0, total: left?.total ?? 0,
+  };
 }
 
 async function getSc<T>(path: string): Promise<T> {
@@ -402,9 +440,9 @@ export async function handleQueueApi(
     const playerKey = key(decodeURIComponent(m[1]));
     const row = await db.prepare('SELECT profile FROM queue_players WHERE key = ?').bind(playerKey).first<{ profile: string | null }>();
     if (!row?.profile) throw new HttpError(404, 'not_found', 'Hráč nemá profil na Streamers Clash.');
-    const data = await fetchProfile(row.profile).catch(() => null);
-    if (!data) throw new HttpError(502, 'upstream', 'Profil se nepodařilo načíst, zkus to za chvíli.');
+    const data = await fetchProfile(row.profile);
     await saveProfile(db, playerKey, data);
+    if (!data.ok) throw new HttpError(502, 'upstream', `Profil se nepodařilo načíst (${data.error}), zkus to za chvíli.`);
     return json(data);
   }
 

@@ -185,7 +185,7 @@
       };
       for (const b of data.players) Object.assign(get(b.nickname), {
         avatar: b.avatar, profile: b.profile, rank: b.rank, tier: b.tier, wins: b.wins, losses: b.losses, games: b.games, board: true,
-        accounts: b.accounts || [], preferred_role: b.preferred_role, profile_checked: !!b.profile_checked_at,
+        accounts: b.accounts || [], preferred_role: b.preferred_role, profile_checked: !!b.profile_checked_at && b.accounts != null, profile_error: b.profile_error,
       });
       const bump = (map, name, won) => { const r = map.get(k(name)) || { name, wins: 0, losses: 0 }; won ? r.wins++ : r.losses++; map.set(k(name), r); };
       const ordered = [...data.matches].sort((a, b) => (a.number ?? 0) - (b.number ?? 0));
@@ -268,6 +268,13 @@
       }
       return list;
     };
+    /** Proč u hráče není rank: nemá profil / ještě nenačteno / chyba / v profilu nic není. */
+    const profileState = (p) => {
+      if (!p.profile) return '<span class="zero" title="Nemá propojený profil na Streamers Clash – Riot ID jde doplnit ručně v detailu">bez profilu</span>';
+      if (p.profile_error) return `<span class="loss" title="Profil se nepodařilo načíst (${esc(p.profile_error)}) – zkusí se znovu samo, nebo v detailu hráče">⚠ chyba</span>`;
+      if (!p.profile_checked) return '<span class="zero" title="Profil ještě nebyl načten">…</span>';
+      return '<span class="zero" title="V profilu na SC nejsou žádné účty">–</span>';
+    };
     const bestAccount = (p) => accountsOf(p).filter((a) => a.rank).sort((a, b) => rankScore(b.rank) - rankScore(a.rank))[0];
     /** OP.GG odkazy hráče; když v regionu žádný účet není, ale je návrh, ukáže ho čárkovaně. */
     const opggChips = (p, withSug = true) => {
@@ -296,7 +303,7 @@
       ['losses', 'L', (p) => `<span class="loss">${p.losses}</span>`, 'num'],
       ['wr', 'Winrate', (p) => wrBar(p.wr), 'num'],
       ['form', 'Forma', (p) => formDots(p.form)],
-      ['lol', 'LoL rank', (p) => { const a = bestAccount(p); return a ? `<span class="lolrank" title="${esc(a.riot)}">${esc(shortRank(a.rank))}<small>${a.region.toUpperCase()}</small></span>` : `<span class="zero" title="${p.profile_checked ? 'V profilu nejsou účty' : 'Profil ještě nebyl načten'}">${p.profile_checked ? '–' : '…'}</span>`; }],
+      ['lol', 'LoL rank', (p) => { const a = bestAccount(p); return a ? `<span class="lolrank" title="${esc(a.riot)}">${esc(shortRank(a.rank))}<small>${a.region.toUpperCase()}</small></span>` : profileState(p); }],
       ['opgg', 'OP.GG', (p) => opggChips(p) || '<span class="zero">–</span>'],
       ['fav', 'Oblíbený na', (p) => roleToggles(p)],
       ['price', 'Cena', (p) => p.scout.price != null ? `<span class="price">${fmtPrice(p.scout.price)}</span>` : '<span class="zero">–</span>', 'num'],
@@ -433,7 +440,7 @@
         reload.disabled = true; reload.textContent = 'Načítám…';
         try {
           const d = await api(`/api/queue/profile/${encodeURIComponent(p.key)}`, { method: 'POST', body: {} });
-          Object.assign(p, { accounts: d.accounts, preferred_role: d.preferred_role ?? p.preferred_role, profile_checked: true });
+          Object.assign(p, { accounts: d.accounts, preferred_role: d.preferred_role ?? p.preferred_role, profile_checked: true, profile_error: null });
           openDetail(p.key); render();
         } catch (err) { reload.textContent = err.message; }
       };
@@ -515,23 +522,32 @@
     $('#profiles').addEventListener('click', async (e) => {
       const btn = e.currentTarget;
       btn.disabled = true;
-      let done = 0;
       S.saving = (S.saving || 0) + 1; // auto-obnova mezitím nepřekresluje
+      const wait = async (sec, why) => {
+        for (let s = sec; s > 0; s--) { btn.textContent = `${why} – pokračuju za ${s} s`; await new Promise((r) => setTimeout(r, 1000)); }
+      };
+      let last = null, slowdowns = 0;
       try {
         for (;;) {
-          const r = await api('/api/queue/profiles', { method: 'POST', body: { limit: 15 } });
-          done += r.checked;
+          const r = await api('/api/queue/profiles', { method: 'POST', body: { limit: 10 } });
+          last = r;
           btn.textContent = `Načítám účty… ${r.total - r.remaining}/${r.total}`;
+          if (r.throttled) {
+            // jejich web nás brzdí: počkej a jeď dál, při opakování déle
+            if (++slowdowns > 6) break;
+            await wait(20 * slowdowns, 'Web Streamers Clash brzdí');
+            continue;
+          }
           if (!r.remaining || !r.checked) break;
         }
-        btn.textContent = 'Účty načteny ✓';
+        btn.textContent = last?.errors ? `Hotovo, ${last.errors} se nepodařilo – zkusí se znovu samo` : 'Účty načteny ✓';
         S.saving--; await load(); S.saving++;
       } catch (err) {
         btn.textContent = 'Chyba – zkus znovu';
         alert(err.message);
       } finally {
         S.saving--;
-        setTimeout(() => { btn.disabled = false; btn.textContent = 'Načíst účty všem'; }, 3000);
+        setTimeout(() => { btn.disabled = false; btn.textContent = 'Načíst účty všem'; }, 6000);
       }
     });
 

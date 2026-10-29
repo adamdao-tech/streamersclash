@@ -514,4 +514,11 @@ ALTER TABLE queue_players ADD COLUMN preferred_role TEXT;
 ALTER TABLE queue_players ADD COLUMN profile_checked_at TEXT;
 CREATE INDEX idx_queue_players_profile ON queue_players(profile_checked_at);
 `,
+
+  /* 18: Queue scouting – why the last profile read failed (HTTP status, unreadable page), shown in the UI */ `
+ALTER TABLE queue_players ADD COLUMN profile_error TEXT;
+-- reads that failed before this column existed were stored like "no accounts": a successful read always
+-- saves an accounts list (at least []), so a checked profile without one gets read again
+UPDATE queue_players SET profile_checked_at = NULL WHERE accounts IS NULL AND profile_checked_at IS NOT NULL;
+`,
 ];

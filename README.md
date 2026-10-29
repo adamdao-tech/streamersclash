@@ -41,4 +41,5 @@ See [`reader/README.md`](reader/README.md). Needs the `READER_TOKEN` secret in C
 4. ~~Draft reader (VOD → champ select → draft)~~, tuning on real VODs
 5. ~~Schedule (Harmonogram): tournament matches, scrims, other events and free days (volno), list + calendar view, next-match hero with countdown~~
 6. ~~Koučing: folders per player, rune pages (rune picker from Data Dragon), coaching notes, ward maps on the minimap, own uploaded map picture, screenshots (paste/drop), champion pool tier lists linked to draft stats (drag from a full champion list), presentations (PowerPoint-like editor in `public/deck-editor.js`: free-form text boxes, shapes, arrows, pictures, layouts, themes, undo; full-screen player)~~
-7. Drafts in the web UI, Riot API sync, champion pools, compare view
+7. ~~Queue scouting (admin only, `/scouting`, `src/queue.ts`): Streamers Queue leaderboard + ended lobbies pulled from the public streamersclash.cz endpoints every 10 min (cron) and stored in D1 (their API keeps only the last ~36 lobbies, so history grows from the first sync); per-player opponents/teammates, favourites per role, price and notes, live lobbies~~
+8. Drafts in the web UI, Riot API sync, champion pools, compare view

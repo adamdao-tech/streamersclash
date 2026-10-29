@@ -449,4 +449,48 @@ CREATE INDEX idx_coaching_deck_images_deck ON coaching_deck_images(deck_id);
   /* 14: presentation theme (colours of all slides in a deck) */ `
 ALTER TABLE coaching_decks ADD COLUMN theme TEXT NOT NULL DEFAULT 'sc';
 `,
+
+  /* 15: Streamers Queue scouting – leaderboard, stored ended lobbies, admins' notes/favourites/prices */ `
+CREATE TABLE queue_players (
+  key        TEXT PRIMARY KEY,
+  nickname   TEXT NOT NULL,
+  avatar     TEXT,
+  profile    TEXT,
+  rank       INTEGER,
+  wins       INTEGER NOT NULL DEFAULT 0,
+  losses     INTEGER NOT NULL DEFAULT 0,
+  games      INTEGER NOT NULL DEFAULT 0,
+  tier       TEXT,
+  qualified  INTEGER NOT NULL DEFAULT 0,
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE queue_matches (
+  uid        TEXT PRIMARY KEY,
+  number     INTEGER,
+  winner     TEXT CHECK (winner IN ('blue', 'red')),
+  started_at TEXT,
+  day        TEXT,
+  time_from  TEXT,
+  time_to    TEXT,
+  blue       TEXT NOT NULL,
+  red        TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX idx_queue_matches_number ON queue_matches(number);
+
+CREATE TABLE queue_scout (
+  player_key TEXT PRIMARY KEY,
+  fav_roles  TEXT NOT NULL DEFAULT '[]',
+  price      REAL,
+  note       TEXT,
+  updated_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE queue_meta (
+  k TEXT PRIMARY KEY,
+  v TEXT
+);
+`,
 ];

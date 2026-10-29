@@ -1,0 +1,418 @@
+<!doctype html>
+<html lang="cs">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Queue scouting · SGooBovo šedl scouting</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="preload" href="/fonts/inter-var.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="/fonts/rajdhani-700.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="/app.css">
+  <style>
+    .qs-tools { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 14px; }
+    .qs-tools input[type=search] { max-width: 260px; }
+    .qs-tools select { width: auto; }
+    .qs-sync { color: var(--muted); font-size: 0.85rem; }
+    .qs-table-wrap { overflow-x: auto; border-radius: var(--radius); }
+    .qs-table td, .qs-table th { white-space: nowrap; padding: 9px 12px; }
+    .qs-table th[data-sort] { cursor: pointer; user-select: none; }
+    .qs-table th.sorted { color: var(--text); }
+    .qs-table th.sorted::after { content: ' ▾'; color: var(--gold); }
+    .qs-table th.sorted.asc::after { content: ' ▴'; }
+    .qs-table tbody tr { cursor: pointer; }
+    .qs-table tbody tr:hover { background: var(--panel-2); }
+    .qs-table .num { text-align: right; font-variant-numeric: tabular-nums; }
+    .qs-table .note-cell { max-width: 260px; overflow: hidden; text-overflow: ellipsis; color: var(--text-2); font-size: 0.86rem; }
+    .qs-pl { display: inline-flex; align-items: center; gap: 9px; font-weight: 600; color: var(--text); }
+    .qs-av { width: 28px; height: 28px; border-radius: 50%; object-fit: cover; background: var(--panel-3); flex: none; display: inline-grid; place-items: center; font-size: 0.7rem; color: var(--muted); }
+    .qs-av-lg { width: 64px; height: 64px; font-size: 1.1rem; }
+    .win { color: var(--green); }
+    .loss { color: #ff7a7e; }
+    .zero { color: var(--muted); opacity: .6; }
+    .qs-wr { display: inline-flex; align-items: center; gap: 8px; }
+    .qs-wr i { display: block; width: 60px; height: 6px; border-radius: 3px; background: var(--panel-3); overflow: hidden; }
+    .qs-wr i b { display: block; height: 100%; }
+    .qs-form { display: inline-flex; gap: 3px; vertical-align: middle; }
+    .qs-form i { width: 9px; height: 9px; border-radius: 2px; background: var(--green); }
+    .qs-form i.l { background: var(--red); }
+    .tier { font: 700 0.7rem var(--display); letter-spacing: .06em; text-transform: uppercase; padding: 1px 7px; border-radius: 5px; background: var(--panel-3); color: var(--muted); margin-left: 6px; }
+    .tier-gold { background: rgba(242, 200, 91, .15); color: var(--gold-2); }
+    .tier-silver { background: rgba(200, 210, 225, .14); color: #c8d2e1; }
+    .tier-bronze { background: rgba(205, 127, 50, .18); color: #e0954f; }
+    .tier-prized { background: rgba(198, 166, 255, .16); color: var(--c-other); }
+    .roles { display: inline-flex; gap: 3px; }
+    .role-t { font: 700 0.7rem var(--display); letter-spacing: .05em; min-width: 34px; padding: 3px 0; text-align: center; border-radius: 6px; border: 1px solid var(--line); background: var(--bg-2); color: #5d6a86; cursor: pointer; }
+    .role-t:hover { color: var(--text-2); border-color: var(--line-2); }
+    .role-t.on { background: var(--gold); color: var(--on-gold); border-color: transparent; }
+    .price { font-weight: 700; color: var(--gold-2); }
+    .qs-board { display: grid; grid-template-columns: repeat(5, minmax(200px, 1fr)); gap: 12px; overflow-x: auto; }
+    .qs-board .card h2 { display: flex; justify-content: space-between; align-items: baseline; }
+    .qs-board .card h2 small { color: var(--muted); font: 500 0.8rem var(--font); }
+    .qs-rec { list-style: none; margin: 0; padding: 0; }
+    .qs-rec li { display: flex; align-items: center; gap: 8px; padding: 7px 0; border-bottom: 1px solid var(--line); font-size: 0.9rem; }
+    .qs-rec li:last-child { border-bottom: 0; }
+    .qs-rec li > :first-child { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+    .qs-rec .sub { display: block; color: var(--muted); font-size: 0.78rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .qs-grid3 { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; margin: 14px 0; }
+    #detail { width: min(920px, calc(100vw - 24px)); max-height: calc(100vh - 40px); }
+    #detail .d-body { padding: 22px; }
+    .d-hero { display: flex; gap: 16px; align-items: center; flex-wrap: wrap; }
+    .d-hero h2 { margin: 0 0 6px; font-size: 1.8rem; }
+    .d-meta { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+    .d-kpis { display: flex; gap: 22px; margin-left: auto; }
+    .d-kpis div { text-align: center; }
+    .d-kpis b { display: block; font: 700 1.5rem var(--display); }
+    .d-kpis span { color: var(--muted); font-size: 0.75rem; text-transform: uppercase; }
+    .d-scout { display: grid; grid-template-columns: auto 160px 1fr auto; gap: 12px; align-items: end; margin-top: 18px; padding: 14px; background: var(--bg-2); border: 1px solid var(--line); border-radius: 12px; }
+    .d-scout textarea { min-height: 42px; }
+    .d-hist td { font-size: 0.86rem; }
+    .d-hist td.names { white-space: normal; color: var(--muted); min-width: 200px; }
+    .lobbies { display: grid; grid-template-columns: repeat(auto-fill, minmax(380px, 1fr)); gap: 12px; }
+    .lobby header { display: flex; gap: 10px; align-items: center; margin-bottom: 10px; }
+    .lobby header .muted { margin-left: auto; color: var(--muted); font-size: 0.85rem; }
+    .lobby .teams { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .lobby h4 { margin: 0 0 6px; font: 700 0.85rem var(--display); letter-spacing: .08em; padding-left: 8px; border-left: 3px solid; }
+    .lobby .blue h4 { color: var(--blue); }
+    .lobby .red h4 { color: var(--red); }
+    .lobby .row { display: flex; align-items: center; gap: 7px; padding: 3px 0; font-size: 0.88rem; }
+    .lobby .row.fav { color: var(--gold-2); font-weight: 600; }
+    .lobby .row small { margin-left: auto; color: var(--muted); }
+    .opgg { display: inline-block; font: 700 0.7rem var(--display); padding: 2px 7px; border-radius: 5px; background: #5c46e8; color: #fff; margin: 4px 3px 0 0; }
+    .opgg:hover { text-decoration: none; filter: brightness(1.15); }
+    @media (max-width: 760px) { .d-scout { grid-template-columns: 1fr; } .d-kpis { margin-left: 0; } .lobbies { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+  <main style="max-width: 1320px">
+    <div class="page-head">
+      <div>
+        <h1>Queue scouting</h1>
+        <p>Hráči ze Streamers Queue: oficiální W/L, soupeři a spoluhráči z uložených zápasů. Poznámky, oblíbení podle pozic a ceny vidí jen admini.</p>
+      </div>
+      <div class="page-head-tools">
+        <span class="qs-sync" id="sync-info"></span>
+        <button class="btn btn-small" id="sync">Synchronizovat</button>
+      </div>
+    </div>
+
+    <nav class="tabs" id="tabs">
+      <button data-tab="players" class="active">Hráči <span class="count" id="c-players"></span></button>
+      <button data-tab="favs">Oblíbení podle pozic <span class="count" id="c-favs"></span></button>
+      <button data-tab="live">Živě <span class="count" id="c-live"></span></button>
+    </nav>
+
+    <section class="tab-panel" data-panel="players">
+      <div class="qs-tools">
+        <input type="search" id="q" placeholder="Hledat hráče…">
+        <div class="seg" id="role-filter"></div>
+        <select id="show">
+          <option value="all">Všichni</option>
+          <option value="fav">Jen oblíbení</option>
+          <option value="note">S poznámkou</option>
+          <option value="price">S cenou</option>
+        </select>
+        <label class="qs-sync">Min. zápasů <input type="number" id="min" min="0" value="0" style="width:70px"></label>
+      </div>
+      <div class="qs-table-wrap">
+        <table class="table qs-table">
+          <thead><tr id="thead"></tr></thead>
+          <tbody id="rows"></tbody>
+        </table>
+      </div>
+      <p class="qs-sync" id="foot"></p>
+    </section>
+
+    <section class="tab-panel" data-panel="favs" hidden>
+      <div class="qs-board" id="favs"></div>
+    </section>
+
+    <section class="tab-panel" data-panel="live" hidden>
+      <div id="live"><p class="empty">Načítám…</p></div>
+    </section>
+  </main>
+
+  <dialog id="detail"><div class="d-body" id="detail-body"></div></dialog>
+
+  <script type="module">
+    import { api, esc, initPage, timeAgo } from '/app.js';
+
+    const me = await initPage('scouting');
+    if (me.role !== 'admin') location.href = '/';
+
+    const ROLES = [['TOP', 'TOP'], ['JUNGLE', 'JNG'], ['MID', 'MID'], ['ADC', 'ADC'], ['SUPPORT', 'SUP']];
+    const S = { players: new Map(), matches: [], live: [], sort: { col: 'rank', dir: 1 }, q: '', role: '', show: 'all', min: 0, tab: 'players' };
+    const $ = (s) => document.querySelector(s);
+    const pct = (x) => (x == null || Number.isNaN(x) ? '–' : `${Math.round(x * 100)} %`);
+    const k = (n) => String(n).trim().toLowerCase();
+    const wl = (r) => `<span><b class="${r.wins ? 'win' : 'zero'}">${r.wins}W</b> <b class="${r.losses ? 'loss' : 'zero'}">${r.losses}L</b></span>`;
+    const fmtPrice = (p) => (p == null ? '' : Number(p).toLocaleString('cs-CZ'));
+
+    /* ---------- data ---------- */
+
+    async function load() {
+      const data = await api('/api/queue');
+      const players = new Map();
+      const get = (nick, extra = {}) => {
+        const key = k(nick);
+        if (!players.has(key)) players.set(key, {
+          key, nickname: nick, avatar: null, profile: null, rank: null, tier: null, wins: 0, losses: 0, games: 0, board: false,
+          scout: { fav_roles: [], price: null, note: null }, history: [], vs: new Map(), with: new Map(), t: { wins: 0, losses: 0 },
+        });
+        const p = players.get(key);
+        if (!p.avatar && extra.avatar) p.avatar = extra.avatar;
+        if (!p.profile && extra.href) p.profile = extra.href;
+        return p;
+      };
+      for (const b of data.players) Object.assign(get(b.nickname), { avatar: b.avatar, profile: b.profile, rank: b.rank, tier: b.tier, wins: b.wins, losses: b.losses, games: b.games, board: true });
+      const bump = (map, name, won) => { const r = map.get(k(name)) || { name, wins: 0, losses: 0 }; won ? r.wins++ : r.losses++; map.set(k(name), r); };
+      const ordered = [...data.matches].sort((a, b) => (a.number ?? 0) - (b.number ?? 0));
+      for (const m of ordered) for (const side of ['blue', 'red']) {
+        const team = m[side], enemy = m[side === 'blue' ? 'red' : 'blue'];
+        const won = m.winner === side;
+        for (const pl of team) {
+          const p = get(pl.nickname, pl);
+          won ? p.t.wins++ : p.t.losses++;
+          p.history.push({ m, side, won, allies: team.filter((x) => x !== pl).map((x) => x.nickname), enemies: enemy.map((x) => x.nickname) });
+          for (const e of enemy) bump(p.vs, e.nickname, won);
+          for (const a of team) if (a !== pl) bump(p.with, a.nickname, won);
+        }
+      }
+      for (const s of data.scout) { const p = players.get(s.player_key); if (p) p.scout = s; }
+      for (const p of players.values()) {
+        if (!p.board) { p.wins = p.t.wins; p.losses = p.t.losses; p.games = p.wins + p.losses; }
+        p.wr = p.games ? p.wins / p.games : null;
+        p.form = p.history.slice(-5).map((h) => h.won);
+      }
+      S.players = players; S.matches = data.matches;
+      $('#sync-info').textContent = data.synced_at ? `Synchronizováno ${timeAgo(data.synced_at)} · ${data.matches.length} uložených zápasů` : 'Ještě nesynchronizováno';
+      $('#c-players').textContent = players.size;
+      $('#c-favs').textContent = [...players.values()].filter((p) => p.scout.fav_roles.length).length || '';
+      render();
+    }
+
+    async function loadLive() {
+      const { live, error } = await api('/api/queue/live');
+      S.live = live;
+      $('#c-live').textContent = live.length || '';
+      $('#live').innerHTML = error ? `<p class="empty">Nepodařilo se načíst: ${esc(error)}</p>` : renderLive();
+    }
+
+    async function saveScout(p, patch) {
+      const next = { ...p.scout, ...patch };
+      await api(`/api/queue/scout/${encodeURIComponent(p.key)}`, { method: 'PUT', body: { fav_roles: next.fav_roles, price: next.price, note: next.note } });
+      p.scout = next;
+      $('#c-favs').textContent = [...S.players.values()].filter((x) => x.scout.fav_roles.length).length || '';
+    }
+
+    /* ---------- hráči ---------- */
+
+    const avatar = (p, cls = '') => p.avatar
+      ? `<img class="qs-av ${cls}" src="${esc(p.avatar)}" alt="" loading="lazy" referrerpolicy="no-referrer">`
+      : `<span class="qs-av ${cls}">${esc(String(p.nickname).slice(0, 2).toUpperCase())}</span>`;
+    const wrBar = (wr) => wr == null ? '<span class="zero">–</span>' : `<span class="qs-wr"><i><b style="width:${Math.round(wr * 100)}%;background:${wr >= 0.5 ? 'var(--green)' : 'var(--red)'}"></b></i>${pct(wr)}</span>`;
+    const formDots = (f) => f.length ? `<span class="qs-form">${f.map((w) => `<i class="${w ? '' : 'l'}"></i>`).join('')}</span>` : '<span class="zero">–</span>';
+    const roleToggles = (p) => `<span class="roles">${ROLES.map(([r, l]) => `<button type="button" class="role-t ${p.scout.fav_roles.includes(r) ? 'on' : ''}" data-role="${r}" data-key="${esc(p.key)}" title="Oblíbený na ${l}">${l}</button>`).join('')}</span>`;
+
+    const COLS = [
+      ['rank', '#', (p, i) => `<span class="zero">${p.rank ?? '–'}</span>`, 'num'],
+      ['nickname', 'Hráč', (p) => `<span class="qs-pl">${avatar(p)}${esc(p.nickname)}</span>${p.tier ? `<span class="tier tier-${esc(p.tier)}">${esc(p.tier)}</span>` : ''}`],
+      ['games', 'Zápasy', (p) => p.games, 'num'],
+      ['wins', 'W', (p) => `<span class="win">${p.wins}</span>`, 'num'],
+      ['losses', 'L', (p) => `<span class="loss">${p.losses}</span>`, 'num'],
+      ['wr', 'Winrate', (p) => wrBar(p.wr), 'num'],
+      ['form', 'Forma', (p) => formDots(p.form)],
+      ['fav', 'Oblíbený na', (p) => roleToggles(p)],
+      ['price', 'Cena', (p) => p.scout.price != null ? `<span class="price">${fmtPrice(p.scout.price)}</span>` : '<span class="zero">–</span>', 'num'],
+      ['note', 'Poznámka', (p) => `<div class="note-cell">${esc(p.scout.note || '')}</div>`],
+    ];
+    const sortVal = {
+      rank: (p) => p.rank ?? 1e9, nickname: (p) => p.nickname.toLowerCase(), games: (p) => p.games, wins: (p) => p.wins,
+      losses: (p) => p.losses, wr: (p) => p.wr ?? -1, form: (p) => p.form.filter(Boolean).length,
+      fav: (p) => p.scout.fav_roles.length, price: (p) => p.scout.price ?? -1, note: (p) => (p.scout.note ? 1 : 0),
+    };
+
+    function filtered() {
+      const q = S.q.toLowerCase();
+      const { col, dir } = S.sort;
+      return [...S.players.values()].filter((p) =>
+        (!q || p.nickname.toLowerCase().includes(q)) && p.games >= S.min &&
+        (!S.role || p.scout.fav_roles.includes(S.role)) &&
+        (S.show === 'all' || (S.show === 'fav' && p.scout.fav_roles.length) || (S.show === 'note' && p.scout.note) || (S.show === 'price' && p.scout.price != null)),
+      ).sort((a, b) => {
+        const va = sortVal[col](a), vb = sortVal[col](b);
+        return (typeof va === 'string' ? va.localeCompare(vb) : va - vb) * dir || b.wins - a.wins;
+      });
+    }
+
+    function render() {
+      $('#thead').innerHTML = COLS.map(([c, l, , cls]) => `<th data-sort="${c}" class="${cls || ''} ${S.sort.col === c ? `sorted ${S.sort.dir > 0 ? 'asc' : ''}` : ''}">${l}</th>`).join('');
+      const rows = filtered();
+      $('#rows').innerHTML = rows.length
+        ? rows.map((p, i) => `<tr data-key="${esc(p.key)}">${COLS.map(([, , fn, cls]) => `<td class="${cls || ''}">${fn(p, i)}</td>`).join('')}</tr>`).join('')
+        : `<tr><td colspan="${COLS.length}" class="empty">Nikdo neodpovídá filtru</td></tr>`;
+      $('#foot').textContent = `${rows.length} hráčů · W/L a pořadí z oficiálního žebříčku, forma a detail z uložených zápasů.`;
+      renderFavs();
+    }
+
+    /* ---------- oblíbení podle pozic ---------- */
+
+    function renderFavs() {
+      $('#favs').innerHTML = ROLES.map(([r, l]) => {
+        const list = [...S.players.values()].filter((p) => p.scout.fav_roles.includes(r)).sort((a, b) => (b.wr ?? 0) - (a.wr ?? 0));
+        return `<section class="card"><h2>${l} <small>${list.length}</small></h2>
+          ${list.length ? `<ul class="qs-rec">${list.map((p) => `<li data-key="${esc(p.key)}" style="cursor:pointer">
+            <span><span class="qs-pl">${avatar(p)}${esc(p.nickname)}</span>${p.scout.note ? `<span class="sub">${esc(p.scout.note)}</span>` : ''}</span>
+            <span style="text-align:right">${wl(p)}<span class="sub">${pct(p.wr)}${p.scout.price != null ? ` · <span class="price">${fmtPrice(p.scout.price)}</span>` : ''}</span></span></li>`).join('')}</ul>`
+            : '<p class="zero" style="font-size:.88rem">Zatím nikdo. Označ hráče v tabulce.</p>'}</section>`;
+      }).join('');
+    }
+
+    /* ---------- živě ---------- */
+
+    function renderLive() {
+      if (!S.live.length) return '<p class="empty">Teď nikdo nehraje.</p>';
+      const row = (pl) => {
+        const p = S.players.get(k(pl.nickname));
+        const fav = p?.scout.fav_roles.length;
+        return `<div class="row ${fav ? 'fav' : ''}" data-key="${esc(k(pl.nickname))}" style="cursor:pointer">${avatar(p || pl)}${esc(pl.nickname)}${fav ? ' ★' : ''}<small>${p ? `${p.wins}W ${p.losses}L` : ''}</small></div>`;
+      };
+      const team = (l, side) => `<div class="${side}"><h4>${side.toUpperCase()}</h4>${l[side].map(row).join('')}
+        ${(l.opgg?.[side] || []).map((o) => `<a class="opgg" href="${esc(o.url)}" target="_blank" rel="noopener">${esc(String(o.server).toUpperCase())} ${o.players}/5</a>`).join('')}</div>`;
+      return `<div class="lobbies">${[...S.live].sort((a, b) => b.number - a.number).map((l) => `
+        <article class="card lobby"><header><b>#${l.number}</b><span class="badge ${l.state === 'live' ? 'badge-live' : ''}">${l.state === 'live' ? 'hraje se' : 'čeká na start'}</span>
+        <span class="muted">${esc(l.day || '')} ${esc(l.time_from || '')}</span></header>
+        <div class="teams">${team(l, 'blue')}${team(l, 'red')}</div></article>`).join('')}</div>`;
+    }
+
+    /* ---------- detail ---------- */
+
+    function openDetail(key) {
+      const p = S.players.get(key);
+      if (!p) return;
+      const vs = [...p.vs.values()];
+      const beat = vs.filter((r) => r.wins).sort((a, b) => b.wins - a.wins || a.losses - b.losses).slice(0, 10);
+      const lost = vs.filter((r) => r.losses).sort((a, b) => b.losses - a.losses || a.wins - b.wins).slice(0, 10);
+      const mates = [...p.with.values()].sort((a, b) => (b.wins + b.losses) - (a.wins + a.losses) || b.wins - a.wins).slice(0, 12);
+      const rec = (list) => list.length ? `<ul class="qs-rec">${list.map((r) => `<li><a href="#" data-open="${esc(k(r.name))}">${esc(r.name)}</a>${wl(r)}</li>`).join('')}</ul>` : '<p class="zero">Zatím nic</p>';
+      const tracked = p.t.wins + p.t.losses;
+      $('#detail-body').innerHTML = `
+        <div class="d-hero">
+          ${avatar(p, 'qs-av-lg')}
+          <div>
+            <h2>${esc(p.nickname)}</h2>
+            <div class="d-meta">
+              ${p.rank ? `<span class="badge">#${p.rank} v žebříčku</span>` : ''}
+              ${p.tier ? `<span class="tier tier-${esc(p.tier)}" style="margin:0">${esc(p.tier)}</span>` : ''}
+              ${p.profile ? `<a class="chip" href="${esc(p.profile)}" target="_blank" rel="noopener">profil na SC ↗</a>` : ''}
+            </div>
+          </div>
+          <div class="d-kpis">
+            <div><b>${p.games}</b><span>zápasů</span></div>
+            <div><b class="win">${p.wins}</b><span>W</span></div>
+            <div><b class="loss">${p.losses}</b><span>L</span></div>
+            <div><b>${pct(p.wr)}</b><span>winrate</span></div>
+          </div>
+          <button class="btn btn-icon" id="d-close" title="Zavřít">✕</button>
+        </div>
+
+        <form class="d-scout" id="d-form">
+          <div class="field"><span class="field-label">Oblíbený na pozici</span>${roleToggles(p)}</div>
+          <label class="field"><span class="field-label">Cena</span><input name="price" inputmode="decimal" placeholder="až bude zveřejněná" value="${p.scout.price ?? ''}"></label>
+          <label class="field"><span class="field-label">Poznámka</span><textarea name="note" rows="2" placeholder="Co o něm víme…">${esc(p.scout.note || '')}</textarea></label>
+          <button class="btn btn-primary" type="submit">Uložit</button>
+          <p class="form-error" id="d-err" style="grid-column:1/-1;margin:0"></p>
+        </form>
+        ${p.scout.updated_at ? `<p class="qs-sync" style="margin:6px 0 0">Naposledy upravil ${esc(p.scout.updated_by_name || 'admin')} ${timeAgo(p.scout.updated_at)}</p>` : ''}
+
+        <p class="qs-sync" style="margin:16px 0 0">Níže z ${tracked} uložených zápasů${tracked < 5 ? ' – zatím málo dat, ber s rezervou' : ''}.</p>
+        <div class="qs-grid3">
+          <section class="card"><h2>Porazil</h2>${rec(beat)}</section>
+          <section class="card"><h2>Prohrál proti</h2>${rec(lost)}</section>
+          <section class="card"><h2>Spoluhráči</h2>${rec(mates)}</section>
+        </div>
+        ${p.history.length ? `<table class="table d-hist"><thead><tr><th>Lobby</th><th>Kdy</th><th>Strana</th><th></th><th>Spoluhráči</th><th>Soupeři</th></tr></thead><tbody>
+          ${[...p.history].reverse().slice(0, 30).map((h) => `<tr><td>#${h.m.number ?? ''}</td><td>${esc(h.m.day || '')} ${esc(h.m.time_from || '')}</td>
+            <td style="color:var(--${h.side})">${h.side.toUpperCase()}</td><td><b class="${h.won ? 'win' : 'loss'}">${h.won ? 'W' : 'L'}</b></td>
+            <td class="names">${h.allies.map(esc).join(', ')}</td><td class="names">${h.enemies.map(esc).join(', ')}</td></tr>`).join('')}
+        </tbody></table>` : ''}`;
+      const dlg = $('#detail');
+      if (!dlg.open) dlg.showModal();
+      dlg.scrollTop = 0;
+      $('#d-close').onclick = () => dlg.close();
+      $('#d-form').onsubmit = async (e) => {
+        e.preventDefault();
+        const f = e.target;
+        const roles = [...f.querySelectorAll('.role-t.on')].map((b) => b.dataset.role);
+        try {
+          await saveScout(p, { fav_roles: roles, price: f.price.value.trim() === '' ? null : f.price.value, note: f.note.value });
+          p.scout.price = p.scout.price == null ? null : Number(String(p.scout.price).replace(/\s/g, '').replace(',', '.'));
+          dlg.close();
+          render();
+        } catch (err) { $('#d-err').textContent = err.message; }
+      };
+    }
+
+    /* ---------- události ---------- */
+
+    $('#role-filter').innerHTML = [['', 'Vše'], ...ROLES].map(([r, l]) => `<button type="button" data-r="${r}" class="${r === S.role ? 'active' : ''}">${l}</button>`).join('');
+    $('#role-filter').addEventListener('click', (e) => {
+      const b = e.target.closest('button'); if (!b) return;
+      S.role = b.dataset.r;
+      $('#role-filter').querySelectorAll('button').forEach((x) => x.classList.toggle('active', x === b));
+      render();
+    });
+    $('#q').addEventListener('input', (e) => { S.q = e.target.value; render(); });
+    $('#show').addEventListener('change', (e) => { S.show = e.target.value; render(); });
+    $('#min').addEventListener('input', (e) => { S.min = +e.target.value || 0; render(); });
+
+    $('#tabs').addEventListener('click', (e) => {
+      const b = e.target.closest('button[data-tab]'); if (!b) return;
+      S.tab = b.dataset.tab;
+      document.querySelectorAll('#tabs button').forEach((x) => x.classList.toggle('active', x === b));
+      document.querySelectorAll('.tab-panel').forEach((p) => (p.hidden = p.dataset.panel !== S.tab));
+      if (S.tab === 'live') loadLive();
+    });
+
+    document.addEventListener('click', async (e) => {
+      const th = e.target.closest('th[data-sort]');
+      if (th) {
+        const c = th.dataset.sort;
+        S.sort = { col: c, dir: S.sort.col === c ? -S.sort.dir : (['rank', 'nickname'].includes(c) ? 1 : -1) };
+        return render();
+      }
+      const toggle = e.target.closest('.role-t');
+      if (toggle) {
+        e.preventDefault(); e.stopPropagation();
+        if (toggle.closest('#d-form')) return toggle.classList.toggle('on'); // v detailu se ukládá tlačítkem
+        const p = S.players.get(toggle.dataset.key);
+        const roles = new Set(p.scout.fav_roles);
+        roles.has(toggle.dataset.role) ? roles.delete(toggle.dataset.role) : roles.add(toggle.dataset.role);
+        toggle.classList.toggle('on');
+        try { await saveScout(p, { fav_roles: [...roles] }); renderFavs(); }
+        catch (err) { toggle.classList.toggle('on'); alert(err.message); }
+        return;
+      }
+      const open = e.target.closest('[data-open]');
+      if (open) { e.preventDefault(); return openDetail(open.dataset.open); }
+      const row = e.target.closest('#rows tr[data-key], .qs-rec li[data-key], .lobby .row[data-key]');
+      if (row && S.players.has(row.dataset.key)) openDetail(row.dataset.key);
+    });
+
+    $('#sync').addEventListener('click', async (e) => {
+      const btn = e.currentTarget;
+      btn.disabled = true; btn.textContent = 'Synchronizuji…';
+      try {
+        const r = await api('/api/queue/sync', { method: 'POST', body: {} });
+        btn.textContent = `+${r.added} zápasů`;
+        await load();
+        if (S.tab === 'live') loadLive();
+      } catch (err) { alert(err.message); btn.textContent = 'Synchronizovat'; }
+      finally { setTimeout(() => { btn.disabled = false; btn.textContent = 'Synchronizovat'; }, 2500); }
+    });
+
+    await load();
+    // první návštěva: data ještě nejsou → stáhni je hned
+    if (!S.players.size) $('#sync').click();
+  </script>
+</body>
+</html>

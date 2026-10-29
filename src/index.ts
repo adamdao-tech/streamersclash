@@ -6,6 +6,7 @@ import { handleMcp } from './mcp';
 import { handleOAuth, isOAuthPath } from './oauth';
 import { handleReader } from './reader';
 import { syncTwitchVods } from './vods';
+import { syncQueue } from './queue';
 
 export interface Env {
   DB: D1Database;
@@ -74,8 +75,12 @@ export default {
     ctx.waitUntil(
       (async () => {
         await ensureSchema(env.DB);
-        const result = await syncTwitchVods(env);
-        console.log('VOD sync', JSON.stringify(result));
+        // Independent jobs: one failing must not stop the other.
+        await Promise.all([
+          syncTwitchVods(env).then((r) => console.log('VOD sync', JSON.stringify(r)), (e) => console.error('VOD sync failed', e)),
+          // Streamers Queue: leaderboard + newly ended lobbies (their API keeps only the last ~36).
+          syncQueue(env).then((r) => console.log('Queue sync', JSON.stringify(r)), (e) => console.error('Queue sync failed', e)),
+        ]);
       })(),
     );
   },

@@ -10,6 +10,7 @@ import {
   mapVersion, renameFolder, resetMapImage, saveMap, saveNote, savePool, saveRunePage, setMapImage, updateShot,
 } from './coaching';
 import { getRuneData } from './runes';
+import { handleQueueApi } from './queue';
 
 const ROLES = ['TOP', 'JUNGLE', 'MID', 'ADC', 'SUPPORT', 'SUB'] as const;
 const REGIONS = ['EUNE', 'EUW'] as const;
@@ -427,6 +428,10 @@ async function route(req: Request, env: Env, url: URL, user: User): Promise<Resp
     await db.prepare('DELETE FROM notes WHERE id = ?').bind(Number(m[1])).run();
     return json({ ok: true });
   }
+
+  // --- Streamers Queue scouting (admin only) -------------------------------
+  const queue = await handleQueueApi(req, env, path, method, user, readBody);
+  if (queue) return queue;
 
   // --- activity ----------------------------------------------------------
   if (path === '/api/activity' && method === 'GET') {

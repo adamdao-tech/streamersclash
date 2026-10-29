@@ -77,9 +77,15 @@
     .lobby .row { display: flex; align-items: center; gap: 7px; padding: 3px 0; font-size: 0.88rem; }
     .lobby .row.fav { color: var(--gold-2); font-weight: 600; }
     .lobby .row small { margin-left: auto; color: var(--muted); }
+    .opgg-set { display: inline-flex; gap: 4px; vertical-align: middle; }
+    .opgg.sug { background: transparent; border: 1px dashed #7d6cf0; color: #b3a8ff; }
+    .d-riot { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 12px; padding: 14px; background: var(--bg-2); border: 1px solid var(--line); border-radius: 12px; }
+    .d-riot .sugs { display: flex; gap: 6px; flex-wrap: wrap; font-size: 0.8rem; color: var(--muted); align-items: center; }
+    .d-riot .sugs button { font: 600 0.78rem var(--font); padding: 3px 9px; border-radius: 999px; border: 1px dashed var(--line-2); background: transparent; color: var(--text-2); cursor: pointer; }
+    .d-riot .sugs button:hover { border-color: var(--gold); color: var(--gold-2); }
     .opgg { display: inline-block; font: 700 0.7rem var(--display); padding: 2px 7px; border-radius: 5px; background: #5c46e8; color: #fff; margin: 4px 3px 0 0; }
     .opgg:hover { text-decoration: none; filter: brightness(1.15); }
-    @media (max-width: 760px) { .d-scout { grid-template-columns: 1fr; } .d-kpis { margin-left: 0; } .lobbies { grid-template-columns: 1fr; } }
+    @media (max-width: 760px) { .d-scout, .d-riot { grid-template-columns: 1fr; } .d-kpis { margin-left: 0; } .lobbies { grid-template-columns: 1fr; } }
   </style>
 </head>
 <body>
@@ -184,7 +190,7 @@
         p.wr = p.games ? p.wins / p.games : null;
         p.form = p.history.slice(-5).map((h) => h.won);
       }
-      S.players = players; S.matches = data.matches;
+      S.players = players; S.matches = data.matches; S.suggestions = data.suggestions || {};
       S.syncedAt = data.synced_at; S.matchCount = data.matches.length; S.lastPoll = Date.now();
       $('#sync-info').textContent = data.synced_at ? `Synchronizováno ${timeAgo(data.synced_at)} · ${data.matches.length} uložených zápasů` : 'Ještě nesynchronizováno';
       $('#c-players').textContent = players.size;
@@ -204,9 +210,9 @@
       try { return await doSaveScout(p, patch); } finally { S.saving--; }
     }
     async function doSaveScout(p, patch) {
-      const next = { ...p.scout, ...patch };
-      await api(`/api/queue/scout/${encodeURIComponent(p.key)}`, { method: 'PUT', body: { fav_roles: next.fav_roles, price: next.price, note: next.note } });
-      p.scout = next;
+      // posílá jen změněná pole – server zbytek (poznámku, Riot ID…) nechá
+      const res = await api(`/api/queue/scout/${encodeURIComponent(p.key)}`, { method: 'PUT', body: patch });
+      p.scout = { ...p.scout, ...res.scout, updated_by_name: me.display_name || me.twitch_login, updated_at: new Date().toISOString().slice(0, 19).replace('T', ' ') };
       $('#c-favs').textContent = [...S.players.values()].filter((x) => x.scout.fav_roles.length).length || '';
     }
 
@@ -217,6 +223,23 @@
       : `<span class="qs-av ${cls}">${esc(String(p.nickname).slice(0, 2).toUpperCase())}</span>`;
     const wrBar = (wr) => wr == null ? '<span class="zero">–</span>' : `<span class="qs-wr"><i><b style="width:${Math.round(wr * 100)}%;background:${wr >= 0.5 ? 'var(--green)' : 'var(--red)'}"></b></i>${pct(wr)}</span>`;
     const formDots = (f) => f.length ? `<span class="qs-form">${f.map((w) => `<i class="${w ? '' : 'l'}"></i>`).join('')}</span>` : '<span class="zero">–</span>';
+    const REG = [['eune', 'EUNE'], ['euw', 'EUW']];
+    const opggUrl = (region, riot) => {
+      const i = riot.lastIndexOf('#');
+      return `https://op.gg/lol/summoners/${region}/${encodeURIComponent(riot.slice(0, i))}-${encodeURIComponent(riot.slice(i + 1))}`;
+    };
+    const bestSug = (p, region) => (S.suggestions[p.key]?.[region] || [])[0];
+    /** OP.GG odkazy hráče; když Riot ID chybí, ale je návrh, ukáže ho čárkovaně (potvrzuje se v detailu). */
+    const opggChips = (p, withSug = true) => {
+      if (!p) return '';
+      const out = REG.map(([r, l]) => {
+        const id = p.scout?.[`riot_${r}`];
+        if (id) return `<a class="opgg" href="${esc(opggUrl(r, id))}" target="_blank" rel="noopener" title="${esc(id)}">${l}</a>`;
+        const sug = withSug && bestSug(p, r);
+        return sug ? `<a class="opgg sug" href="${esc(opggUrl(r, sug.riot))}" target="_blank" rel="noopener" title="Návrh: ${esc(sug.riot)} – potvrď v detailu hráče">${l}?</a>` : '';
+      }).join('');
+      return out ? `<span class="opgg-set">${out}</span>` : '';
+    };
     const roleToggles = (p) => `<span class="roles">${ROLES.map(([r, l]) => `<button type="button" class="role-t ${p.scout.fav_roles.includes(r) ? 'on' : ''}" data-role="${r}" data-key="${esc(p.key)}" title="Oblíbený na ${l}">${l}</button>`).join('')}</span>`;
 
     const COLS = [
@@ -227,6 +250,7 @@
       ['losses', 'L', (p) => `<span class="loss">${p.losses}</span>`, 'num'],
       ['wr', 'Winrate', (p) => wrBar(p.wr), 'num'],
       ['form', 'Forma', (p) => formDots(p.form)],
+      ['opgg', 'OP.GG', (p) => opggChips(p) || '<span class="zero">–</span>'],
       ['fav', 'Oblíbený na', (p) => roleToggles(p)],
       ['price', 'Cena', (p) => p.scout.price != null ? `<span class="price">${fmtPrice(p.scout.price)}</span>` : '<span class="zero">–</span>', 'num'],
       ['note', 'Poznámka', (p) => `<div class="note-cell">${esc(p.scout.note || '')}</div>`],
@@ -234,7 +258,7 @@
     const sortVal = {
       rank: (p) => p.rank ?? 1e9, nickname: (p) => p.nickname.toLowerCase(), games: (p) => p.games, wins: (p) => p.wins,
       losses: (p) => p.losses, wr: (p) => p.wr ?? -1, form: (p) => p.form.filter(Boolean).length,
-      fav: (p) => p.scout.fav_roles.length, price: (p) => p.scout.price ?? -1, note: (p) => (p.scout.note ? 1 : 0),
+      fav: (p) => p.scout.fav_roles.length, opgg: (p) => (p.scout.riot_eune ? 2 : 0) + (p.scout.riot_euw ? 2 : 0) + (bestSug(p, 'eune') || bestSug(p, 'euw') ? 1 : 0), price: (p) => p.scout.price ?? -1, note: (p) => (p.scout.note ? 1 : 0),
     };
 
     function filtered() {
@@ -267,7 +291,7 @@
         const list = [...S.players.values()].filter((p) => p.scout.fav_roles.includes(r)).sort((a, b) => (b.wr ?? 0) - (a.wr ?? 0));
         return `<section class="card"><h2>${l} <small>${list.length}</small></h2>
           ${list.length ? `<ul class="qs-rec">${list.map((p) => `<li data-key="${esc(p.key)}" style="cursor:pointer">
-            <span><span class="qs-pl">${avatar(p)}${esc(p.nickname)}</span>${p.scout.note ? `<span class="sub">${esc(p.scout.note)}</span>` : ''}</span>
+            <span><span class="qs-pl">${avatar(p)}${esc(p.nickname)}</span> ${opggChips(p)}${p.scout.note ? `<span class="sub">${esc(p.scout.note)}</span>` : ''}</span>
             <span style="text-align:right">${wl(p)}<span class="sub">${pct(p.wr)}${p.scout.price != null ? ` · <span class="price">${fmtPrice(p.scout.price)}</span>` : ''}</span></span></li>`).join('')}</ul>`
             : '<p class="zero" style="font-size:.88rem">Zatím nikdo. Označ hráče v tabulce.</p>'}</section>`;
       }).join('');
@@ -280,7 +304,7 @@
       const row = (pl) => {
         const p = S.players.get(k(pl.nickname));
         const fav = p?.scout.fav_roles.length;
-        return `<div class="row ${fav ? 'fav' : ''}" data-key="${esc(k(pl.nickname))}" style="cursor:pointer">${avatar(p || pl)}${esc(pl.nickname)}${fav ? ' ★' : ''}<small>${p ? `${p.wins}W ${p.losses}L` : ''}</small></div>`;
+        return `<div class="row ${fav ? 'fav' : ''}" data-key="${esc(k(pl.nickname))}" style="cursor:pointer">${avatar(p || pl)}${esc(pl.nickname)}${fav ? ' ★' : ''} ${opggChips(p, false)}<small>${p ? `${p.wins}W ${p.losses}L` : ''}</small></div>`;
       };
       const team = (l, side) => `<div class="${side}"><h4>${side.toUpperCase()}</h4>${l[side].map(row).join('')}
         ${(l.opgg?.[side] || []).map((o) => `<a class="opgg" href="${esc(o.url)}" target="_blank" rel="noopener">${esc(String(o.server).toUpperCase())} ${o.players}/5</a>`).join('')}</div>`;
@@ -310,6 +334,7 @@
               ${p.rank ? `<span class="badge">#${p.rank} v žebříčku</span>` : ''}
               ${p.tier ? `<span class="tier tier-${esc(p.tier)}" style="margin:0">${esc(p.tier)}</span>` : ''}
               ${p.profile ? `<a class="chip" href="${esc(p.profile)}" target="_blank" rel="noopener">profil na SC ↗</a>` : ''}
+              ${opggChips(p, false)}
             </div>
           </div>
           <div class="d-kpis">
@@ -323,10 +348,19 @@
 
         <form class="d-scout" id="d-form">
           <div class="field"><span class="field-label">Oblíbený na pozici</span>${roleToggles(p)}</div>
-          <label class="field"><span class="field-label">Cena</span><input name="price" inputmode="decimal" placeholder="až bude zveřejněná" value="${p.scout.price ?? ''}"></label>
+          <label class="field"><span class="field-label">Cena</span><input name="price" inputmode="decimal" placeholder="zatím neznámá" value="${p.scout.price ?? ''}"></label>
           <label class="field"><span class="field-label">Poznámka</span><textarea name="note" rows="2" placeholder="Co o něm víme…">${esc(p.scout.note || '')}</textarea></label>
           <button class="btn btn-primary" type="submit">Uložit</button>
           <p class="form-error" id="d-err" style="grid-column:1/-1;margin:0"></p>
+          <div class="d-riot" style="grid-column:1/-1;margin:0;padding:0;border:0">
+            ${REG.map(([r, l]) => {
+              const sugs = (S.suggestions[p.key]?.[r] || []).filter((x) => x.riot !== p.scout[`riot_${r}`]);
+              return `<label class="field"><span class="field-label">Riot ID ${l} <small style="font-weight:400;color:var(--muted)">(Jméno#TAG nebo odkaz na op.gg)</small></span>
+                <input name="riot_${r}" placeholder="např. Faker#${l}" value="${esc(p.scout[`riot_${r}`] || '')}">
+                ${sugs.length ? `<span class="sugs">Návrh: ${sugs.map((x) => `<button type="button" data-fill="riot_${r}" data-val="${esc(x.riot)}" title="${x.source === 'team' ? 'Z týmu v appce' : `V týmu ve ${x.seen} z ${x.of} jeho lobby`}${x.name_match ? ' · jméno sedí' : ''}">${esc(x.riot)}${x.source === 'team' ? ' · tým' : x.of ? ` · ${x.seen}/${x.of}` : ''}</button>`).join('')}</span>` : ''}
+              </label>`;
+            }).join('')}
+          </div>
         </form>
         ${p.scout.updated_at ? `<p class="qs-sync" style="margin:6px 0 0">Naposledy upravil ${esc(p.scout.updated_by_name || 'admin')} ${timeAgo(p.scout.updated_at)}</p>` : ''}
 
@@ -350,8 +384,7 @@
         const f = e.target;
         const roles = [...f.querySelectorAll('.role-t.on')].map((b) => b.dataset.role);
         try {
-          await saveScout(p, { fav_roles: roles, price: f.price.value.trim() === '' ? null : f.price.value, note: f.note.value });
-          p.scout.price = p.scout.price == null ? null : Number(String(p.scout.price).replace(/\s/g, '').replace(',', '.'));
+          await saveScout(p, { fav_roles: roles, price: f.price.value.trim() === '' ? null : f.price.value, note: f.note.value, riot_eune: f.riot_eune.value, riot_euw: f.riot_euw.value });
           dlg.close();
           render();
         } catch (err) { $('#d-err').textContent = err.message; }
@@ -398,6 +431,9 @@
         catch (err) { toggle.classList.toggle('on'); alert(err.message); }
         return;
       }
+      const fill = e.target.closest('[data-fill]');
+      if (fill) { const input = document.querySelector(`#d-form [name="${fill.dataset.fill}"]`); input.value = fill.dataset.val; input.focus(); return; }
+      if (e.target.closest('a.opgg')) return; // odkaz na op.gg neotevírá detail
       const open = e.target.closest('[data-open]');
       if (open) { e.preventDefault(); return openDetail(open.dataset.open); }
       const row = e.target.closest('#rows tr[data-key], .qs-rec li[data-key], .lobby .row[data-key]');
@@ -419,7 +455,7 @@
     /* ---------- auto-obnova (10 s) ---------- */
 
     const POLL_MS = 10_000;
-    const sameScout = (a, b) => JSON.stringify([a.fav_roles, a.price, a.note]) === JSON.stringify([b.fav_roles, b.price, b.note]);
+    const sameScout = (a, b) => JSON.stringify([a.fav_roles, a.price, a.note, a.riot_eune || null, a.riot_euw || null]) === JSON.stringify([b.fav_roles, b.price, b.note, b.riot_eune || null, b.riot_euw || null]);
     async function poll() {
       if (document.hidden || S.saving) return;
       try {

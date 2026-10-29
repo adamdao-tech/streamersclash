@@ -493,4 +493,18 @@ CREATE TABLE queue_meta (
   v TEXT
 );
 `,
+
+  /* 16: Queue scouting – players' Riot IDs (OP.GG) + team OP.GG lists seen in live lobbies (for suggestions) */ `
+ALTER TABLE queue_scout ADD COLUMN riot_eune TEXT;
+ALTER TABLE queue_scout ADD COLUMN riot_euw TEXT;
+
+CREATE TABLE queue_opgg_seen (
+  player_key TEXT NOT NULL,
+  lobby_uid  TEXT NOT NULL,
+  region     TEXT NOT NULL CHECK (region IN ('eune', 'euw')),
+  candidates TEXT NOT NULL,
+  seen_at    TEXT NOT NULL DEFAULT (datetime('now')),
+  PRIMARY KEY (player_key, lobby_uid, region)
+);
+`,
 ];

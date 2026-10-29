@@ -15,6 +15,7 @@ import sys
 import time
 from pathlib import Path
 
+from . import kick
 from . import scan as S
 from . import video
 from .app_api import AppClient
@@ -123,7 +124,7 @@ def process_job(app: AppClient, db: ChampionDB, job: dict, auto_accept: bool, ev
     vod_id = job["id"]
     log.info("VOD %s: %s (%s)", vod_id, job.get("title"), job["url"])
     try:
-        streams = video.resolve(job["url"])
+        streams = video.resolve(job["url"], job.get("stream_url"), job.get("duration_s"), job.get("title"))
     except Exception as e:  # sub-only, deleted, region-locked…
         log.warning("  cannot open VOD: %s", e)
         app.finish_job(vod_id, "failed", error=str(e)[:500])
@@ -156,14 +157,31 @@ def process_job(app: AppClient, db: ChampionDB, job: dict, auto_accept: bool, ev
     app.finish_job(vod_id, "done" if found else "skipped", drafts_found=found)
 
 
+def cmd_kick_sync(_args) -> None:
+    app = AppClient(env("APP_URL"), env("READER_TOKEN"))
+    synced, added = kick.sync(app)
+    log.info("Kick: %d channel(s) checked, %d new VOD(s)", synced, added)
+
+
 def cmd_run(_args) -> None:
     app = AppClient(env("APP_URL"), env("READER_TOKEN"))
     every = float(env("SAMPLE_SECONDS", "5"))
     poll = float(env("POLL_SECONDS", "300"))
     auto_accept = env("AUTO_ACCEPT", "true").lower() in ("1", "true", "yes")
+    kick_every = float(env("KICK_SYNC_SECONDS", "900"))
     db = load_champions()
     log.info("Reader started, polling %s every %ds", env("APP_URL"), poll)
+    last_kick = 0.0
     while True:
+        # Kick VODs: their API blocks Cloudflare, so the reader fetches them and sends them to the app.
+        if kick_every > 0 and time.time() - last_kick >= kick_every:
+            last_kick = time.time()
+            try:
+                synced, added = kick.sync(app)
+                if synced:
+                    log.info("Kick: %d channel(s) checked, %d new VOD(s)", synced, added)
+            except Exception:
+                log.exception("Kick sync failed")
         try:
             jobs = app.claim_jobs(1)
             if not jobs:
@@ -193,12 +211,13 @@ def main() -> None:
     t.add_argument("--postgame", help="time of the post-game scoreboard, e.g. 1:00:00")
     t.add_argument("--upload", action="store_true", help="save the result to the app")
     t.add_argument("-v", "--verbose", action="store_true", help="print the full reading as JSON")
+    sub.add_parser("kick-sync", help="fetch Kick VODs once and send them to the app")
     sc = sub.add_parser("scan")
     sc.add_argument("url")
     sc.add_argument("--start")
     sc.add_argument("--end")
     args = p.parse_args()
-    {"test": cmd_test, "scan": cmd_scan}.get(args.cmd, cmd_run)(args)
+    {"test": cmd_test, "scan": cmd_scan, "kick-sync": cmd_kick_sync}.get(args.cmd, cmd_run)(args)
 
 
 if __name__ == "__main__":

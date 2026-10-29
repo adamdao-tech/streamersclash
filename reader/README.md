@@ -18,6 +18,18 @@ Confident reads are saved straight away. Anything unsure is uploaded as a frame 
 
 Logs: `docker compose logs -f reader`
 
+## Kick VODs
+
+Kick has no public VOD API and blocks requests from Cloudflare, so the reader fetches Kick VODs itself:
+every 15 minutes (`KICK_SYNC_SECONDS` in `.env`, `0` turns it off) it asks the app for the Kick channels
+(players' Kick channel + Kick channels under *Další kanály*), lists their VODs on kick.com and sends them
+to the app. They then wait in the queue and are read like Twitch VODs (the reader plays Kick's HLS stream
+directly).
+
+Run it once by hand: `docker compose run --rm reader kick-sync`
+
+After updating, rebuild the image (`docker compose up -d --build`) – Kick needs the new `curl_cffi` package.
+
 ## Trying it on one VOD
 
 Read the draft at a given moment (writes debug images to `./debug`), optionally with the post-game scoreboard of that game:

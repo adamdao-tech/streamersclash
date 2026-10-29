@@ -37,7 +37,7 @@ async function route(req: Request, env: Env, url: URL): Promise<Response> {
     const limit = Math.min(Math.max(Number(url.searchParams.get('limit')) || 1, 1), 5);
     const { results } = await db
       .prepare(
-        `SELECT v.id, v.platform, v.url, v.title, v.channel_login, v.started_at, v.duration_s, v.player_id
+        `SELECT v.id, v.platform, v.url, v.stream_url, v.title, v.channel_login, v.started_at, v.duration_s, v.player_id
            FROM vods v
           WHERE (v.scan_status = 'pending' OR (v.scan_status = 'scanning' AND v.scanned_at < datetime('now', '-6 hours')))
             AND v.platform IN ('twitch', 'kick')
@@ -55,6 +55,67 @@ async function route(req: Request, env: Env, url: URL): Promise<Response> {
       );
     }
     return json({ jobs: results });
+  }
+
+  // --- Kick ------------------------------------------------------------------
+  // Kick has no public VOD API and blocks requests from Cloudflare Workers, so the reader (a home
+  // connection) lists the channels' VODs and sends them here.
+
+  // Kick channels to sync: players' Kick channels + extra channels, least recently synced first.
+  if (path === '/api/reader/kick/channels' && req.method === 'GET') {
+    const { results } = await db
+      .prepare(
+        `SELECT c.slug, MIN(c.player_id) AS player_id, s.last_synced_at FROM (
+           SELECT lower(kick_slug) AS slug, id AS player_id FROM players WHERE kick_slug IS NOT NULL AND kick_slug <> ''
+           UNION ALL
+           SELECT lower(login) AS slug, NULL AS player_id FROM channels WHERE platform = 'kick'
+         ) c LEFT JOIN sync_state s ON s.key = 'kick:' || c.slug
+         GROUP BY c.slug ORDER BY s.last_synced_at IS NOT NULL, s.last_synced_at`,
+      )
+      .all();
+    return json({ channels: results });
+  }
+
+  // VODs of one Kick channel (or the error the reader got while fetching them).
+  if (path === '/api/reader/kick/vods' && req.method === 'POST') {
+    const body = (await req.json()) as {
+      slug?: string;
+      error?: string;
+      vods?: { external_id: string; url: string; stream_url?: string | null; title?: string | null; started_at?: string | null;
+               duration_s?: number | null; thumbnail_url?: string | null }[];
+    };
+    const slug = String(body.slug ?? '').trim().toLowerCase();
+    if (!slug) throw new HttpError(400, 'invalid', 'slug is required');
+    const setState = (error: string | null) =>
+      db.prepare(
+        `INSERT INTO sync_state (key, last_synced_at, last_error) VALUES (?, datetime('now'), ?)
+         ON CONFLICT(key) DO UPDATE SET last_synced_at = excluded.last_synced_at, last_error = excluded.last_error`,
+      ).bind(`kick:${slug}`, error);
+    if (body.error) {
+      await setState(String(body.error).slice(0, 500)).run();
+      return json({ ok: true, added: 0 });
+    }
+    const player = await db.prepare('SELECT MIN(id) AS id FROM players WHERE lower(kick_slug) = ?').bind(slug).first<{ id: number | null }>();
+    const vods = (body.vods ?? []).filter((v) => v.external_id && v.url).slice(0, 20);
+    const before = await db.prepare(`SELECT COUNT(*) AS n FROM vods WHERE platform = 'kick'`).first<{ n: number }>();
+    const upsert = db.prepare(
+      `INSERT INTO vods (player_id, platform, external_id, url, stream_url, title, started_at, duration_s, thumbnail_url, channel_login)
+       VALUES (?, 'kick', ?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(platform, external_id) DO UPDATE SET
+         title = excluded.title, duration_s = excluded.duration_s, stream_url = COALESCE(excluded.stream_url, vods.stream_url),
+         thumbnail_url = COALESCE(excluded.thumbnail_url, vods.thumbnail_url), player_id = COALESCE(vods.player_id, excluded.player_id)`,
+    );
+    await db.batch([
+      ...vods.map((v) =>
+        upsert.bind(player?.id ?? null, String(v.external_id), String(v.url), v.stream_url ?? null, v.title ?? null,
+          v.started_at ?? null, v.duration_s ?? null, v.thumbnail_url ?? null, slug),
+      ),
+      setState(null),
+    ]);
+    const after = await db.prepare(`SELECT COUNT(*) AS n FROM vods WHERE platform = 'kick'`).first<{ n: number }>();
+    const added = (after?.n ?? 0) - (before?.n ?? 0);
+    if (added > 0) await logActivity(db, { kind: 'sync' }, 'vods.sync', null, null, { new: added, channels: 1, platform: 'kick', slug });
+    return json({ ok: true, added });
   }
 
   // Report the outcome of a scan.

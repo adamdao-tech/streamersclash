@@ -36,7 +36,7 @@ See [`reader/README.md`](reader/README.md). Needs the `READER_TOKEN` secret in C
 
 ## Roadmap
 1. ~~DB schema, Twitch login, teams & players~~
-2. ~~Twitch VOD sync, live status~~ (Kick later)
+2. ~~Twitch VOD sync, live status~~, ~~Kick VODs (fetched by the reader on Dao's PC, Kick blocks Cloudflare)~~
 3. ~~Remote MCP connector (OAuth) for Claude~~
 4. ~~Draft reader (VOD → champ select → draft)~~, tuning on real VODs
 5. ~~Schedule (Harmonogram): tournament matches, scrims, other events and free days (volno), list + calendar view, next-match hero with countdown~~

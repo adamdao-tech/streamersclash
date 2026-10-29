@@ -27,6 +27,14 @@ class AppClient:
     def claim_jobs(self, limit: int = 1) -> list[dict]:
         return self._check(self.s.get(f"{self.base}/api/reader/jobs", params={"limit": limit}, timeout=30))["jobs"]
 
+    def kick_channels(self) -> list[dict]:
+        return self._check(self.s.get(f"{self.base}/api/reader/kick/channels", timeout=30))["channels"]
+
+    def post_kick_vods(self, slug: str, vods: list[dict] | None = None, error: str | None = None) -> dict:
+        return self._check(
+            self.s.post(f"{self.base}/api/reader/kick/vods", json={"slug": slug, "vods": vods or [], "error": error}, timeout=60)
+        )
+
     def finish_job(self, vod_id: int, status: str, drafts_found: int = 0, error: str | None = None) -> None:
         self._check(
             self.s.post(

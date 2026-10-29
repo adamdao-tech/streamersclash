@@ -28,8 +28,12 @@
       <section id="vods" class="vod-grid"></section>
       <aside>
         <div class="section-head"><h2>Další kanály</h2></div>
-        <p style="color:var(--muted);font-size:.88rem;margin:-6px 0 12px">Kanály mimo soupisky, třeba oficiální přenos turnaje. Kanály hráčů se sledují automaticky.</p>
+        <p style="color:var(--muted);font-size:.88rem;margin:-6px 0 12px">Kanály mimo soupisky, třeba oficiální přenos turnaje. Kanály hráčů se sledují automaticky. Kick VODky stahuje čtečka na tvém PC (Kick blokuje servery), každých 15 min.</p>
         <form id="add-channel" class="stack-form">
+          <div class="seg" id="platform-seg" style="align-self:flex-start">
+            <button type="button" data-p="twitch" class="active">Twitch</button>
+            <button type="button" data-p="kick">Kick</button>
+          </div>
           <input name="login" placeholder="Twitch kanál nebo odkaz" required>
           <input name="label" placeholder="Popisek, např. Oficiální přenos">
           <button class="btn btn-primary" type="submit">Sledovat</button>
@@ -77,7 +81,7 @@
       const el = document.getElementById('vods');
       el.innerHTML = vods.length
         ? vods.map((v) => {
-            const isLive = live[v.channel_login] && v === vods.find((x) => x.channel_login === v.channel_login);
+            const isLive = v.platform === 'twitch' && live[v.channel_login] && v === vods.find((x) => x.channel_login === v.channel_login);
             const who = v.player_nickname
               ? `<span style="color:${esc(v.team_color || 'var(--gold)')}">${esc(v.player_nickname)}</span>${v.team_name ? ` · ${esc(v.team_name)}` : ''}`
               : esc(v.channel_label || v.channel_login);
@@ -86,6 +90,7 @@
               <div class="thumb">
                 ${v.thumbnail_url ? `<img src="${esc(v.thumbnail_url)}" alt="" loading="lazy">` : ''}
                 ${isLive ? '<span class="badge badge-live">Live</span>' : `<span class="dur">${duration(v.duration_s)}</span>`}
+                ${v.platform === 'kick' ? '<span class="badge" style="position:absolute;left:8px;top:8px;right:auto;bottom:auto;background:#0b0e0b;color:var(--kick);border-color:transparent">KICK</span>' : ''}
               </div>
               <div class="body">
                 <div class="title">${esc(v.title || 'Bez názvu')}</div>
@@ -99,7 +104,7 @@
               </div>
             </a>`;
           }).join('')
-        : '<div class="empty" style="grid-column:1/-1">Zatím žádné VODky. Přidej hráčům Twitch kanál nebo sleduj kanál vpravo.</div>';
+        : '<div class="empty" style="grid-column:1/-1">Zatím žádné VODky. Přidej hráčům Twitch/Kick kanál nebo sleduj kanál vpravo.</div>';
     }
 
     async function loadChannels() {
@@ -107,19 +112,26 @@
       document.getElementById('channels').innerHTML = channels.length
         ? channels.map((c) => `
           <li>
-            <span><b>${esc(c.label || c.login)}</b><br><small>${esc(c.login)} · ${c.vod_count} VOD${c.last_error ? ` · <span style="color:#ff9a9d">${esc(c.last_error)}</span>` : ''}</small></span>
+            <span><b>${esc(c.label || c.login)}</b><br><small>${c.platform === 'kick' ? '<span style="color:var(--kick)">Kick</span> · ' : ''}${esc(c.login)} · ${c.vod_count} VOD${c.last_error ? ` · <span style="color:#ff9a9d">${esc(c.last_error)}</span>` : ''}</small></span>
             <button class="btn btn-small btn-danger" data-delete="${c.id}">✕</button>
           </li>`).join('')
         : '<li>Žádné další kanály.</li>';
     }
 
+    let platform = 'twitch';
+    document.getElementById('platform-seg').addEventListener('click', (e) => {
+      const b = e.target.closest('button[data-p]'); if (!b) return;
+      platform = b.dataset.p;
+      document.querySelectorAll('#platform-seg button').forEach((x) => x.classList.toggle('active', x === b));
+      form.login.placeholder = platform === 'kick' ? 'Kick kanál nebo odkaz' : 'Twitch kanál nebo odkaz';
+    });
     const form = document.getElementById('add-channel');
     form.addEventListener('submit', async (e) => {
       e.preventDefault();
       const err = form.querySelector('.form-error');
       err.textContent = '';
       try {
-        await api('/api/channels', { method: 'POST', body: { platform: 'twitch', login: form.login.value, label: form.label.value } });
+        await api('/api/channels', { method: 'POST', body: { platform, login: form.login.value, label: form.label.value } });
         form.reset();
         await Promise.all([loadChannels(), loadVods()]);
       } catch (ex) { err.textContent = ex.message; }

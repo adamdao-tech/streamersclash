@@ -24,7 +24,17 @@ class Streams:
     title: str | None
 
 
-def resolve(url: str) -> Streams:
+def resolve(url: str, stream_url: str | None = None, duration: float | None = None, title: str | None = None) -> Streams:
+    """Stream URLs for a VOD. Kick VODs come with a direct HLS playlist (stream_url); everything else goes through yt-dlp."""
+    if stream_url and ".m3u8" in stream_url:
+        from . import kick
+
+        vs = kick.variants(stream_url)
+        scan = next((v for v in vs if v["height"] >= 150), vs[0])
+        hires_candidates = [v for v in vs if v["height"] <= 1080]
+        hires = hires_candidates[-1] if hires_candidates else vs[-1]
+        log.info("Streams (HLS): scan %sp, read %sp", scan["height"] or "?", hires["height"] or "?")
+        return Streams(scan["url"], hires["url"], duration, title)
     with yt_dlp.YoutubeDL({"quiet": True, "no_warnings": True, "noplaylist": True}) as ydl:
         info = ydl.extract_info(url, download=False)
     formats = [f for f in info.get("formats", []) if f.get("vcodec") not in (None, "none") and f.get("url")]

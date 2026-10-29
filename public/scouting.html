@@ -91,6 +91,7 @@
       </div>
       <div class="page-head-tools">
         <span class="qs-sync" id="sync-info"></span>
+        <span class="qs-sync" id="live-info" title="Stránka se sama obnovuje každých 10 s"><span class="live-dot" style="display:inline-block;vertical-align:middle"></span> <span id="tick">auto 10 s</span></span>
         <button class="btn btn-small" id="sync">Synchronizovat</button>
       </div>
     </div>
@@ -184,6 +185,7 @@
         p.form = p.history.slice(-5).map((h) => h.won);
       }
       S.players = players; S.matches = data.matches;
+      S.syncedAt = data.synced_at; S.matchCount = data.matches.length; S.lastPoll = Date.now();
       $('#sync-info').textContent = data.synced_at ? `Synchronizováno ${timeAgo(data.synced_at)} · ${data.matches.length} uložených zápasů` : 'Ještě nesynchronizováno';
       $('#c-players').textContent = players.size;
       $('#c-favs').textContent = [...players.values()].filter((p) => p.scout.fav_roles.length).length || '';
@@ -198,6 +200,10 @@
     }
 
     async function saveScout(p, patch) {
+      S.saving = (S.saving || 0) + 1;
+      try { return await doSaveScout(p, patch); } finally { S.saving--; }
+    }
+    async function doSaveScout(p, patch) {
       const next = { ...p.scout, ...patch };
       await api(`/api/queue/scout/${encodeURIComponent(p.key)}`, { method: 'PUT', body: { fav_roles: next.fav_roles, price: next.price, note: next.note } });
       p.scout = next;
@@ -409,6 +415,38 @@
       } catch (err) { alert(err.message); btn.textContent = 'Synchronizovat'; }
       finally { setTimeout(() => { btn.disabled = false; btn.textContent = 'Synchronizovat'; }, 2500); }
     });
+
+    /* ---------- auto-obnova (10 s) ---------- */
+
+    const POLL_MS = 10_000;
+    const sameScout = (a, b) => JSON.stringify([a.fav_roles, a.price, a.note]) === JSON.stringify([b.fav_roles, b.price, b.note]);
+    async function poll() {
+      if (document.hidden || S.saving) return;
+      try {
+        const u = await api('/api/queue/updates');
+        // nový sync (přibyly zápasy / změnil se žebříček) → načti všechno
+        if (u.synced_at !== S.syncedAt || u.matches !== S.matchCount) return void (await load());
+        const byKey = new Map(u.scout.map((x) => [x.player_key, x]));
+        let changed = false;
+        for (const p of S.players.values()) {
+          const next = byKey.get(p.key) || { fav_roles: [], price: null, note: null };
+          if (!sameScout(p.scout, next)) { p.scout = next; changed = true; }
+        }
+        S.lastPoll = Date.now();
+        if (changed) {
+          // otevřený detail nepřepisuj – rozepsanou poznámku by to smazalo
+          render();
+          $('#c-favs').textContent = [...S.players.values()].filter((p) => p.scout.fav_roles.length).length || '';
+        }
+        if (S.tab === 'live') loadLive();
+      } catch (err) { console.warn('auto-obnova selhala', err); }
+    }
+    setInterval(poll, POLL_MS);
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) poll(); });
+    setInterval(() => {
+      const s = Math.round((Date.now() - (S.lastPoll || Date.now())) / 1000);
+      $('#tick').textContent = s < 3 ? 'aktualizováno teď' : `aktualizováno před ${s} s`;
+    }, 1000);
 
     await load();
     // první návštěva: data ještě nejsou → stáhni je hned

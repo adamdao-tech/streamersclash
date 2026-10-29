@@ -142,6 +142,20 @@ export async function handleQueueApi(
     });
   }
 
+  // Lightweight poll for the page's auto-refresh: admins' edits + whether a new sync happened.
+  if (path === '/api/queue/updates' && method === 'GET') {
+    const [scout, meta, count] = await Promise.all([
+      db.prepare(`SELECT s.*, u.display_name AS updated_by_name FROM queue_scout s LEFT JOIN users u ON u.id = s.updated_by`).all(),
+      db.prepare(`SELECT v FROM queue_meta WHERE k = 'synced_at'`).first<{ v: string }>(),
+      db.prepare('SELECT COUNT(*) AS n FROM queue_matches').first<{ n: number }>(),
+    ]);
+    return json({
+      scout: scout.results.map((r: Record<string, unknown>) => ({ ...r, fav_roles: JSON.parse(String(r.fav_roles || '[]')) })),
+      synced_at: meta?.v ?? null,
+      matches: count?.n ?? 0,
+    });
+  }
+
   if (path === '/api/queue/live' && method === 'GET') {
     try {
       return json({ live: await liveLobbies() });

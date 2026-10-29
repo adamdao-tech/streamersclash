@@ -201,8 +201,15 @@ export async function fetchProfile(profileUrl: string, attempt = 1): Promise<Pro
     }
     return { ok: false, error: 'účty se na profilu nenačetly', throttled: false };
   }
-  // A real profile page with no "Účty" section = the player has no linked accounts.
-  if (/·\s*Streamers Clash/i.test(title)) return { ok: true, ...parsed };
+  // A profile page with no "Účty" section: usually the player has no linked accounts, but their site
+  // sometimes leaves the section out under load – so look once more (and saveProfile rechecks soon).
+  if (/·\s*Streamers Clash/i.test(title)) {
+    if (attempt < 2) {
+      await pause(1500);
+      return fetchProfile(profileUrl, attempt + 1);
+    }
+    return { ok: true, ...parsed };
+  }
   return { ok: false, error: 'místo profilu přišla jiná stránka', throttled: true };
 }
 
@@ -215,9 +222,14 @@ async function saveProfile(db: D1Database, playerKey: string, data: ProfileResul
       .run();
     return;
   }
+  // No accounts found: check again in ~2 h instead of tomorrow (their page sometimes omits them).
   await db
-    .prepare(`UPDATE queue_players SET accounts = ?, preferred_role = ?, profile_checked_at = datetime('now'), profile_error = NULL WHERE key = ?`)
-    .bind(JSON.stringify(data.accounts), data.preferred_role, playerKey)
+    .prepare(
+      `UPDATE queue_players SET accounts = ?, preferred_role = COALESCE(?, preferred_role),
+         profile_checked_at = CASE WHEN ? THEN datetime('now') ELSE datetime('now', '-22 hours') END, profile_error = NULL
+       WHERE key = ?`,
+    )
+    .bind(JSON.stringify(data.accounts), data.preferred_role, data.accounts.length ? 1 : 0, playerKey)
     .run();
 }
 

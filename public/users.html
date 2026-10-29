@@ -26,7 +26,7 @@
     <p class="form-error" id="error"></p>
 
     <table class="table">
-      <thead><tr><th>Uživatel</th><th>Role</th><th>Poslední přihlášení</th><th></th></tr></thead>
+      <thead><tr><th>Uživatel</th><th>Role</th><th id="th-stream" hidden title="Může mít Queue scouting otevřený i během Twitch streamu">Smí streamovat</th><th>Poslední přihlášení</th><th></th></tr></thead>
       <tbody id="users"></tbody>
     </table>
   </main>
@@ -37,6 +37,9 @@
     const me = await initPage('users');
     if (me.role !== 'admin') location.href = '/';
 
+    const superadmin = !!me.is_superadmin;
+    document.getElementById('th-stream').hidden = !superadmin;
+
     async function load() {
       const { users } = await api('/api/users');
       document.getElementById('users').innerHTML = users.map((u) => `
@@ -46,6 +49,7 @@
             <div><b>${esc(u.display_name || u.twitch_login)}</b><br><small style="color:var(--muted)">${esc(u.twitch_login)}</small></div>
           </div></td>
           <td>${u.role === 'admin' ? '<span class="badge badge-admin">Admin</span>' : '<span class="badge">Člen</span>'}</td>
+          ${superadmin ? `<td>${u.id === me.id ? '<small style="color:var(--muted)">vždy (superadmin)</small>' : `<label style="display:inline-flex;gap:6px;align-items:center;cursor:pointer"><input type="checkbox" data-stream="${u.id}" ${u.can_stream ? 'checked' : ''}> ano</label>`}</td>` : ''}
           <td>${u.last_login_at ? timeAgo(u.last_login_at) : '<span style="color:var(--muted)">ještě ne</span>'}</td>
           <td style="text-align:right">${u.id === me.id ? '' : `<button class="btn btn-small btn-danger" data-delete="${u.id}">Odebrat</button>`}</td>
         </tr>`).join('');
@@ -63,6 +67,14 @@
       } catch (err) {
         error.textContent = err.message;
       }
+    });
+
+    document.getElementById('users').addEventListener('change', async (e) => {
+      const id = e.target.dataset.stream;
+      if (!id) return;
+      error.textContent = '';
+      try { await api(`/api/users/${id}`, { method: 'PATCH', body: { can_stream: e.target.checked } }); }
+      catch (err) { e.target.checked = !e.target.checked; error.textContent = err.message; }
     });
 
     document.getElementById('users').addEventListener('click', async (e) => {

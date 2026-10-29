@@ -37,6 +37,8 @@ export interface User {
   display_name: string | null;
   avatar_url: string | null;
   role: 'admin' | 'member';
+  /** 1 = may keep the Queue scouting page visible while live on Twitch */
+  can_stream?: number;
 }
 
 /** Superadmins (SUPERADMINS var, Twitch logins) are the only ones who see the activity log, admins included. */

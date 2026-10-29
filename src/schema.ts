@@ -521,4 +521,8 @@ ALTER TABLE queue_players ADD COLUMN profile_error TEXT;
 -- saves an accounts list (at least []), so a checked profile without one gets read again
 UPDATE queue_players SET profile_checked_at = NULL WHERE accounts IS NULL AND profile_checked_at IS NOT NULL;
 `,
+
+  /* 19: who may keep Queue scouting visible while live on Twitch (superadmins always may) */ `
+ALTER TABLE users ADD COLUMN can_stream INTEGER NOT NULL DEFAULT 0;
+`,
 ];

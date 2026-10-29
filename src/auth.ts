@@ -24,7 +24,7 @@ export async function getSessionUser(req: Request, env: Env): Promise<User | nul
   if (!token) return null;
   const hash = await sha256Hex(token);
   return env.DB.prepare(
-    `SELECT u.id, u.twitch_login, u.twitch_id, u.display_name, u.avatar_url, u.role
+    `SELECT u.id, u.twitch_login, u.twitch_id, u.display_name, u.avatar_url, u.role, u.can_stream
        FROM sessions s JOIN users u ON u.id = s.user_id
       WHERE s.token_hash = ? AND s.expires_at > datetime('now')`,
   )

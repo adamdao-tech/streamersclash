@@ -1,5 +1,6 @@
 import type { Env } from './index';
-import { logActivity, type User } from './db';
+import { isSuperadmin, logActivity, type User } from './db';
+import { cacheGet, cacheSet, getStreams } from './twitch';
 import { HttpError, json } from './http';
 import { parseStart } from './schedule';
 
@@ -391,6 +392,33 @@ function mergeScout(prev: Record<string, unknown> | null, body: Record<string, u
   return { fav_roles: JSON.stringify([...new Set(fav)]), price, note, riot_eune, riot_euw };
 }
 
+// --- stream guard -----------------------------------------------------------------
+// A web page can't tell that OBS/Discord is capturing it, but the app knows each user's Twitch login:
+// while they're live on Twitch, the scouting data (notes, prices, favourites) isn't sent to them and the
+// page goes black. Superadmins and users with can_stream = 1 are exempt.
+
+export interface StreamGuard { live: boolean; allowed: boolean; hidden: boolean; title: string | null }
+
+export async function streamGuard(env: Env, user: User): Promise<StreamGuard> {
+  const allowed = isSuperadmin(env, user) || !!user.can_stream;
+  const login = String(user.twitch_login).toLowerCase();
+  const cacheKey = `live:user:${login}`;
+  let state: { live: boolean; title: string | null } | null = null;
+  const cached = await cacheGet(env.DB, cacheKey).catch(() => null);
+  if (cached) state = JSON.parse(cached);
+  else {
+    try {
+      const [stream] = await getStreams(env, [login]);
+      state = { live: !!stream, title: stream?.title ?? null };
+      await cacheSet(env.DB, cacheKey, JSON.stringify(state), 45);
+    } catch (err) {
+      console.error('stream guard', err);
+      state = { live: false, title: null };
+    }
+  }
+  return { live: state!.live, allowed, hidden: state!.live && !allowed, title: state!.title };
+}
+
 /** Routes under /api/queue. Returns null when the path isn't ours. */
 export async function handleQueueApi(
   req: Request, env: Env, path: string, method: string, user: User, readBody: (r: Request) => Promise<Record<string, unknown>>,
@@ -399,6 +427,10 @@ export async function handleQueueApi(
   if (user.role !== 'admin') throw new HttpError(403, 'forbidden', 'Scouting queue je jen pro adminy.');
   const db = env.DB;
   let m: RegExpMatchArray | null;
+
+  const guard = await streamGuard(env, user);
+
+  if (path === '/api/queue/stream' && method === 'GET') return json({ stream: guard });
 
   if (path === '/api/queue' && method === 'GET') {
     const [players, matches, scout, meta, suggestions] = await Promise.all([
@@ -412,8 +444,10 @@ export async function handleQueueApi(
       suggestions,
       players: players.results.map((r: Record<string, unknown>) => ({ ...r, accounts: r.accounts ? JSON.parse(String(r.accounts)) : null })),
       matches: matches.results.map((r: Record<string, unknown>) => ({ ...r, blue: JSON.parse(String(r.blue)), red: JSON.parse(String(r.red)) })),
-      scout: scout.results.map((r: Record<string, unknown>) => ({ ...r, fav_roles: JSON.parse(String(r.fav_roles || '[]')) })),
+      // live on Twitch without permission → the admins' notes, prices and favourites stay on the server
+      scout: guard.hidden ? [] : scout.results.map((r: Record<string, unknown>) => ({ ...r, fav_roles: JSON.parse(String(r.fav_roles || '[]')) })),
       synced_at: meta?.v ?? null,
+      stream: guard,
     });
   }
 
@@ -425,9 +459,10 @@ export async function handleQueueApi(
       db.prepare('SELECT COUNT(*) AS n FROM queue_matches').first<{ n: number }>(),
     ]);
     return json({
-      scout: scout.results.map((r: Record<string, unknown>) => ({ ...r, fav_roles: JSON.parse(String(r.fav_roles || '[]')) })),
+      scout: guard.hidden ? [] : scout.results.map((r: Record<string, unknown>) => ({ ...r, fav_roles: JSON.parse(String(r.fav_roles || '[]')) })),
       synced_at: meta?.v ?? null,
       matches: count?.n ?? 0,
+      stream: guard,
     });
   }
 
@@ -467,6 +502,7 @@ export async function handleQueueApi(
   }
 
   if ((m = path.match(/^\/api\/queue\/scout\/(.+)$/)) && method === 'PUT') {
+    if (guard.hidden) throw new HttpError(423, 'live', 'Jsi live na Twitchi – během streamu se scouting upravovat nedá.');
     const playerKey = key(decodeURIComponent(m[1]));
     if (!playerKey) throw new HttpError(400, 'invalid', 'Chybí hráč.');
     const prev = await db.prepare('SELECT * FROM queue_scout WHERE player_key = ?').bind(playerKey).first<Record<string, unknown>>();

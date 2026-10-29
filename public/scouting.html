@@ -98,6 +98,16 @@
     .opgg { display: inline-block; font: 700 0.7rem var(--display); padding: 2px 7px; border-radius: 5px; background: #5c46e8; color: #fff; margin: 4px 3px 0 0; }
     .opgg:hover { text-decoration: none; filter: brightness(1.15); }
     @media (max-width: 760px) { .d-scout, .d-riot { grid-template-columns: 1fr; } .d-kpis { margin-left: 0; } .lobbies { grid-template-columns: 1fr; } }
+    /* ochrana při streamu */
+    #shield { position: fixed; inset: 0; z-index: 50; background: #000; display: grid; place-items: center; text-align: center; padding: 24px; }
+    #shield[hidden] { display: none; }
+    #shield .box { max-width: 460px; }
+    #shield h2 { font-size: 1.6rem; margin-bottom: 10px; }
+    #shield p { color: var(--muted); margin: 0 0 18px; }
+    #watermark { position: fixed; inset: -50%; z-index: 40; pointer-events: none; transform: rotate(-24deg); opacity: .06;
+      display: flex; flex-wrap: wrap; gap: 70px 120px; align-content: flex-start; font: 700 1.1rem var(--display); color: var(--text); user-select: none; }
+    #watermark[hidden] { display: none; }
+    .share-on { background: var(--red) !important; color: #fff !important; border-color: transparent !important; }
   </style>
 </head>
 <body>
@@ -112,6 +122,7 @@
         <span class="qs-sync" id="live-info" title="Stránka se sama obnovuje každých 10 s"><span class="live-dot" style="display:inline-block;vertical-align:middle"></span> <span id="tick">auto 10 s</span></span>
         <button class="btn btn-small btn-ghost" id="profiles" title="Projde profily hráčů na Streamers Clash a načte jejich účty (OP.GG, rank)">Načíst účty všem</button>
         <button class="btn btn-small" id="sync">Synchronizovat</button>
+        <button class="btn btn-small btn-ghost" id="share" title="Zčerná stránku, když sdílíš obrazovku (Discord apod.). Klávesa F9.">Sdílím obrazovku (F9)</button>
       </div>
     </div>
 
@@ -152,6 +163,13 @@
   </main>
 
   <dialog id="detail"><div class="d-body" id="detail-body"></div></dialog>
+
+  <div id="shield" hidden><div class="box">
+    <h2 id="shield-title"></h2>
+    <p id="shield-text"></p>
+    <button class="btn" id="shield-off" hidden>Zobrazit scouting (F9)</button>
+  </div></div>
+  <div id="watermark" hidden aria-hidden="true"></div>
 
   <script type="module">
     import { api, esc, initPage, timeAgo } from '/app.js';
@@ -208,6 +226,7 @@
       }
       S.players = players; S.matches = data.matches; S.suggestions = data.suggestions || {};
       S.syncedAt = data.synced_at; S.matchCount = data.matches.length; S.lastPoll = Date.now();
+      applyStream(data.stream);
       $('#sync-info').textContent = data.synced_at ? `Synchronizováno ${timeAgo(data.synced_at)} · ${data.matches.length} uložených zápasů` : 'Ještě nesynchronizováno';
       $('#c-players').textContent = players.size;
       $('#c-favs').textContent = [...players.values()].filter((p) => p.scout.fav_roles.length).length || '';
@@ -551,6 +570,52 @@
       }
     });
 
+    /* ---------- ochrana při streamu ---------- */
+    // Web nepozná, že ho snímá OBS/Discord. Server ale ví, kdo je live na Twitchi: takovému adminovi
+    // (bez povolení streamovat) citlivá data vůbec nepošle a stránka zčerná. Pro Discord apod. je ruční
+    // přepínač "Sdílím obrazovku" (F9). Vodoznak s loginem vidí všichni bez povolení streamovat.
+
+    const LS_SHARE = 'qs.sharing';
+    let sharing = false;
+    try { sharing = localStorage.getItem(LS_SHARE) === '1'; } catch {}
+
+    function updateShield() {
+      const st = S.stream || {};
+      const forced = !!st.hidden;
+      const on = forced || sharing;
+      $('#shield').hidden = !on;
+      if (on && $('#detail').open) $('#detail').close();
+      $('#shield-title').textContent = forced ? 'Jsi live na Twitchi' : 'Sdílíš obrazovku';
+      $('#shield-text').textContent = forced
+        ? 'Během streamu je Queue scouting skrytý a poznámky, ceny ani oblíbení se do prohlížeče vůbec nenačítají. Jakmile stream skončí, stránka se sama zobrazí (do ~1 min).'
+        : 'Scouting je skrytý, ať ho omylem neukážeš. Až sdílení ukončíš, zobraz ho tlačítkem nebo klávesou F9.';
+      $('#shield-off').hidden = forced;
+      $('#share').classList.toggle('share-on', sharing);
+      $('#share').textContent = sharing ? 'Sdílím obrazovku – zapnuto (F9)' : 'Sdílím obrazovku (F9)';
+    }
+    function setSharing(v) {
+      sharing = v;
+      try { v ? localStorage.setItem(LS_SHARE, '1') : localStorage.removeItem(LS_SHARE); } catch {}
+      updateShield();
+    }
+    function applyStream(st) {
+      S.stream = st || { live: false, allowed: true, hidden: false };
+      // vodoznak pro ty, kdo nesmí streamovat – kdyby něco uniklo, je vidět odkud
+      const wm = $('#watermark');
+      wm.hidden = !!S.stream.allowed;
+      if (!wm.hidden && !wm.childElementCount) {
+        const label = `${me.twitch_login} · ${new Date().toLocaleDateString('cs-CZ')}`;
+        wm.innerHTML = Array.from({ length: 160 }, () => `<span>${esc(label)}</span>`).join('');
+      }
+      updateShield();
+    }
+    $('#share').addEventListener('click', () => setSharing(!sharing));
+    $('#shield-off').addEventListener('click', () => setSharing(false));
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'F9') { e.preventDefault(); if (!S.stream?.hidden) setSharing(!sharing); }
+    });
+    updateShield();
+
     /* ---------- auto-obnova (10 s) ---------- */
 
     const POLL_MS = 10_000;
@@ -559,6 +624,9 @@
       if (document.hidden || S.saving) return;
       try {
         const u = await api('/api/queue/updates');
+        const wasHidden = S.stream?.hidden;
+        applyStream(u.stream);
+        if (wasHidden && !u.stream?.hidden) return void (await load()); // stream skončil → načti data zpět
         // nový sync (přibyly zápasy / změnil se žebříček) → načti všechno
         if (u.synced_at !== S.syncedAt || u.matches !== S.matchCount) return void (await load());
         const byKey = new Map(u.scout.map((x) => [x.player_key, x]));

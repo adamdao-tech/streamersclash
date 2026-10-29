@@ -45,7 +45,7 @@ async function route(req: Request, env: Env, url: URL, user: User): Promise<Resp
     if (method === 'GET') {
       const { results } = await db
         .prepare(
-          'SELECT id, twitch_login, display_name, avatar_url, role, created_at, last_login_at FROM users ORDER BY role, twitch_login',
+          'SELECT id, twitch_login, display_name, avatar_url, role, can_stream, created_at, last_login_at FROM users ORDER BY role, twitch_login',
         )
         .all();
       return json({ users: results });
@@ -63,6 +63,15 @@ async function route(req: Request, env: Env, url: URL, user: User): Promise<Resp
       await logActivity(db, actor, 'user.add', 'user', res.meta.last_row_id, { login, role });
       return json({ ok: true }, 201);
     }
+  }
+  // Who may keep Queue scouting visible while live – only a superadmin (the coach) decides.
+  if ((m = path.match(/^\/api\/users\/(\d+)$/)) && method === 'PATCH') {
+    if (!isSuperadmin(env, user)) throw new HttpError(403, 'forbidden', 'Streamování povoluje jen superadmin.');
+    const body = await readBody(req);
+    const id = Number(m[1]);
+    await db.prepare('UPDATE users SET can_stream = ? WHERE id = ?').bind(body.can_stream ? 1 : 0, id).run();
+    await logActivity(db, actor, 'user.can_stream', 'user', id, { can_stream: !!body.can_stream });
+    return json({ ok: true });
   }
   if ((m = path.match(/^\/api\/users\/(\d+)$/)) && method === 'DELETE') {
     requireAdmin(user);

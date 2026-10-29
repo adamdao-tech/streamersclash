@@ -507,4 +507,11 @@ CREATE TABLE queue_opgg_seen (
   PRIMARY KEY (player_key, lobby_uid, region)
 );
 `,
+
+  /* 17: Queue scouting – accounts (op.gg, LoL rank) and preferred role read from the player's Streamers Clash profile */ `
+ALTER TABLE queue_players ADD COLUMN accounts TEXT;
+ALTER TABLE queue_players ADD COLUMN preferred_role TEXT;
+ALTER TABLE queue_players ADD COLUMN profile_checked_at TEXT;
+CREATE INDEX idx_queue_players_profile ON queue_players(profile_checked_at);
+`,
 ];

@@ -77,7 +77,18 @@
     .lobby .row { display: flex; align-items: center; gap: 7px; padding: 3px 0; font-size: 0.88rem; }
     .lobby .row.fav { color: var(--gold-2); font-weight: 600; }
     .lobby .row small { margin-left: auto; color: var(--muted); }
-    .opgg-set { display: inline-flex; gap: 4px; vertical-align: middle; }
+    .opgg-set { display: inline-flex; gap: 4px; vertical-align: middle; flex-wrap: wrap; }
+    .opgg-set .opgg { margin: 0; }
+    .qs-table .opgg-set { flex-wrap: nowrap; }
+    .d-hero > div:nth-child(2) { flex: 1; min-width: 260px; }
+    .pref { font: 700 0.68rem var(--display); letter-spacing: .05em; color: var(--muted); border: 1px solid var(--line-2); border-radius: 5px; padding: 0 5px; margin-left: 6px; }
+    .lolrank { font-weight: 600; }
+    .lolrank small { color: var(--muted); font-weight: 500; margin-left: 4px; }
+    .acc-list { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+    .acc { display: inline-flex; flex-direction: column; padding: 7px 11px; border-radius: 10px; background: var(--bg-2); border: 1px solid var(--line); color: var(--text); font-size: 0.85rem; }
+    .acc:hover { border-color: #7d6cf0; text-decoration: none; }
+    .acc b { font-weight: 600; }
+    .acc span { color: var(--muted); font-size: 0.78rem; }
     .opgg.sug { background: transparent; border: 1px dashed #7d6cf0; color: #b3a8ff; }
     .d-riot { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 12px; padding: 14px; background: var(--bg-2); border: 1px solid var(--line); border-radius: 12px; }
     .d-riot .sugs { display: flex; gap: 6px; flex-wrap: wrap; font-size: 0.8rem; color: var(--muted); align-items: center; }
@@ -170,7 +181,10 @@
         if (!p.profile && extra.href) p.profile = extra.href;
         return p;
       };
-      for (const b of data.players) Object.assign(get(b.nickname), { avatar: b.avatar, profile: b.profile, rank: b.rank, tier: b.tier, wins: b.wins, losses: b.losses, games: b.games, board: true });
+      for (const b of data.players) Object.assign(get(b.nickname), {
+        avatar: b.avatar, profile: b.profile, rank: b.rank, tier: b.tier, wins: b.wins, losses: b.losses, games: b.games, board: true,
+        accounts: b.accounts || [], preferred_role: b.preferred_role, profile_checked: !!b.profile_checked_at,
+      });
       const bump = (map, name, won) => { const r = map.get(k(name)) || { name, wins: 0, losses: 0 }; won ? r.wins++ : r.losses++; map.set(k(name), r); };
       const ordered = [...data.matches].sort((a, b) => (a.number ?? 0) - (b.number ?? 0));
       for (const m of ordered) for (const side of ['blue', 'red']) {
@@ -224,32 +238,63 @@
     const wrBar = (wr) => wr == null ? '<span class="zero">–</span>' : `<span class="qs-wr"><i><b style="width:${Math.round(wr * 100)}%;background:${wr >= 0.5 ? 'var(--green)' : 'var(--red)'}"></b></i>${pct(wr)}</span>`;
     const formDots = (f) => f.length ? `<span class="qs-form">${f.map((w) => `<i class="${w ? '' : 'l'}"></i>`).join('')}</span>` : '<span class="zero">–</span>';
     const REG = [['eune', 'EUNE'], ['euw', 'EUW']];
+    const ROLE_SHORT = { TOP: 'TOP', JUNGLE: 'JNG', MID: 'MID', ADC: 'ADC', SUPPORT: 'SUP' };
     const opggUrl = (region, riot) => {
       const i = riot.lastIndexOf('#');
       return `https://op.gg/lol/summoners/${region}/${encodeURIComponent(riot.slice(0, i))}-${encodeURIComponent(riot.slice(i + 1))}`;
     };
     const bestSug = (p, region) => (S.suggestions[p.key]?.[region] || [])[0];
-    /** OP.GG odkazy hráče; když Riot ID chybí, ale je návrh, ukáže ho čárkovaně (potvrzuje se v detailu). */
+    const TIERS = ['iron', 'bronze', 'silver', 'gold', 'platinum', 'emerald', 'diamond', 'master', 'grandmaster', 'challenger'];
+    const DIV = { IV: 0, III: 1, II: 2, I: 3 };
+    /** "Diamond I · 75 LP" → číslo pro porovnání (Unranked = -1) */
+    const rankScore = (rank) => {
+      const m = String(rank || '').match(/^([A-Za-z]+)\s*(IV|III|II|I)?\D*?(\d+)?\s*LP/i) || String(rank || '').match(/^([A-Za-z]+)\s*(IV|III|II|I)?/i);
+      const t = m ? TIERS.indexOf(m[1].toLowerCase()) : -1;
+      if (t < 0) return -1;
+      const lp = +(m[3] || 0);
+      // Master+ nemá divize, rozhoduje LP (i přes 1000)
+      return m[2] ? t * 10000 + DIV[m[2].toUpperCase()] * 1000 + Math.min(lp, 999) : t * 10000 + Math.min(lp, 9999);
+    };
+    const shortRank = (rank) => String(rank || '').replace(/\s*·\s*/, ' ').replace(/\s*LP$/i, ' LP');
+    /** Všechny účty hráče: z profilu na SC + ručně doplněné Riot ID. */
+    const accountsOf = (p) => {
+      if (!p) return [];
+      const list = (p.accounts || []).map((a) => ({ ...a, src: 'profil' }));
+      for (const [r] of REG) {
+        const id = p.scout?.[`riot_${r}`];
+        if (id && !list.some((a) => a.region === r && a.riot.toLowerCase() === id.toLowerCase())) list.push({ region: r, riot: id, rank: null, url: opggUrl(r, id), src: 'ručně' });
+      }
+      return list;
+    };
+    const bestAccount = (p) => accountsOf(p).filter((a) => a.rank).sort((a, b) => rankScore(b.rank) - rankScore(a.rank))[0];
+    /** OP.GG odkazy hráče; když v regionu žádný účet není, ale je návrh, ukáže ho čárkovaně. */
     const opggChips = (p, withSug = true) => {
       if (!p) return '';
-      const out = REG.map(([r, l]) => {
-        const id = p.scout?.[`riot_${r}`];
-        if (id) return `<a class="opgg" href="${esc(opggUrl(r, id))}" target="_blank" rel="noopener" title="${esc(id)}">${l}</a>`;
-        const sug = withSug && bestSug(p, r);
-        return sug ? `<a class="opgg sug" href="${esc(opggUrl(r, sug.riot))}" target="_blank" rel="noopener" title="Návrh: ${esc(sug.riot)} – potvrď v detailu hráče">${l}?</a>` : '';
-      }).join('');
-      return out ? `<span class="opgg-set">${out}</span>` : '';
+      const accs = accountsOf(p);
+      const count = {};
+      const out = accs.map((a) => {
+        count[a.region] = (count[a.region] || 0) + 1;
+        const label = `${a.region.toUpperCase()}${count[a.region] > 1 ? count[a.region] : ''}`;
+        return `<a class="opgg" href="${esc(a.url)}" target="_blank" rel="noopener" title="${esc(a.riot)}${a.rank ? ` · ${esc(a.rank)}` : ''}">${label}</a>`;
+      });
+      if (withSug) for (const [r, l] of REG) {
+        if (accs.some((a) => a.region === r)) continue;
+        const sug = bestSug(p, r);
+        if (sug) out.push(`<a class="opgg sug" href="${esc(opggUrl(r, sug.riot))}" target="_blank" rel="noopener" title="Návrh: ${esc(sug.riot)} – potvrď v detailu hráče">${l}?</a>`);
+      }
+      return out.length ? `<span class="opgg-set">${out.join('')}</span>` : '';
     };
     const roleToggles = (p) => `<span class="roles">${ROLES.map(([r, l]) => `<button type="button" class="role-t ${p.scout.fav_roles.includes(r) ? 'on' : ''}" data-role="${r}" data-key="${esc(p.key)}" title="Oblíbený na ${l}">${l}</button>`).join('')}</span>`;
 
     const COLS = [
       ['rank', '#', (p, i) => `<span class="zero">${p.rank ?? '–'}</span>`, 'num'],
-      ['nickname', 'Hráč', (p) => `<span class="qs-pl">${avatar(p)}${esc(p.nickname)}</span>${p.tier ? `<span class="tier tier-${esc(p.tier)}">${esc(p.tier)}</span>` : ''}`],
+      ['nickname', 'Hráč', (p) => `<span class="qs-pl">${avatar(p)}${esc(p.nickname)}</span>${p.tier ? `<span class="tier tier-${esc(p.tier)}">${esc(p.tier)}</span>` : ''}${p.preferred_role ? `<span class="pref" title="Preferovaná pozice (profil na SC)">${ROLE_SHORT[p.preferred_role] || esc(p.preferred_role)}</span>` : ''}`],
       ['games', 'Zápasy', (p) => p.games, 'num'],
       ['wins', 'W', (p) => `<span class="win">${p.wins}</span>`, 'num'],
       ['losses', 'L', (p) => `<span class="loss">${p.losses}</span>`, 'num'],
       ['wr', 'Winrate', (p) => wrBar(p.wr), 'num'],
       ['form', 'Forma', (p) => formDots(p.form)],
+      ['lol', 'LoL rank', (p) => { const a = bestAccount(p); return a ? `<span class="lolrank" title="${esc(a.riot)}">${esc(shortRank(a.rank))}<small>${a.region.toUpperCase()}</small></span>` : `<span class="zero" title="${p.profile_checked ? 'V profilu nejsou účty' : 'Profil ještě nebyl načten'}">${p.profile_checked ? '–' : '…'}</span>`; }],
       ['opgg', 'OP.GG', (p) => opggChips(p) || '<span class="zero">–</span>'],
       ['fav', 'Oblíbený na', (p) => roleToggles(p)],
       ['price', 'Cena', (p) => p.scout.price != null ? `<span class="price">${fmtPrice(p.scout.price)}</span>` : '<span class="zero">–</span>', 'num'],
@@ -258,7 +303,7 @@
     const sortVal = {
       rank: (p) => p.rank ?? 1e9, nickname: (p) => p.nickname.toLowerCase(), games: (p) => p.games, wins: (p) => p.wins,
       losses: (p) => p.losses, wr: (p) => p.wr ?? -1, form: (p) => p.form.filter(Boolean).length,
-      fav: (p) => p.scout.fav_roles.length, opgg: (p) => (p.scout.riot_eune ? 2 : 0) + (p.scout.riot_euw ? 2 : 0) + (bestSug(p, 'eune') || bestSug(p, 'euw') ? 1 : 0), price: (p) => p.scout.price ?? -1, note: (p) => (p.scout.note ? 1 : 0),
+      fav: (p) => p.scout.fav_roles.length, lol: (p) => rankScore(bestAccount(p)?.rank), opgg: (p) => accountsOf(p).length + (p.scout.riot_euw ? 2 : 0) + (bestSug(p, 'eune') || bestSug(p, 'euw') ? 1 : 0), price: (p) => p.scout.price ?? -1, note: (p) => (p.scout.note ? 1 : 0),
     };
 
     function filtered() {
@@ -334,8 +379,10 @@
               ${p.rank ? `<span class="badge">#${p.rank} v žebříčku</span>` : ''}
               ${p.tier ? `<span class="tier tier-${esc(p.tier)}" style="margin:0">${esc(p.tier)}</span>` : ''}
               ${p.profile ? `<a class="chip" href="${esc(p.profile)}" target="_blank" rel="noopener">profil na SC ↗</a>` : ''}
-              ${opggChips(p, false)}
+              ${p.preferred_role ? `<span class="badge" title="Preferovaná pozice z profilu na SC">pozice: ${ROLE_SHORT[p.preferred_role] || esc(p.preferred_role)}</span>` : ''}
+              ${p.profile ? `<button type="button" class="btn btn-small btn-ghost" id="d-profile">${p.profile_checked ? 'Znovu načíst účty' : 'Načíst účty z profilu'}</button>` : ''}
             </div>
+            ${accountsOf(p).length ? `<div class="acc-list">${accountsOf(p).map((a) => `<a class="acc" href="${esc(a.url)}" target="_blank" rel="noopener"><b>${esc(a.riot)}</b><span>${a.region.toUpperCase()}${a.rank ? ` · ${esc(a.rank)}` : ''}${a.src === 'ručně' ? ' · ručně' : ''}</span></a>`).join('')}</div>` : ''}
           </div>
           <div class="d-kpis">
             <div><b>${p.games}</b><span>zápasů</span></div>
@@ -355,7 +402,7 @@
           <div class="d-riot" style="grid-column:1/-1;margin:0;padding:0;border:0">
             ${REG.map(([r, l]) => {
               const sugs = (S.suggestions[p.key]?.[r] || []).filter((x) => x.riot !== p.scout[`riot_${r}`]);
-              return `<label class="field"><span class="field-label">Riot ID ${l} <small style="font-weight:400;color:var(--muted)">(Jméno#TAG nebo odkaz na op.gg)</small></span>
+              return `<label class="field"><span class="field-label">Doplnit Riot ID ${l} <small style="font-weight:400;color:var(--muted)">(když není v profilu – Jméno#TAG nebo odkaz na op.gg)</small></span>
                 <input name="riot_${r}" placeholder="např. Faker#${l}" value="${esc(p.scout[`riot_${r}`] || '')}">
                 ${sugs.length ? `<span class="sugs">Návrh: ${sugs.map((x) => `<button type="button" data-fill="riot_${r}" data-val="${esc(x.riot)}" title="${x.source === 'team' ? 'Z týmu v appce' : `V týmu ve ${x.seen} z ${x.of} jeho lobby`}${x.name_match ? ' · jméno sedí' : ''}">${esc(x.riot)}${x.source === 'team' ? ' · tým' : x.of ? ` · ${x.seen}/${x.of}` : ''}</button>`).join('')}</span>` : ''}
               </label>`;
@@ -379,6 +426,15 @@
       if (!dlg.open) dlg.showModal();
       dlg.scrollTop = 0;
       $('#d-close').onclick = () => dlg.close();
+      const reload = $('#d-profile');
+      if (reload) reload.onclick = async () => {
+        reload.disabled = true; reload.textContent = 'Načítám…';
+        try {
+          const d = await api(`/api/queue/profile/${encodeURIComponent(p.key)}`, { method: 'POST', body: {} });
+          Object.assign(p, { accounts: d.accounts, preferred_role: d.preferred_role ?? p.preferred_role, profile_checked: true });
+          openDetail(p.key); render();
+        } catch (err) { reload.textContent = err.message; }
+      };
       $('#d-form').onsubmit = async (e) => {
         e.preventDefault();
         const f = e.target;

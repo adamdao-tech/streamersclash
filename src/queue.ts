@@ -124,6 +124,94 @@ async function opggSuggestions(db: D1Database): Promise<Record<string, Partial<R
   return out;
 }
 
+// --- accounts from the player's Streamers Clash profile -----------------------
+// The profile page lists the player's linked LoL accounts ("Účty": Riot ID, region, rank – each an op.gg
+// link) and sometimes a preferred role. Profiles are read a few at a time from the cron so the
+// organizer's site isn't hammered: PROFILE_BATCH per run, each refreshed once a day.
+
+const PROFILE_BATCH = 25;
+const PROFILE_CONCURRENCY = 4;
+
+export interface Account { region: string; riot: string; rank: string | null; url: string }
+
+const decodeEntities = (s: string) =>
+  s.replace(/&amp;/g, '&').replace(/&quot;/g, '"').replace(/&#x27;|&#39;/g, "'").replace(/&lt;/g, '<').replace(/&gt;/g, '>')
+    .replace(/&#(\d+);/g, (_, n) => String.fromCodePoint(+n)).replace(/&#x([0-9a-f]+);/gi, (_, n) => String.fromCodePoint(parseInt(n, 16)));
+const stripTags = (s: string) => decodeEntities(s.replace(/<[^>]*>/g, ' ')).replace(/\s+/g, ' ').trim();
+
+const ROLE_ALIASES: Record<string, string> = {
+  TOP: 'TOP', JUNGLE: 'JUNGLE', JNG: 'JUNGLE', JG: 'JUNGLE', MID: 'MID', MIDDLE: 'MID',
+  ADC: 'ADC', BOT: 'ADC', BOTTOM: 'ADC', SUPPORT: 'SUPPORT', SUP: 'SUPPORT', SUPP: 'SUPPORT',
+};
+
+/** Reads accounts and preferred role from a profile page's HTML. */
+export function parseProfile(html: string): { accounts: Account[]; preferred_role: string | null } {
+  const accounts: Account[] = [];
+  const re = /<a\b[^>]*\bhref="(https?:\/\/(?:www\.)?op\.gg\/(?:lol\/)?summoners\/([a-z]+)\/([^"?#]+))"[^>]*>([\s\S]*?)<\/a>/gi;
+  for (const m of html.matchAll(re)) {
+    const url = decodeEntities(m[1]);
+    const region = m[2].toLowerCase() === 'eun' ? 'eune' : m[2].toLowerCase();
+    let slug: string;
+    try { slug = decodeURIComponent(decodeEntities(m[3])); } catch { continue; }
+    const i = slug.lastIndexOf('-');
+    if (i <= 0) continue;
+    const riot = `${slug.slice(0, i)}#${slug.slice(i + 1)}`;
+    const text = stripTags(m[4]);
+    // Only the account cards: their text starts with the Riot ID (a link pasted in a comment doesn't).
+    if (!text.replace(/\s/g, '').toLowerCase().startsWith(riot.replace(/\s/g, '').toLowerCase())) continue;
+    // "ESB Esko#LUKÁŠ EUW Master · 1245 LP" → "Master · 1245 LP"
+    const tag = `#${slug.slice(i + 1)}`.toLowerCase();
+    const at = text.toLowerCase().indexOf(tag);
+    const rest = at >= 0 ? text.slice(at + tag.length).trim() : '';
+    const rank: string | null = rest.replace(/^(eune|euw|eun|na|kr)\b/i, '').trim() || null;
+    if (!accounts.some((a) => a.region === region && a.riot.toLowerCase() === riot.toLowerCase())) accounts.push({ region, riot, rank, url });
+  }
+  const text = stripTags(html.replace(/<script[\s\S]*?<\/script>/gi, ' '));
+  const pref = text.match(/Preferovan[áa] pozice:?\s*([A-Za-z]+)/i)?.[1]?.toUpperCase();
+  return { accounts, preferred_role: pref ? ROLE_ALIASES[pref] ?? null : null };
+}
+
+async function fetchProfile(profileUrl: string): Promise<{ accounts: Account[]; preferred_role: string | null } | null> {
+  const res = await fetch(profileUrl, { headers: { accept: 'text/html', 'user-agent': UA }, redirect: 'follow' });
+  if (res.status === 404) return { accounts: [], preferred_role: null };
+  if (!res.ok) return null;
+  return parseProfile(await res.text());
+}
+
+async function saveProfile(db: D1Database, playerKey: string, data: { accounts: Account[]; preferred_role: string | null } | null): Promise<void> {
+  if (!data) {
+    // temporary failure: try again in the next run, not tomorrow
+    await db.prepare(`UPDATE queue_players SET profile_checked_at = datetime('now', '-23 hours') WHERE key = ?`).bind(playerKey).run();
+    return;
+  }
+  await db
+    .prepare(`UPDATE queue_players SET accounts = ?, preferred_role = ?, profile_checked_at = datetime('now') WHERE key = ?`)
+    .bind(JSON.stringify(data.accounts), data.preferred_role, playerKey)
+    .run();
+}
+
+/** Reads the next batch of profiles (never read, or older than a day). */
+export async function syncProfiles(env: Env, limit = PROFILE_BATCH): Promise<{ checked: number; with_accounts: number }> {
+  const db = env.DB;
+  const { results } = await db
+    .prepare(
+      `SELECT key, profile FROM queue_players
+        WHERE profile IS NOT NULL AND (profile_checked_at IS NULL OR profile_checked_at < datetime('now', '-1 day'))
+        ORDER BY profile_checked_at IS NOT NULL, profile_checked_at, rank LIMIT ?`,
+    )
+    .bind(limit)
+    .all<{ key: string; profile: string }>();
+  let withAccounts = 0;
+  for (let i = 0; i < results.length; i += PROFILE_CONCURRENCY) {
+    await Promise.all(results.slice(i, i + PROFILE_CONCURRENCY).map(async (p) => {
+      const data = await fetchProfile(p.profile).catch(() => null);
+      if (data?.accounts.length) withAccounts++;
+      await saveProfile(db, p.key, data);
+    }));
+  }
+  return { checked: results.length, with_accounts: withAccounts };
+}
+
 async function getSc<T>(path: string): Promise<T> {
   const res = await fetch(`${SC}/${path}`, { headers: { accept: 'application/json', 'user-agent': UA } });
   if (!res.ok) throw new Error(`Streamers Clash ${path}: HTTP ${res.status}`);
@@ -257,7 +345,7 @@ export async function handleQueueApi(
     ]);
     return json({
       suggestions,
-      players: players.results,
+      players: players.results.map((r: Record<string, unknown>) => ({ ...r, accounts: r.accounts ? JSON.parse(String(r.accounts)) : null })),
       matches: matches.results.map((r: Record<string, unknown>) => ({ ...r, blue: JSON.parse(String(r.blue)), red: JSON.parse(String(r.red)) })),
       scout: scout.results.map((r: Record<string, unknown>) => ({ ...r, fav_roles: JSON.parse(String(r.fav_roles || '[]')) })),
       synced_at: meta?.v ?? null,
@@ -294,6 +382,16 @@ export async function handleQueueApi(
     } catch (err) {
       throw new HttpError(502, 'upstream', `Streamers Clash API nedostupné: ${(err as Error).message}`);
     }
+  }
+
+  if ((m = path.match(/^\/api\/queue\/profile\/(.+)$/)) && method === 'POST') {
+    const playerKey = key(decodeURIComponent(m[1]));
+    const row = await db.prepare('SELECT profile FROM queue_players WHERE key = ?').bind(playerKey).first<{ profile: string | null }>();
+    if (!row?.profile) throw new HttpError(404, 'not_found', 'Hráč nemá profil na Streamers Clash.');
+    const data = await fetchProfile(row.profile).catch(() => null);
+    if (!data) throw new HttpError(502, 'upstream', 'Profil se nepodařilo načíst, zkus to za chvíli.');
+    await saveProfile(db, playerKey, data);
+    return json(data);
   }
 
   if ((m = path.match(/^\/api\/queue\/scout\/(.+)$/)) && method === 'PUT') {

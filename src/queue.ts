@@ -191,7 +191,7 @@ async function saveProfile(db: D1Database, playerKey: string, data: { accounts: 
 }
 
 /** Reads the next batch of profiles (never read, or older than a day). */
-export async function syncProfiles(env: Env, limit = PROFILE_BATCH): Promise<{ checked: number; with_accounts: number }> {
+export async function syncProfiles(env: Env, limit = PROFILE_BATCH): Promise<{ checked: number; with_accounts: number; remaining: number; total: number }> {
   const db = env.DB;
   const { results } = await db
     .prepare(
@@ -209,7 +209,14 @@ export async function syncProfiles(env: Env, limit = PROFILE_BATCH): Promise<{ c
       await saveProfile(db, p.key, data);
     }));
   }
-  return { checked: results.length, with_accounts: withAccounts };
+  const left = await db
+    .prepare(
+      `SELECT COUNT(*) AS total,
+              SUM(CASE WHEN profile_checked_at IS NULL OR profile_checked_at < datetime('now', '-1 day') THEN 1 ELSE 0 END) AS remaining
+         FROM queue_players WHERE profile IS NOT NULL`,
+    )
+    .first<{ total: number; remaining: number | null }>();
+  return { checked: results.length, with_accounts: withAccounts, remaining: left?.remaining ?? 0, total: left?.total ?? 0 };
 }
 
 async function getSc<T>(path: string): Promise<T> {
@@ -382,6 +389,13 @@ export async function handleQueueApi(
     } catch (err) {
       throw new HttpError(502, 'upstream', `Streamers Clash API nedostupné: ${(err as Error).message}`);
     }
+  }
+
+  // "Načíst účty všem": the page calls this repeatedly, one small batch at a time, until remaining = 0.
+  if (path === '/api/queue/profiles' && method === 'POST') {
+    const body = await readBody(req);
+    const limit = Math.min(Math.max(Number(body.limit) || 15, 1), 20);
+    return json(await syncProfiles(env, limit));
   }
 
   if ((m = path.match(/^\/api\/queue\/profile\/(.+)$/)) && method === 'POST') {

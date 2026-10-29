@@ -22,7 +22,8 @@
     .qs-table tbody tr { cursor: pointer; }
     .qs-table tbody tr:hover { background: var(--panel-2); }
     .qs-table .num { text-align: right; font-variant-numeric: tabular-nums; }
-    .qs-table .note-cell { max-width: 260px; overflow: hidden; text-overflow: ellipsis; color: var(--text-2); font-size: 0.86rem; }
+    .qs-table td.note-td { white-space: normal; min-width: 220px; }
+    .qs-table .note-cell { max-width: 380px; color: var(--text-2); font-size: 0.86rem; line-height: 1.35; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; white-space: pre-line; }
     .qs-pl { display: inline-flex; align-items: center; gap: 9px; font-weight: 600; color: var(--text); }
     .qs-av { width: 28px; height: 28px; border-radius: 50%; object-fit: cover; background: var(--panel-3); flex: none; display: inline-grid; place-items: center; font-size: 0.7rem; color: var(--muted); }
     .qs-av-lg { width: 64px; height: 64px; font-size: 1.1rem; }
@@ -100,7 +101,7 @@
   </style>
 </head>
 <body>
-  <main style="max-width: 1320px">
+  <main style="max-width: none; padding-left: 28px; padding-right: 28px">
     <div class="page-head">
       <div>
         <h1>Queue scouting</h1>
@@ -109,6 +110,7 @@
       <div class="page-head-tools">
         <span class="qs-sync" id="sync-info"></span>
         <span class="qs-sync" id="live-info" title="Stránka se sama obnovuje každých 10 s"><span class="live-dot" style="display:inline-block;vertical-align:middle"></span> <span id="tick">auto 10 s</span></span>
+        <button class="btn btn-small btn-ghost" id="profiles" title="Projde profily hráčů na Streamers Clash a načte jejich účty (OP.GG, rank)">Načíst účty všem</button>
         <button class="btn btn-small" id="sync">Synchronizovat</button>
       </div>
     </div>
@@ -298,7 +300,7 @@
       ['opgg', 'OP.GG', (p) => opggChips(p) || '<span class="zero">–</span>'],
       ['fav', 'Oblíbený na', (p) => roleToggles(p)],
       ['price', 'Cena', (p) => p.scout.price != null ? `<span class="price">${fmtPrice(p.scout.price)}</span>` : '<span class="zero">–</span>', 'num'],
-      ['note', 'Poznámka', (p) => `<div class="note-cell">${esc(p.scout.note || '')}</div>`],
+      ['note', 'Poznámka', (p) => `<div class="note-cell" title="${esc(p.scout.note || '')}">${esc(p.scout.note || '')}</div>`, 'note-td'],
     ];
     const sortVal = {
       rank: (p) => p.rank ?? 1e9, nickname: (p) => p.nickname.toLowerCase(), games: (p) => p.games, wins: (p) => p.wins,
@@ -506,6 +508,31 @@
         if (S.tab === 'live') loadLive();
       } catch (err) { alert(err.message); btn.textContent = 'Synchronizovat'; }
       finally { setTimeout(() => { btn.disabled = false; btn.textContent = 'Synchronizovat'; }, 2500); }
+    });
+
+    /* ---------- načtení účtů všem hráčům ---------- */
+
+    $('#profiles').addEventListener('click', async (e) => {
+      const btn = e.currentTarget;
+      btn.disabled = true;
+      let done = 0;
+      S.saving = (S.saving || 0) + 1; // auto-obnova mezitím nepřekresluje
+      try {
+        for (;;) {
+          const r = await api('/api/queue/profiles', { method: 'POST', body: { limit: 15 } });
+          done += r.checked;
+          btn.textContent = `Načítám účty… ${r.total - r.remaining}/${r.total}`;
+          if (!r.remaining || !r.checked) break;
+        }
+        btn.textContent = 'Účty načteny ✓';
+        S.saving--; await load(); S.saving++;
+      } catch (err) {
+        btn.textContent = 'Chyba – zkus znovu';
+        alert(err.message);
+      } finally {
+        S.saving--;
+        setTimeout(() => { btn.disabled = false; btn.textContent = 'Načíst účty všem'; }, 3000);
+      }
     });
 
     /* ---------- auto-obnova (10 s) ---------- */

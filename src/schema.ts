@@ -529,4 +529,9 @@ ALTER TABLE users ADD COLUMN can_stream INTEGER NOT NULL DEFAULT 0;
   /* 20: Kick VODs (fetched by the reader on Dao's PC – Kick's API blocks requests from Cloudflare): direct HLS URL */ `
 ALTER TABLE vods ADD COLUMN stream_url TEXT;
 `,
+
+  /* 21: a team player linked to a Streamers Queue player (W/L, rank, accounts on the team page) */ `
+ALTER TABLE players ADD COLUMN queue_key TEXT;
+CREATE INDEX idx_players_queue ON players(queue_key);
+`,
 ];

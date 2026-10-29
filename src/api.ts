@@ -113,7 +113,27 @@ async function route(req: Request, env: Env, url: URL, user: User): Promise<Resp
         )
         .bind(id)
         .all();
-      return json({ team, players: players.map(parsePlayer) });
+      // Streamers Queue data of the players (linked, or the same nickname) and their coaching champion pools
+      const [queue, pools] = await Promise.all([
+        db
+          .prepare(
+            `SELECT key, nickname, rank, tier, wins, losses, games, accounts, preferred_role, profile FROM queue_players
+              WHERE key IN (SELECT COALESCE(queue_key, lower(nickname)) FROM players WHERE team_id = ?)`,
+          )
+          .bind(id)
+          .all<Record<string, unknown>>()
+          .catch(() => ({ results: [] as Record<string, unknown>[] })),
+        db
+          .prepare('SELECT player_id, champion, tier FROM champion_pool WHERE player_id IN (SELECT id FROM players WHERE team_id = ?)')
+          .bind(id)
+          .all(),
+      ]);
+      return json({
+        team,
+        players: players.map(parsePlayer),
+        queue: queue.results.map((q) => ({ ...q, accounts: q.accounts ? JSON.parse(String(q.accounts)) : [] })),
+        pools: pools.results,
+      });
     }
     if (method === 'PUT') {
       const fields = teamFields(await readBody(req), true);

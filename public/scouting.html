@@ -80,6 +80,12 @@
     .lobby .row small { margin-left: auto; color: var(--muted); }
     .opgg-set { display: inline-flex; gap: 4px; vertical-align: middle; flex-wrap: wrap; }
     .opgg-set .opgg { margin: 0; }
+    .duo { display: flex; align-items: center; gap: 6px; flex: 1; min-width: 0; }
+    .duo a { color: var(--text); font-weight: 600; }
+    .duo .plus { color: var(--muted); }
+    .team-tag { font: 700 0.68rem var(--display); letter-spacing: .05em; color: var(--gold-2); border: 1px solid rgba(232,184,74,.45); border-radius: 5px; padding: 0 5px; margin-left: 6px; }
+    .d-link { display: flex; gap: 10px; align-items: end; flex-wrap: wrap; margin-top: 12px; padding: 12px 14px; background: var(--bg-2); border: 1px solid var(--line); border-radius: 12px; }
+    .d-link select { width: auto; }
     .qs-table .opgg-set { flex-wrap: nowrap; }
     .d-hero > div:nth-child(2) { flex: 1; min-width: 260px; }
     .pref { font: 700 0.68rem var(--display); letter-spacing: .05em; color: var(--muted); border: 1px solid var(--line-2); border-radius: 5px; padding: 0 5px; margin-left: 6px; }
@@ -129,6 +135,7 @@
     <nav class="tabs" id="tabs">
       <button data-tab="players" class="active">Hráči <span class="count" id="c-players"></span></button>
       <button data-tab="favs">Oblíbení podle pozic <span class="count" id="c-favs"></span></button>
+      <button data-tab="duos">Dua</button>
       <button data-tab="live">Živě <span class="count" id="c-live"></span></button>
     </nav>
 
@@ -155,6 +162,17 @@
 
     <section class="tab-panel" data-panel="favs" hidden>
       <div class="qs-board" id="favs"></div>
+    </section>
+
+    <section class="tab-panel" data-panel="duos" hidden>
+      <div class="qs-tools">
+        <input type="search" id="duo-q" placeholder="Duo s hráčem…">
+        <label class="qs-sync">Min. her spolu
+          <select id="duo-min" style="width:auto"><option>2</option><option selected>3</option><option>5</option><option>8</option></select></label>
+        <label class="qs-sync" style="display:inline-flex;gap:6px;align-items:center"><input type="checkbox" id="duo-fav"> jen s oblíbenými</label>
+      </div>
+      <div class="qs-grid3" id="duos" style="margin-top:0"></div>
+      <p class="qs-sync">Ze sledovaných queue zápasů – kolikrát hráli spolu v jednom týmu a jak to dopadlo. Klik na hráče otevře detail.</p>
     </section>
 
     <section class="tab-panel" data-panel="live" hidden>
@@ -225,6 +243,8 @@
         p.form = p.history.slice(-5).map((h) => h.won);
       }
       S.players = players; S.matches = data.matches; S.suggestions = data.suggestions || {};
+      S.links = new Map((data.links || []).map((l) => [l.queue_key, l]));
+      S.teams = data.teams || [];
       S.syncedAt = data.synced_at; S.matchCount = data.matches.length; S.lastPoll = Date.now();
       applyStream(data.stream);
       $('#sync-info').textContent = data.synced_at ? `Synchronizováno ${timeAgo(data.synced_at)} · ${data.matches.length} uložených zápasů` : 'Ještě nesynchronizováno';
@@ -316,7 +336,7 @@
 
     const COLS = [
       ['rank', '#', (p, i) => `<span class="zero">${p.rank ?? '–'}</span>`, 'num'],
-      ['nickname', 'Hráč', (p) => `<span class="qs-pl">${avatar(p)}${esc(p.nickname)}</span>${p.tier ? `<span class="tier tier-${esc(p.tier)}">${esc(p.tier)}</span>` : ''}${p.preferred_role ? `<span class="pref" title="Preferovaná pozice (profil na SC)">${ROLE_SHORT[p.preferred_role] || esc(p.preferred_role)}</span>` : ''}`],
+      ['nickname', 'Hráč', (p) => `<span class="qs-pl">${avatar(p)}${esc(p.nickname)}</span>${p.tier ? `<span class="tier tier-${esc(p.tier)}">${esc(p.tier)}</span>` : ''}${p.preferred_role ? `<span class="pref" title="Preferovaná pozice (profil na SC)">${ROLE_SHORT[p.preferred_role] || esc(p.preferred_role)}</span>` : ''}${teamTag(p)}`],
       ['games', 'Zápasy', (p) => p.games, 'num'],
       ['wins', 'W', (p) => `<span class="win">${p.wins}</span>`, 'num'],
       ['losses', 'L', (p) => `<span class="loss">${p.losses}</span>`, 'num'],
@@ -355,7 +375,48 @@
         : `<tr><td colspan="${COLS.length}" class="empty">Nikdo neodpovídá filtru</td></tr>`;
       $('#foot').textContent = `${rows.length} hráčů · W/L a pořadí z oficiálního žebříčku, forma a detail z uložených zápasů.`;
       renderFavs();
+      if (S.tab === 'duos') renderDuos();
     }
+
+    /** Odznak týmu, když je hráč propojený s hráčem v appce. */
+    const teamTag = (p) => {
+      const l = S.links?.get(p.key);
+      return l && l.team_id ? `<span class="team-tag" title="V týmu ${esc(l.team_name)}">${esc(l.team_tag || l.team_name)}</span>` : '';
+    };
+
+    /* ---------- dua ---------- */
+
+    function renderDuos() {
+      const min = +$('#duo-min').value || 3;
+      const q = $('#duo-q').value.trim().toLowerCase();
+      const favOnly = $('#duo-fav').checked;
+      const pairs = new Map();
+      for (const m of S.matches) for (const side of ['blue', 'red']) {
+        const team = m[side].map((x) => x.nickname);
+        const won = m.winner === side;
+        for (let i = 0; i < team.length; i++) for (let j = i + 1; j < team.length; j++) {
+          const [a, b] = [team[i], team[j]].sort((x, y) => x.toLowerCase().localeCompare(y.toLowerCase()));
+          const id = `${k(a)}|${k(b)}`;
+          const r = pairs.get(id) || { a, b, wins: 0, losses: 0 };
+          won ? r.wins++ : r.losses++;
+          pairs.set(id, r);
+        }
+      }
+      const isFav = (n) => S.players.get(k(n))?.scout.fav_roles.length;
+      const list = [...pairs.values()].filter((r) => r.wins + r.losses >= min
+        && (!q || r.a.toLowerCase().includes(q) || r.b.toLowerCase().includes(q))
+        && (!favOnly || isFav(r.a) || isFav(r.b)));
+      const wr = (r) => r.wins / (r.wins + r.losses);
+      const name = (n) => `<a href="#" data-open="${esc(k(n))}">${esc(n)}</a>${isFav(n) ? ' ★' : ''}`;
+      const block = (title, rows) => `<section class="card"><h2>${title} <small style="color:var(--muted);font:500 .8rem var(--font)">${rows.length}</small></h2>
+        ${rows.length ? `<ul class="qs-rec">${rows.slice(0, 15).map((r) => `<li><span class="duo">${name(r.a)}<span class="plus">+</span>${name(r.b)}</span>${wl(r)}<span class="sub" style="min-width:40px;text-align:right">${pct(wr(r))}</span></li>`).join('')}</ul>`
+          : '<p class="zero" style="font-size:.88rem">Zatím málo společných her. Sniž minimum nebo počkej, až přibudou zápasy.</p>'}</section>`;
+      $('#duos').innerHTML =
+        block('Nejlepší dua', [...list].sort((x, y) => wr(y) - wr(x) || (y.wins + y.losses) - (x.wins + x.losses))) +
+        block('Nejhorší dua', [...list].sort((x, y) => wr(x) - wr(y) || (y.wins + y.losses) - (x.wins + x.losses))) +
+        block('Nejčastěji spolu', [...list].sort((x, y) => (y.wins + y.losses) - (x.wins + x.losses) || wr(y) - wr(x)));
+    }
+    for (const id of ['#duo-q', '#duo-min', '#duo-fav']) $(id).addEventListener('input', renderDuos);
 
     /* ---------- oblíbení podle pozic ---------- */
 
@@ -388,6 +449,24 @@
     }
 
     /* ---------- detail ---------- */
+
+    const ROLE_OPTS = [['TOP', 'Top'], ['JUNGLE', 'Jungle'], ['MID', 'Mid'], ['ADC', 'ADC'], ['SUPPORT', 'Support'], ['SUB', 'Náhradník']];
+    function linkSection(p) {
+      const l = S.links?.get(p.key);
+      if (l) {
+        return `<div class="d-link"><span>V appce: <a href="/player?id=${l.player_id}"><b>${esc(l.nickname)}</b></a>${l.team_id ? ` v týmu <a href="/team?id=${l.team_id}">${esc(l.team_name)}</a>` : ''}</span>
+          <span style="flex:1"></span><button type="button" class="btn btn-small btn-ghost" id="d-unlink">Odpojit</button></div>`;
+      }
+      const role = p.preferred_role || (p.scout.fav_roles.length === 1 ? p.scout.fav_roles[0] : '');
+      return `<div class="d-link">
+        <label class="field"><span class="field-label">Přidat do týmu v appce</span>
+          <select id="d-team">${S.teams.map((t) => `<option value="${t.id}">${esc(t.name)}${t.is_own_team ? ' (náš)' : ''}</option>`).join('')}</select></label>
+        <label class="field"><span class="field-label">Role</span>
+          <select id="d-role"><option value="">–</option>${ROLE_OPTS.map(([v, l]) => `<option value="${v}" ${v === role ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
+        <button type="button" class="btn" id="d-link" ${S.teams.length ? '' : 'disabled'}>Přidat</button>
+        <span class="qs-sync" style="flex-basis:100%">Vytvoří hráče v týmu s Riot ID z jeho profilu na SC. Queue statistiky pak uvidíš i na stránce týmu. Pokud už hráč v týmu je, propoj ho na stránce týmu.</span>
+      </div>`;
+    }
 
     function openDetail(key) {
       const p = S.players.get(key);
@@ -439,6 +518,8 @@
         </form>
         ${p.scout.updated_at ? `<p class="qs-sync" style="margin:6px 0 0">Naposledy upravil ${esc(p.scout.updated_by_name || 'admin')} ${timeAgo(p.scout.updated_at)}</p>` : ''}
 
+        ${linkSection(p)}
+
         <p class="qs-sync" style="margin:16px 0 0">Níže z ${tracked} uložených zápasů${tracked < 5 ? ' – zatím málo dat, ber s rezervou' : ''}.</p>
         <div class="qs-grid3">
           <section class="card"><h2>Porazil</h2>${rec(beat)}</section>
@@ -454,6 +535,19 @@
       if (!dlg.open) dlg.showModal();
       dlg.scrollTop = 0;
       $('#d-close').onclick = () => dlg.close();
+      const linkBtn = $('#d-link'), unlinkBtn = $('#d-unlink');
+      if (linkBtn) linkBtn.onclick = async () => {
+        linkBtn.disabled = true;
+        try {
+          await api('/api/queue/link', { method: 'POST', body: { player_key: p.key, team_id: +$('#d-team').value, role: $('#d-role').value || null } });
+          await load(); openDetail(p.key);
+        } catch (err) { linkBtn.disabled = false; alert(err.message); }
+      };
+      if (unlinkBtn) unlinkBtn.onclick = async () => {
+        if (!confirm('Odpojit queue hráče od hráče v appce? Hráč v týmu zůstane.')) return;
+        await api('/api/queue/link', { method: 'POST', body: { player_key: p.key, unlink: true } });
+        await load(); openDetail(p.key);
+      };
       const reload = $('#d-profile');
       if (reload) reload.onclick = async () => {
         reload.disabled = true; reload.textContent = 'Načítám…';
@@ -494,6 +588,7 @@
       document.querySelectorAll('#tabs button').forEach((x) => x.classList.toggle('active', x === b));
       document.querySelectorAll('.tab-panel').forEach((p) => (p.hidden = p.dataset.panel !== S.tab));
       if (S.tab === 'live') loadLive();
+      if (S.tab === 'duos') renderDuos();
     });
 
     document.addEventListener('click', async (e) => {

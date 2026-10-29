@@ -1,6 +1,7 @@
 import type { Env } from './index';
 import { isSuperadmin, logActivity, type User } from './db';
 import { cacheGet, cacheSet, getStreams } from './twitch';
+import { relinkDraftPlayers } from './drafts';
 import { HttpError, json } from './http';
 import { parseStart } from './schedule';
 
@@ -134,6 +135,17 @@ const PROFILE_BATCH = 25;
 const PROFILE_CONCURRENCY = 2;
 
 export interface Account { region: string; riot: string; rank: string | null; url: string }
+
+const RANK_TIERS = ['iron', 'bronze', 'silver', 'gold', 'platinum', 'emerald', 'diamond', 'master', 'grandmaster', 'challenger'];
+const RANK_DIV: Record<string, number> = { IV: 0, III: 1, II: 2, I: 3 };
+/** "Diamond I · 75 LP" → comparable number (Unranked/unknown = -1). */
+export function rankValue(rank: string | null | undefined): number {
+  const m = String(rank ?? '').match(/^([A-Za-z]+)\s*(IV|III|II|I)?\D*?(\d+)?\s*LP/i) || String(rank ?? '').match(/^([A-Za-z]+)\s*(IV|III|II|I)?/i);
+  const t = m ? RANK_TIERS.indexOf(m[1].toLowerCase()) : -1;
+  if (t < 0) return -1;
+  const lp = Number(m?.[3] ?? 0);
+  return m?.[2] ? t * 10000 + RANK_DIV[m[2].toUpperCase()] * 1000 + Math.min(lp, 999) : t * 10000 + Math.min(lp, 9999);
+}
 
 const decodeEntities = (s: string) =>
   s.replace(/&amp;/g, '&').replace(/&quot;/g, '"').replace(/&#x27;|&#39;/g, "'").replace(/&lt;/g, '<').replace(/&gt;/g, '>')
@@ -433,14 +445,21 @@ export async function handleQueueApi(
   if (path === '/api/queue/stream' && method === 'GET') return json({ stream: guard });
 
   if (path === '/api/queue' && method === 'GET') {
-    const [players, matches, scout, meta, suggestions] = await Promise.all([
+    const [players, matches, scout, meta, suggestions, links, teams] = await Promise.all([
       db.prepare('SELECT * FROM queue_players ORDER BY rank IS NULL, rank, nickname COLLATE NOCASE').all(),
       db.prepare('SELECT * FROM queue_matches ORDER BY number DESC').all(),
       db.prepare(`SELECT s.*, u.display_name AS updated_by_name FROM queue_scout s LEFT JOIN users u ON u.id = s.updated_by`).all(),
       db.prepare(`SELECT v FROM queue_meta WHERE k = 'synced_at'`).first<{ v: string }>(),
       opggSuggestions(db),
+      db.prepare(
+        `SELECT p.id AS player_id, p.nickname, p.role, p.queue_key, t.id AS team_id, t.name AS team_name, t.tag AS team_tag, t.is_own_team
+           FROM players p LEFT JOIN teams t ON t.id = p.team_id WHERE p.queue_key IS NOT NULL`,
+      ).all(),
+      db.prepare('SELECT id, name, tag, is_own_team FROM teams ORDER BY is_own_team DESC, name COLLATE NOCASE').all(),
     ]);
     return json({
+      links: links.results,
+      teams: teams.results,
       suggestions,
       players: players.results.map((r: Record<string, unknown>) => ({ ...r, accounts: r.accounts ? JSON.parse(String(r.accounts)) : null })),
       matches: matches.results.map((r: Record<string, unknown>) => ({ ...r, blue: JSON.parse(String(r.blue)), red: JSON.parse(String(r.red)) })),
@@ -489,6 +508,54 @@ export async function handleQueueApi(
     const body = await readBody(req);
     const limit = Math.min(Math.max(Number(body.limit) || 15, 1), 20);
     return json(await syncProfiles(env, limit));
+  }
+
+  // Link a queue player to a player in the app: an existing one (player_id) or a new one in a team (team_id + role).
+  if (path === '/api/queue/link' && method === 'POST') {
+    const body = await readBody(req);
+    const playerKey = key(String(body.player_key ?? ''));
+    const q = await db.prepare('SELECT * FROM queue_players WHERE key = ?').bind(playerKey).first<Record<string, unknown>>();
+    if (!q) throw new HttpError(404, 'not_found', 'Hráč v queue není.');
+    const actor = { kind: 'user' as const, userId: user.id };
+
+    if (body.unlink) {
+      await db.prepare('UPDATE players SET queue_key = NULL WHERE queue_key = ?').bind(playerKey).run();
+      await logActivity(db, actor, 'queue.unlink', 'queue_player', null, { player: playerKey });
+      return json({ ok: true });
+    }
+
+    let playerId = Number(body.player_id) || null;
+    if (!playerId) {
+      const teamId = Number(body.team_id);
+      const team = teamId ? await db.prepare('SELECT id, region FROM teams WHERE id = ?').bind(teamId).first<{ id: number; region: string }>() : null;
+      if (!team) throw new HttpError(400, 'invalid', 'Vyber tým.');
+      const role = (['TOP', 'JUNGLE', 'MID', 'ADC', 'SUPPORT', 'SUB'] as const).find((r) => r === body.role) ?? null;
+      // Riot ID: the highest-ranked account from the player's Streamers Clash profile
+      const accounts = (q.accounts ? JSON.parse(String(q.accounts)) : []) as Account[];
+      const best = [...accounts].sort((a, b) => rankValue(b.rank) - rankValue(a.rank))[0];
+      const [gameName, tagLine] = best ? best.riot.split('#') : [null, null];
+      const region = best ? (best.region === 'euw' ? 'EUW' : 'EUNE') : team.region || 'EUNE';
+      const res = await db
+        .prepare(
+          `INSERT INTO players (team_id, nickname, role, riot_game_name, riot_tag_line, region, queue_key)
+           VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .bind(teamId, String(q.nickname), role, gameName ?? null, tagLine ?? null, region, playerKey)
+        .run();
+      playerId = res.meta.last_row_id;
+      await logActivity(db, actor, 'player.create', 'player', playerId, { nickname: q.nickname, team_id: teamId, from: 'queue' });
+      await relinkDraftPlayers(env).catch(() => {});
+    } else {
+      const exists = await db.prepare('SELECT id FROM players WHERE id = ?').bind(playerId).first();
+      if (!exists) throw new HttpError(404, 'not_found', 'Hráč v appce neexistuje.');
+      // one app player per queue player
+      await db.batch([
+        db.prepare('UPDATE players SET queue_key = NULL WHERE queue_key = ? AND id <> ?').bind(playerKey, playerId),
+        db.prepare('UPDATE players SET queue_key = ? WHERE id = ?').bind(playerKey, playerId),
+      ]);
+      await logActivity(db, actor, 'queue.link', 'player', playerId, { player: playerKey });
+    }
+    return json({ ok: true, player_id: playerId });
   }
 
   if ((m = path.match(/^\/api\/queue\/profile\/(.+)$/)) && method === 'POST') {

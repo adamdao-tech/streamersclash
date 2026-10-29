@@ -8,6 +8,11 @@
   <link rel="preload" href="/fonts/inter-var.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="preload" href="/fonts/rajdhani-700.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="/app.css">
+  <style>
+    .opgg-row { display: flex; gap: 3px; flex-wrap: wrap; margin-top: 3px; }
+    .opgg-mini { font: 700 0.66rem var(--display); letter-spacing: .04em; padding: 1px 6px; border-radius: 4px; background: #5c46e8; color: #fff; }
+    .opgg-mini:hover { text-decoration: none; filter: brightness(1.15); }
+  </style>
 </head>
 <body>
   <main class="team-page">
@@ -36,6 +41,11 @@
         <section class="gbox"><h2>Nejčastěji banují</h2><table class="gtable kv" id="bans-by"></table></section>
         <section class="gbox"><h2>Banují proti nim</h2><table class="gtable kv" id="bans-vs"></table></section>
       </div>
+
+      <section class="gbox" id="ban-box">
+        <h2>Návrh banů <span class="muted" style="font:500 .8rem var(--font);text-transform:none;letter-spacing:0">z draftů ve VODkách, champion poolů z koučingu a ranku hráčů</span></h2>
+        <div class="gscroll"><table class="gtable" id="ban-suggest"></table></div>
+      </section>
 
       <section class="gbox">
         <h2>Hráči <button class="btn btn-small" id="add-player">+ Přidat hráče</button></h2>
@@ -117,9 +127,10 @@
   <script type="module">
     import { api, esc, initPage, formDialog, logoHtml, loadChampions, champIcon, draftRow, vodLink, fmtDuration, aggregateChampions, championTableHtml } from '/app.js';
 
-    await initPage('teams');
+    const me = await initPage('teams');
     const teamId = new URLSearchParams(location.search).get('id');
     let team, players = [], allDrafts = [], icons = new Map(), live = {}, editingPlayer = null;
+    let queue = new Map(), pools = [];
     let typeFilter = '';
     let champRole = '';
     let champSort = 'g';
@@ -255,6 +266,84 @@
       return { g, w, l, k, d: de, a: as, kn, champs: [...champs.values()].sort((x, y) => y.g - x.g || y.w - x.w) };
     }
 
+    // --- Streamers Queue ------------------------------------------------------
+    const RANK_TIERS = ['iron', 'bronze', 'silver', 'gold', 'platinum', 'emerald', 'diamond', 'master', 'grandmaster', 'challenger'];
+    const RANK_DIV = { IV: 0, III: 1, II: 2, I: 3 };
+    function rankValue(rank) {
+      const m = String(rank || '').match(/^([A-Za-z]+)\s*(IV|III|II|I)?\D*?(\d+)?\s*LP/i) || String(rank || '').match(/^([A-Za-z]+)\s*(IV|III|II|I)?/i);
+      const t = m ? RANK_TIERS.indexOf(m[1].toLowerCase()) : -1;
+      if (t < 0) return -1;
+      const lp = +(m[3] || 0);
+      return m[2] ? t * 10000 + RANK_DIV[m[2].toUpperCase()] * 1000 + Math.min(lp, 999) : t * 10000 + Math.min(lp, 9999);
+    }
+    /** Queue data of a player: linked explicitly, or a queue player with the same nickname (just a suggestion). */
+    function queueOf(p) {
+      const qk = p.queue_key || String(p.nickname).toLowerCase();
+      const q = queue.get(qk);
+      return q ? { ...q, linked: !!p.queue_key } : null;
+    }
+    const bestAccount = (q) => [...(q?.accounts || [])].filter((a) => a.rank).sort((a, b) => rankValue(b.rank) - rankValue(a.rank))[0];
+    function queueCell(p) {
+      const q = queueOf(p);
+      if (!q) return '<span class="muted">–</span>';
+      const best = bestAccount(q);
+      const opgg = (q.accounts || []).map((a) => `<a class="opgg-mini" href="${esc(a.url)}" target="_blank" rel="noopener" title="${esc(a.riot)}${a.rank ? ' · ' + esc(a.rank) : ''}">${esc(a.region.toUpperCase())}</a>`).join('');
+      const link = !q.linked && me.role === 'admin'
+        ? ` <button class="link-like muted" data-qlink="${p.id}" data-qkey="${esc(q.key)}" title="Stejný nick v Streamers Queue – propojit">propojit?</button>` : '';
+      return `<span class="nowrap"><b class="wrv ${q.wins >= q.losses ? 'good' : 'bad'}">${q.wins}W ${q.losses}L</b>${q.rank ? ` <span class="muted">#${q.rank}</span>` : ''}</span>
+        ${best ? `<div class="muted" style="font-size:.78rem">${esc(String(best.rank).replace(/\s*·\s*/, ' '))} ${esc(best.region.toUpperCase())}</div>` : ''}
+        <div class="opgg-row">${opgg}${link}</div>`;
+    }
+
+    // --- ban suggestions ------------------------------------------------------
+    // Score per champion over the team's players: games in drafts (more weight with a good winrate),
+    // the coaching champion pool tier (S/A/B), all scaled by how high the player is ranked.
+    const TIER_BONUS = { S: 3, A: 2, B: 1 };
+    function rankFactor(p) {
+      const v = rankValue(bestAccount(queueOf(p))?.rank);
+      if (v < 0) return 1;
+      const tier = Math.floor(v / 10000);
+      return tier >= 7 ? 1.35 : tier === 6 ? 1.2 : tier === 5 ? 1.1 : 1;
+    }
+    function renderBanSuggestions(list) {
+      const box = document.getElementById('ban-box');
+      box.hidden = !!team.is_own_team;
+      if (team.is_own_team) return;
+      const champs = new Map();
+      const add = (c, pts, why) => {
+        const r = champs.get(c) || { champion: c, score: 0, why: [] };
+        r.score += pts; r.why.push(why); champs.set(c, r);
+      };
+      for (const p of players) {
+        if (p.role === 'SUB') continue;
+        const rf = rankFactor(p);
+        const st = playerStats(p, list);
+        const tiers = new Map(pools.filter((x) => x.player_id === p.id).map((x) => [x.champion, x.tier]));
+        const seen = new Set();
+        for (const c of st.champs) {
+          const decided = c.w + c.l;
+          const wr = decided ? c.w / decided : 0.5;
+          const tier = tiers.get(c.name);
+          add(c.name, (c.g * (0.6 + wr) + (TIER_BONUS[tier] || 0)) * rf,
+            `<b>${esc(p.nickname)}</b>: ${c.g} ${c.g === 1 ? 'hra' : c.g < 5 ? 'hry' : 'her'}${decided ? ` · ${Math.round(wr * 100)} %` : ''}${tier ? ` · ${tier} tier` : ''}`);
+          seen.add(c.name);
+        }
+        for (const [c, tier] of tiers) {
+          if (seen.has(c) || !TIER_BONUS[tier]) continue;
+          add(c, TIER_BONUS[tier] * rf, `<b>${esc(p.nickname)}</b>: ${tier} tier v poolu`);
+        }
+      }
+      const top = [...champs.values()].sort((a, b) => b.score - a.score).slice(0, 6);
+      const games = list.length;
+      document.getElementById('ban-suggest').innerHTML = top.length
+        ? `<thead><tr><th>Champion</th><th>Proč</th><th class="num">Skóre</th></tr></thead><tbody>${top.map((r) => `<tr>
+            <td><span class="gchamp">${champIcon(icons, r.champion, 'row')}${esc(r.champion)}</span></td>
+            <td class="muted">${r.why.join('<br>')}</td>
+            <td class="num strong">${r.score.toFixed(1)}</td></tr>`).join('')}</tbody>
+            ${games < 5 ? `<tfoot><tr><td colspan="3" class="muted">Jen ${games} ${games === 1 ? 'hra' : 'her'} v datech – ber jako orientační.</td></tr></tfoot>` : ''}`
+        : '<tr><td class="muted">Zatím nic: chybí drafty z VODek i champion pool v koučingu.</td></tr>';
+    }
+
     function renderPlayers(list) {
       const sorted = [...players].sort((a, b) => ROLE_ORDER.indexOf(a.role) - ROLE_ORDER.indexOf(b.role));
       const el = document.getElementById('players');
@@ -265,7 +354,7 @@
       el.innerHTML = `
         <thead><tr>
           <th>Role</th><th>Hráč</th><th class="num">Hry</th><th class="num">V–P</th><th class="num">WR</th>
-          <th class="num">KDA</th><th class="num">Ø K / D / A</th><th>Nejhranější championi</th><th></th>
+          <th class="num">KDA</th><th class="num">Ø K / D / A</th><th>Nejhranější championi</th><th>Streamers Queue</th><th></th>
         </tr></thead>
         <tbody>${sorted.map((p) => {
           const s = playerStats(p, list);
@@ -282,6 +371,7 @@
             <td class="num strong">${s.kn ? kdaRatio(s.k, s.d, s.a) : '–'}</td>
             <td class="num muted">${s.kn ? `${num(s.k / s.kn)} / ${num(s.d / s.kn)} / ${num(s.a / s.kn)}` : '–'}</td>
             <td><div class="gpools">${champs || '<span class="muted">zatím žádné hry</span>'}${more}</div></td>
+            <td>${queueCell(p)}</td>
             <td class="num nowrap">
               <button class="btn btn-small btn-ghost" data-edit="${p.id}">Upravit</button>
               <button class="btn btn-small btn-ghost btn-danger" data-delete="${p.id}" aria-label="Smazat hráče ${esc(p.nickname)}">✕</button>
@@ -354,6 +444,7 @@
       renderTypeFilter();
       renderSummary(list);
       renderBans(list);
+      renderBanSuggestions(list);
       renderPlayers(list);
       renderRecent(list);
       renderChampions(list);
@@ -378,7 +469,9 @@
     }
 
     async function load() {
-      ({ team, players } = await api(`/api/teams/${teamId}`));
+      let q;
+      ({ team, players, queue: q = [], pools = [] } = await api(`/api/teams/${teamId}`));
+      queue = new Map(q.map((x) => [x.key, x]));
       document.title = `${team.name} · SGooBovo šedl scouting`;
       document.body.style.setProperty('--accent', team.accent_color || '#e8b84a');
       let ds;
@@ -430,6 +523,12 @@
       playerDialog.open({});
     };
     document.getElementById('players').addEventListener('click', async (e) => {
+      const ql = e.target.closest('[data-qlink]');
+      if (ql) {
+        try { await api('/api/queue/link', { method: 'POST', body: { player_key: ql.dataset.qkey, player_id: +ql.dataset.qlink } }); await load(); }
+        catch (err) { alert(err.message); }
+        return;
+      }
       const btn = e.target.closest('[data-edit], [data-delete]');
       if (!btn) return;
       const id = btn.dataset.edit || btn.dataset.delete;

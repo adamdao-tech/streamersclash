@@ -96,6 +96,12 @@ async function register(req: Request, env: Env): Promise<Response> {
   if (!uris.length || uris.length > 10 || !uris.every(validRedirect)) {
     return oauthError('invalid_redirect_uri', 'redirect_uris must be https URLs');
   }
+  // Public endpoint (MCP clients register themselves): a cap keeps anyone from flooding D1 with rows.
+  const recent = await env.DB.prepare(`SELECT COUNT(*) AS n FROM oauth_clients WHERE created_at > datetime('now', '-1 hour')`).first<{ n: number }>();
+  if ((recent?.n ?? 0) >= 20) return oauthError('temporarily_unavailable', 'Too many registrations, try again later', 429);
+  // registrations nobody ever used are dropped after a day
+  await env.DB.prepare(`DELETE FROM oauth_clients WHERE created_at < datetime('now', '-1 day')
+                          AND client_id NOT IN (SELECT client_id FROM oauth_tokens) AND client_id NOT IN (SELECT client_id FROM oauth_codes)`).run();
   const clientId = `sc_${randomToken(18)}`;
   const name = body.client_name ? String(body.client_name).slice(0, 100) : null;
   await env.DB.prepare('INSERT INTO oauth_clients (client_id, client_name, redirect_uris) VALUES (?, ?, ?)')

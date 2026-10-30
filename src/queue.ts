@@ -30,7 +30,8 @@ interface ScBoardEntry {
 }
 
 const key = (nick: string) => nick.trim().toLowerCase();
-const abs = (u?: string | null) => (!u ? null : /^https?:/.test(u) ? u : u.startsWith('/') ? `https://streamersclash.cz${u}` : u);
+// links from streamersclash.cz end up in href/src: only http(s), never javascript: and the like
+const abs = (u?: string | null) => (!u ? null : /^https?:\/\//i.test(u) ? u : u.startsWith('/') && !u.startsWith('//') ? `https://streamersclash.cz${u}` : null);
 const slim = (p: ScPlayer) => ({ nickname: p.nickname, avatar: abs(p.avatar), href: abs(p.href) });
 
 export const OPGG_REGIONS = ['eune', 'euw'] as const;

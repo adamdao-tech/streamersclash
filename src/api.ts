@@ -55,6 +55,7 @@ async function route(req: Request, env: Env, url: URL, user: User): Promise<Resp
       const login = normalizeChannel(body.twitch_login, 'twitch.tv');
       if (!login) throw new HttpError(400, 'invalid', 'Zadej Twitch login.');
       const role = body.role === 'admin' ? 'admin' : 'member';
+      if (role === 'admin' && !isSuperadmin(env, user)) throw new HttpError(403, 'forbidden', 'Admina může přidat jen superadmin.');
       const res = await db
         .prepare('INSERT INTO users (twitch_login, role, added_by) VALUES (?, ?, ?) ON CONFLICT(twitch_login) DO NOTHING')
         .bind(login, role, user.id)
@@ -77,6 +78,9 @@ async function route(req: Request, env: Env, url: URL, user: User): Promise<Resp
     requireAdmin(user);
     const id = Number(m[1]);
     if (id === user.id) throw new HttpError(400, 'self', 'Sám sebe odebrat nemůžeš.');
+    const target = await db.prepare('SELECT twitch_login, role FROM users WHERE id = ?').bind(id).first<{ twitch_login: string; role: string }>();
+    if (target && isSuperadmin(env, target)) throw new HttpError(403, 'forbidden', 'Superadmina odebrat nejde.');
+    if (target?.role === 'admin' && !isSuperadmin(env, user)) throw new HttpError(403, 'forbidden', 'Admina může odebrat jen superadmin.');
     await db.prepare('DELETE FROM users WHERE id = ?').bind(id).run();
     await logActivity(db, actor, 'user.remove', 'user', id);
     return json({ ok: true });

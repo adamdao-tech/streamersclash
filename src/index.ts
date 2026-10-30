@@ -48,11 +48,12 @@ export default {
     if (STATIC_PATHS.has(url.pathname) || url.pathname.startsWith('/fonts/')) return serveStatic(req, env, url);
 
     try {
-      return await route(req, env, url);
+      return secure(await route(req, env, url));
     } catch (err) {
       // usually the database (D1 free plan daily limits reset at 00:00 UTC): say so instead of Cloudflare's error 1101
-      const msg = (err as Error)?.message ?? String(err);
-      console.error('request failed', url.pathname, msg);
+      const raw = (err as Error)?.message ?? String(err);
+      console.error('request failed', url.pathname, raw);
+      const msg = /D1|limit/i.test(raw) ? raw : 'Interní chyba (detail je v logu Workeru).';
       if (url.pathname.startsWith('/api/') || url.pathname === '/mcp') return json({ error: 'server_error', detail: msg }, 503);
       return new Response(
         `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Dočasně nedostupné</title>
@@ -82,6 +83,16 @@ export default {
     );
   },
 } satisfies ExportedHandler<Env>;
+
+/** No framing (clickjacking), no MIME sniffing, no full URLs leaked to other sites. */
+function secure(res: Response): Response {
+  if (res.status === 101 || res.headers.has('X-Frame-Options')) return res;
+  const out = new Response(res.body, res);
+  out.headers.set('X-Frame-Options', 'DENY');
+  out.headers.set('X-Content-Type-Options', 'nosniff');
+  out.headers.set('Referrer-Policy', 'same-origin');
+  return out;
+}
 
 async function route(req: Request, env: Env, url: URL): Promise<Response> {
     await ensureSchema(env.DB);

@@ -232,12 +232,12 @@ const TOOLS: Tool[] = [
         .bind(id)
         .first<{ image: number[]; postgame_image: number[] | null; vod_id: number; ts_s: number; reading: string | null; status: string; note: string | null; vod_url: string; pov_player: string | null }>();
       if (!row) throw new HttpError(404, 'not_found', 'Frame not found');
-      const b64 = toBase64(new Uint8Array(row.image));
+      const b64 = row.image?.length ? toBase64(new Uint8Array(row.image)) : null;
       const t = row.ts_s;
       const at = `${Math.floor(t / 3600)}h${Math.floor((t % 3600) / 60)}m${t % 60}s`;
       return {
         content: [
-          { type: 'image', data: b64, mimeType: 'image/jpeg' },
+          ...(b64 ? [{ type: 'image', data: b64, mimeType: 'image/jpeg' }] : []),
           ...(row.postgame_image ? [{ type: 'image', data: toBase64(new Uint8Array(row.postgame_image)), mimeType: 'image/jpeg' }] : []),
           {
             type: 'text',

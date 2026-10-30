@@ -316,6 +316,7 @@ async function route(req: Request, env: Env, url: URL, user: User): Promise<Resp
   if ((m = path.match(/^\/api\/frames\/(\d+)\/image$/)) && method === 'GET') {
     const row = await db.prepare('SELECT image FROM draft_frames WHERE id = ?').bind(Number(m[1])).first<{ image: number[] }>();
     if (!row) throw new HttpError(404, 'not_found', 'Snímek neexistuje.');
+    if (!row.image?.length) throw new HttpError(404, 'deleted', 'Screenshot se po kontrole draftu maže.');
     return new Response(new Uint8Array(row.image), {
       headers: { 'Content-Type': 'image/jpeg', 'Cache-Control': 'private, max-age=86400' },
     });

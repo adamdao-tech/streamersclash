@@ -542,4 +542,10 @@ ALTER TABLE queue_players ADD COLUMN last_played TEXT;
 CREATE INDEX idx_queue_players_sq ON queue_players(sq_id);
 CREATE INDEX idx_queue_matches_num ON queue_matches(number);
 `,
+
+  /* 23: draft screenshots are only needed until the draft is checked: an accepted or discarded frame drops its
+         pictures (they were the bulk of the database, free D1 holds 500 MB) */ `
+UPDATE draft_frames SET image = X'', postgame_image = NULL WHERE status != 'review' AND (length(image) > 0 OR postgame_image IS NOT NULL);
+CREATE TRIGGER draft_frames_drop_images AFTER UPDATE OF status ON draft_frames WHEN NEW.status != 'review' BEGIN UPDATE draft_frames SET image = X'', postgame_image = NULL WHERE id = NEW.id; END;
+`,
 ];

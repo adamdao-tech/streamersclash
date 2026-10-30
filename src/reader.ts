@@ -186,7 +186,7 @@ async function route(req: Request, env: Env, url: URL): Promise<Response> {
           .run();
         updated = true;
       }
-      if (pgBytes) {
+      if (pgBytes && existing.status === 'review') {
         await db.prepare('UPDATE draft_frames SET postgame_image = ? WHERE id = ?').bind(pgBytes.buffer, existing.id).run();
       }
       return json({ ok: true, duplicate: true, updated, frame_id: existing.id, match_id: existing.match_id });

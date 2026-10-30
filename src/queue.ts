@@ -2,7 +2,7 @@ import type { Env } from './index';
 import { isSuperadmin, logActivity, type User } from './db';
 import { cacheGet, cacheSet, getStreams } from './twitch';
 import { relinkDraftPlayers } from './drafts';
-import { flattenGame, SqError, sqEnabled, sqFetch, storeSqGames, syncSqGames, syncSqPlayers, type SqGame } from './sq';
+import { flattenGame, SqError, sqEnabled, sqFetch, rankStatement, storeSqGames, syncSqGames, syncSqPlayers, type SqGame } from './sq';
 import { HttpError, json } from './http';
 import { parseStart } from './schedule';
 
@@ -323,8 +323,14 @@ export async function syncQueue(env: Env): Promise<{ players: number; added: num
     `INSERT INTO queue_players (key, nickname, avatar, profile, rank, wins, losses, games, tier, qualified, updated_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
      ON CONFLICT(key) DO UPDATE SET nickname = excluded.nickname, avatar = excluded.avatar, profile = excluded.profile,
-       rank = excluded.rank, wins = excluded.wins, losses = excluded.losses, games = excluded.games,
-       tier = excluded.tier, qualified = excluded.qualified, updated_at = excluded.updated_at`,
+       wins = CASE WHEN sq_id IS NULL THEN excluded.wins ELSE wins END,
+       losses = CASE WHEN sq_id IS NULL THEN excluded.losses ELSE losses END,
+       games = CASE WHEN sq_id IS NULL THEN excluded.games ELSE games END,
+       tier = excluded.tier, qualified = excluded.qualified, updated_at = excluded.updated_at
+     -- only a real change is written (D1 free plan: 100k written rows a day); W/L of API-paired players come from the API
+     WHERE nickname IS NOT excluded.nickname OR avatar IS NOT excluded.avatar OR profile IS NOT excluded.profile
+       OR tier IS NOT excluded.tier OR qualified IS NOT excluded.qualified
+       OR (sq_id IS NULL AND (wins IS NOT excluded.wins OR losses IS NOT excluded.losses OR games IS NOT excluded.games))`,
   );
   const stmts = (board.entries ?? [])
     .filter((e) => e.nickname)
@@ -364,9 +370,14 @@ export async function syncQueue(env: Env): Promise<{ players: number; added: num
       console.error('SQ sync', err);
     }
   }
-  await db.prepare(`INSERT INTO queue_meta (k, v) VALUES ('synced_at', datetime('now'))
-                    ON CONFLICT(k) DO UPDATE SET v = excluded.v`).run();
+  if (!sq || 'error' in sq) await rankStatement(db).run();
   const stored = await db.prepare('SELECT COUNT(*) AS n FROM queue_matches').first<{ n: number }>();
+  // the page polls these two every 10 s: a meta row instead of COUNT(*) over all matches each time
+  await db.batch([
+    db.prepare(`INSERT INTO queue_meta (k, v) VALUES ('synced_at', datetime('now')) ON CONFLICT(k) DO UPDATE SET v = excluded.v`),
+    db.prepare(`INSERT INTO queue_meta (k, v) VALUES ('match_count', ?) ON CONFLICT(k) DO UPDATE SET v = excluded.v WHERE v IS NOT excluded.v`)
+      .bind(String(stored?.n ?? 0)),
+  ]);
   return { players: stmts.length, added, stored: stored?.n ?? 0, ...(sq ? { sq } : {}) } as { players: number; added: number; stored: number };
 }
 
@@ -497,15 +508,20 @@ export async function handleQueueApi(
 
   // Lightweight poll for the page's auto-refresh: admins' edits + whether a new sync happened.
   if (path === '/api/queue/updates' && method === 'GET') {
-    const [scout, meta, count] = await Promise.all([
+    const [scout, meta] = await Promise.all([
       db.prepare(`SELECT s.*, u.display_name AS updated_by_name FROM queue_scout s LEFT JOIN users u ON u.id = s.updated_by`).all(),
-      db.prepare(`SELECT v FROM queue_meta WHERE k = 'synced_at'`).first<{ v: string }>(),
-      db.prepare('SELECT COUNT(*) AS n FROM queue_matches').first<{ n: number }>(),
+      db.prepare(`SELECT k, v FROM queue_meta WHERE k IN ('synced_at', 'match_count')`).all<{ k: string; v: string }>(),
     ]);
+    const m = new Map(meta.results.map((r) => [r.k, r.v]));
+    if (!m.has('match_count')) {
+      const c = await db.prepare('SELECT COUNT(*) AS n FROM queue_matches').first<{ n: number }>();
+      m.set('match_count', String(c?.n ?? 0));
+      await db.prepare(`INSERT OR IGNORE INTO queue_meta (k, v) VALUES ('match_count', ?)`).bind(m.get('match_count')).run();
+    }
     return json({
       scout: guard.hidden ? [] : scout.results.map((r: Record<string, unknown>) => ({ ...r, fav_roles: JSON.parse(String(r.fav_roles || '[]')) })),
-      synced_at: meta?.v ?? null,
-      matches: count?.n ?? 0,
+      synced_at: m.get('synced_at') ?? null,
+      matches: Number(m.get('match_count') ?? 0),
       stream: guard,
     });
   }

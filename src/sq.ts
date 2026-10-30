@@ -161,6 +161,18 @@ async function runChunks(db: D1Database, stmts: D1PreparedStatement[], size = 10
   for (let i = 0; i < stmts.length; i += size) await db.batch(stmts.slice(i, i + size));
 }
 
+/**
+ * Place by wins, like the official board (same wins = same place). One sorted pass and only changed rows
+ * are written — the old correlated subquery read n² rows (~235k per sync) and blew the D1 free daily limit.
+ */
+export function rankStatement(db: D1Database): D1PreparedStatement {
+  return db.prepare(
+    `UPDATE queue_players SET rank = r.rk
+       FROM (SELECT key, RANK() OVER (ORDER BY wins DESC) AS rk FROM queue_players) AS r
+      WHERE queue_players.key = r.key AND queue_players.rank IS NOT r.rk`,
+  );
+}
+
 const fold = (s: unknown) => lower(s).normalize('NFD').replace(/[^a-z0-9]/g, '');
 function similar(a: string, b: string): boolean {
   const x = fold(a), y = fold(b);
@@ -228,9 +240,11 @@ export async function syncSqPlayers(
     const key = pairing.find(p);
     if (key) {
       if (!pairing.bySq.has(p.id)) stmts.push(...linkStatements(db, pairing, key, p.id));
+      // only a real change is written (D1 free plan: 100k written rows a day)
       stmts.push(db.prepare(
-        `UPDATE queue_players SET elo = ?, wins = ?, losses = ?, games = ?, last_played = ?, avatar = COALESCE(avatar, ?), updated_at = datetime('now')
-          WHERE key = ?`,
+        `UPDATE queue_players SET elo = ?1, wins = ?2, losses = ?3, games = ?4, last_played = ?5, avatar = COALESCE(avatar, ?6), updated_at = datetime('now')
+          WHERE key = ?7 AND (elo IS NOT ?1 OR wins IS NOT ?2 OR losses IS NOT ?3 OR games IS NOT ?4 OR last_played IS NOT ?5
+                              OR (avatar IS NULL AND ?6 IS NOT NULL))`,
       ).bind(...stats, p.avatar ?? null, key));
       paired++;
     } else {
@@ -240,7 +254,9 @@ export async function syncSqPlayers(
         `INSERT INTO queue_players (key, nickname, avatar, sq_id, elo, wins, losses, games, last_played, updated_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
          ON CONFLICT(key) DO UPDATE SET sq_id = excluded.sq_id, elo = excluded.elo, wins = excluded.wins, losses = excluded.losses,
-           games = excluded.games, last_played = excluded.last_played, updated_at = excluded.updated_at`,
+           games = excluded.games, last_played = excluded.last_played, updated_at = excluded.updated_at
+         WHERE sq_id IS NOT excluded.sq_id OR elo IS NOT excluded.elo OR wins IS NOT excluded.wins OR losses IS NOT excluded.losses
+           OR games IS NOT excluded.games OR last_played IS NOT excluded.last_played`,
       ).bind(k, nameOf(p), p.avatar ?? null, p.id, ...stats));
       pairing.byKey.set(k, { key: k, nickname: nameOf(p), avatar: p.avatar ?? null, sq_id: p.id });
       pairing.bySq.set(p.id, k);
@@ -248,7 +264,7 @@ export async function syncSqPlayers(
     }
   }
   // place by wins, like the official board (same wins = same place)
-  stmts.push(db.prepare('UPDATE queue_players SET rank = 1 + (SELECT COUNT(*) FROM queue_players q WHERE q.wins > queue_players.wins)'));
+  stmts.push(rankStatement(db));
   await runChunks(db, stmts);
   return { players: list.length, paired, created, byRecord: byRecord.size };
 }
@@ -318,6 +334,9 @@ export async function storeSqGames(env: Env, games: SqGame[]): Promise<{ stored:
     })));
   }
   await runChunks(db, stmts);
+  // count for the page's 10 s poll (see /api/queue/updates)
+  await db.prepare(`INSERT INTO queue_meta (k, v) SELECT 'match_count', CAST(COUNT(*) AS TEXT) FROM queue_matches WHERE 1
+                    ON CONFLICT(k) DO UPDATE SET v = excluded.v WHERE v IS NOT excluded.v`).run();
   return { stored: done.length, paired };
 }
 

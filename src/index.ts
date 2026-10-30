@@ -47,6 +47,43 @@ export default {
     const url = new URL(req.url);
     if (STATIC_PATHS.has(url.pathname) || url.pathname.startsWith('/fonts/')) return serveStatic(req, env, url);
 
+    try {
+      return await route(req, env, url);
+    } catch (err) {
+      // usually the database (D1 free plan daily limits reset at 00:00 UTC): say so instead of Cloudflare's error 1101
+      const msg = (err as Error)?.message ?? String(err);
+      console.error('request failed', url.pathname, msg);
+      if (url.pathname.startsWith('/api/') || url.pathname === '/mcp') return json({ error: 'server_error', detail: msg }, 503);
+      return new Response(
+        `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Dočasně nedostupné</title>
+<link rel="stylesheet" href="/app.css"><main style="max-width:560px;margin:15vh auto;padding:0 16px">
+<h1>Dočasně nedostupné</h1><p>Databáze teď neodpovídá (nejspíš denní limit Cloudflare D1, obnoví se v 1:00 / 2:00 v létě).</p>
+<p class="muted" style="font:12px ui-monospace,monospace">${msg.replace(/[<>&]/g, '')}</p></main>`,
+        { status: 503, headers: { 'content-type': 'text/html; charset=utf-8', 'retry-after': '300', 'cache-control': 'no-store' } },
+      );
+    }
+  },
+
+  async scheduled(_event, env, ctx): Promise<void> {
+    ctx.waitUntil(
+      (async () => {
+        await ensureSchema(env.DB);
+        // Independent jobs: one failing must not stop the other.
+        await Promise.all([
+          syncTwitchVods(env).then((r) => console.log('VOD sync', JSON.stringify(r)), (e) => console.error('VOD sync failed', e)),
+          // Streamers Queue: leaderboard + newly ended lobbies (their API keeps only the last ~36).
+          // then a batch of players' profiles (op.gg accounts, preferred role)
+          syncQueue(env)
+            .then((r) => console.log('Queue sync', JSON.stringify(r)), (e) => console.error('Queue sync failed', e))
+            .then(() => syncProfiles(env))
+            .then((r) => console.log('Profiles', JSON.stringify(r)), (e) => console.error('Profiles failed', e)),
+        ]);
+      })(),
+    );
+  },
+} satisfies ExportedHandler<Env>;
+
+async function route(req: Request, env: Env, url: URL): Promise<Response> {
     await ensureSchema(env.DB);
 
     if (url.pathname.startsWith('/auth/')) return handleAuth(req, env, url);
@@ -71,24 +108,4 @@ export default {
     const out = new Response(res.body, res);
     if (!PUBLIC_PATHS.has(url.pathname)) out.headers.set('Cache-Control', 'private, no-store');
     return out;
-  },
-
-  // Cron trigger (see wrangler.jsonc): pull new VODs for the next batch of channels.
-  async scheduled(_event, env, ctx): Promise<void> {
-    ctx.waitUntil(
-      (async () => {
-        await ensureSchema(env.DB);
-        // Independent jobs: one failing must not stop the other.
-        await Promise.all([
-          syncTwitchVods(env).then((r) => console.log('VOD sync', JSON.stringify(r)), (e) => console.error('VOD sync failed', e)),
-          // Streamers Queue: leaderboard + newly ended lobbies (their API keeps only the last ~36).
-          // then a batch of players' profiles (op.gg accounts, preferred role)
-          syncQueue(env)
-            .then((r) => console.log('Queue sync', JSON.stringify(r)), (e) => console.error('Queue sync failed', e))
-            .then(() => syncProfiles(env))
-            .then((r) => console.log('Profiles', JSON.stringify(r)), (e) => console.error('Profiles failed', e)),
-        ]);
-      })(),
-    );
-  },
-} satisfies ExportedHandler<Env>;
+}

@@ -161,13 +161,67 @@ async function runChunks(db: D1Database, stmts: D1PreparedStatement[], size = 10
   for (let i = 0; i < stmts.length; i += size) await db.batch(stmts.slice(i, i + size));
 }
 
-/** ELO, W/L and pairing of all API players; players only in the API get their own row. */
-export async function syncSqPlayers(env: Env): Promise<{ players: number; paired: number; created: number }> {
+const fold = (s: unknown) => lower(s).normalize('NFD').replace(/[^a-z0-9]/g, '');
+function similar(a: string, b: string): boolean {
+  const x = fold(a), y = fold(b);
+  if (!x || !y) return false;
+  if (x.includes(y) || y.includes(x)) return true;
+  const d = Array.from({ length: x.length + 1 }, (_, i) => [i, ...Array(y.length).fill(0)]);
+  for (let j = 1; j <= y.length; j++) d[0][j] = j;
+  for (let i = 1; i <= x.length; i++)
+    for (let j = 1; j <= y.length; j++) d[i][j] = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + (x[i - 1] === y[j - 1] ? 0 : 1));
+  return d[x.length][y.length] <= 2;
+}
+
+/**
+ * Site players (from the streamersclash.cz board) that have no API player yet are paired by their
+ * record: both sources count the same games, so "45 W 27 L" on both sides is the same person
+ * ("Coach Robko" = "Robko"). Several with the same record → only a similar name decides.
+ */
+function pairByRecord(
+  pairing: Pairing, list: SqPlayer[], site: Map<string, { wins: number; losses: number }>,
+): Map<string, string> {
+  const out = new Map<string, string>(); // sq id → site key
+  const siteFree = new Map<string, string[]>();
+  for (const [k, r] of site) {
+    if (pairing.byKey.get(k)?.sq_id) continue;
+    const rec = `${r.wins}-${r.losses}`;
+    siteFree.set(rec, [...(siteFree.get(rec) ?? []), k]);
+  }
+  const apiFree = new Map<string, SqPlayer[]>();
+  for (const p of list) {
+    const k = pairing.bySq.get(p.id);
+    if (k && site.has(k)) continue; // already paired with a site player
+    if (!k && pairing.find(p)) continue; // pairs by ID/name anyway
+    const rec = `${p.wins ?? 0}-${p.losses ?? 0}`;
+    apiFree.set(rec, [...(apiFree.get(rec) ?? []), p]);
+  }
+  for (const [rec, ps] of apiFree) {
+    const ks = siteFree.get(rec) ?? [];
+    if (!ks.length || rec === '0-0') continue;
+    if (ks.length === 1 && ps.length === 1) { out.set(ps[0].id, ks[0]); continue; }
+    for (const p of ps) {
+      const hits = ks.filter((k) => similar(pairing.byKey.get(k)?.nickname ?? k, nameOf(p)) || similar(k, p.username ?? ''));
+      if (hits.length === 1 && ![...out.values()].includes(hits[0])) out.set(p.id, hits[0]);
+    }
+  }
+  return out;
+}
+
+/**
+ * ELO, W/L and pairing of all API players; players only in the API get their own row.
+ * `site`: the streamersclash.cz board of this sync (key → record), for pairing by record.
+ */
+export async function syncSqPlayers(
+  env: Env, site: Map<string, { wins: number; losses: number }> = new Map(),
+): Promise<{ players: number; paired: number; created: number; byRecord: number }> {
   const db = env.DB;
   const list = (await sqJson<SqPlayer[]>(env, '/api/players')) ?? [];
   const pairing = await Pairing.load(db);
   const stmts: D1PreparedStatement[] = [];
   let paired = 0, created = 0;
+  const byRecord = pairByRecord(pairing, list, site);
+  for (const [sqId, key] of byRecord) stmts.push(...linkStatements(db, pairing, key, sqId));
   for (const p of list) {
     if (!p?.id) continue;
     const stats = [p.elo ?? null, p.wins ?? 0, p.losses ?? 0, p.totalGames ?? (p.wins ?? 0) + (p.losses ?? 0), p.lastPlayedAt ?? null] as const;
@@ -196,7 +250,7 @@ export async function syncSqPlayers(env: Env): Promise<{ players: number; paired
   // place by wins, like the official board (same wins = same place)
   stmts.push(db.prepare('UPDATE queue_players SET rank = 1 + (SELECT COUNT(*) FROM queue_players q WHERE q.wins > queue_players.wins)'));
   await runChunks(db, stmts);
-  return { players: list.length, paired, created };
+  return { players: list.length, paired, created, byRecord: byRecord.size };
 }
 
 /**

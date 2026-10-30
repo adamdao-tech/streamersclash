@@ -225,6 +225,12 @@
         elo: b.elo ?? null, last_played: b.last_played ?? null,
         accounts: b.accounts || [], preferred_role: b.preferred_role, profile_checked: !!b.profile_checked_at && b.accounts != null, profile_error: b.profile_error,
       });
+      // games from the API carry sq_id: always show them under the paired site nickname
+      const bySq = new Map(data.players.filter((b) => b.sq_id).map((b) => [b.sq_id, b.nickname]));
+      for (const m of data.matches) for (const side of ['blue', 'red']) for (const pl of m[side] || []) {
+        const nick = pl.sq_id && bySq.get(pl.sq_id);
+        if (nick) pl.nickname = nick;
+      }
       const bump = (map, name, won) => { const r = map.get(k(name)) || { name, wins: 0, losses: 0 }; won ? r.wins++ : r.losses++; map.set(k(name), r); };
       const ordered = [...data.matches].sort((a, b) => (a.number ?? 0) - (b.number ?? 0));
       for (const m of ordered) for (const side of ['blue', 'red']) {

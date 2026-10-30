@@ -354,7 +354,8 @@ export async function syncQueue(env: Env): Promise<{ players: number; added: num
   let sq: Record<string, unknown> | null = null;
   if (sqEnabled(env)) {
     try {
-      const pl = await syncSqPlayers(env);
+      const site = new Map((board.entries ?? []).filter((e) => e.nickname).map((e) => [key(e.nickname), { wins: e.wins | 0, losses: e.losses | 0 }]));
+      const pl = await syncSqPlayers(env, site);
       const gm = await syncSqGames(env);
       sq = { ...pl, ...gm };
       added += gm.stored;

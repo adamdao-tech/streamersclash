@@ -2,7 +2,7 @@ import type { Env } from './index';
 import { getSessionUser } from './auth';
 import type { User } from './db';
 import { logActivity } from './db';
-import { cookie, json, parseCookies, randomToken, redirect, sha256Hex } from './http';
+import { assertBodySize, cookie, json, parseCookies, randomToken, redirect, sha256Hex } from './http';
 
 // Minimal OAuth 2.1 authorization server for the MCP connector (what claude.ai
 // expects from a remote MCP server): metadata discovery, dynamic client

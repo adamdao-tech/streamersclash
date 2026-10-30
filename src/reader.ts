@@ -1,7 +1,7 @@
 import type { Env } from './index';
 import { applyPostgame, saveDraft, validateDraft, type DraftInput } from './drafts';
 import { logActivity } from './db';
-import { HttpError, json, sha256Hex } from './http';
+import { assertBodySize, HttpError, json, sha256Hex } from './http';
 
 // API for the draft reader running on Dao's PC (reader/ in this repo).
 // Authenticated with a shared secret: Authorization: Bearer <READER_TOKEN>.
@@ -19,6 +19,7 @@ async function authorized(req: Request, env: Env): Promise<boolean> {
 export async function handleReader(req: Request, env: Env, url: URL): Promise<Response> {
   try {
     if (!(await authorized(req, env))) return json({ error: 'unauthorized' }, 401);
+    if (req.method === 'POST') assertBodySize(req, 8_000_000); // draft screenshots arrive base64
     return await route(req, env, url);
   } catch (err) {
     if (err instanceof HttpError) return json({ error: err.code, message: err.message }, err.status);

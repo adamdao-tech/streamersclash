@@ -17,6 +17,12 @@ export function redirect(location: string, cookies: string[] = []): Response {
   return new Response(null, { status: 302, headers: h });
 }
 
+/** Reject an over-large body by its Content-Length before reading it (a Worker isolate has ~128 MB). */
+export function assertBodySize(req: Request, maxBytes: number): void {
+  const len = Number(req.headers.get('Content-Length') ?? 0);
+  if (len > maxBytes) throw new HttpError(413, 'too_large', `Tělo požadavku je moc velké (max ${Math.round(maxBytes / 1e6)} MB).`);
+}
+
 export function parseCookies(req: Request): Record<string, string> {
   const out: Record<string, string> = {};
   const header = req.headers.get('Cookie');

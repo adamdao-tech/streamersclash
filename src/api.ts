@@ -1,6 +1,6 @@
 import type { Env } from './index';
 import { isSuperadmin, logActivity, type User } from './db';
-import { HttpError, json } from './http';
+import { HttpError, json, assertBodySize } from './http';
 import { getLiveChannels, syncTwitchVods } from './vods';
 import { listDrafts, playerGames, relinkDraftPlayers, summarizeGames } from './drafts';
 import { getChampionData } from './champions';
@@ -490,6 +490,7 @@ function requireAdmin(user: User): void {
 }
 
 async function readBody(req: Request): Promise<Record<string, unknown>> {
+  assertBodySize(req, 6_000_000);
   try {
     const body = await req.json();
     if (body && typeof body === 'object' && !Array.isArray(body)) return body as Record<string, unknown>;

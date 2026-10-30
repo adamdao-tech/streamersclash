@@ -534,4 +534,12 @@ ALTER TABLE vods ADD COLUMN stream_url TEXT;
 ALTER TABLE players ADD COLUMN queue_key TEXT;
 CREATE INDEX idx_players_queue ON players(queue_key);
 `,
+
+  /* 22: Streamers Queue API (Candi) – Discord ID pairing, ELO, last game */ `
+ALTER TABLE queue_players ADD COLUMN sq_id TEXT;
+ALTER TABLE queue_players ADD COLUMN elo INTEGER;
+ALTER TABLE queue_players ADD COLUMN last_played TEXT;
+CREATE INDEX idx_queue_players_sq ON queue_players(sq_id);
+CREATE INDEX idx_queue_matches_num ON queue_matches(number);
+`,
 ];

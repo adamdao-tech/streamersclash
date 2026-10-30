@@ -2,6 +2,7 @@ import type { Env } from './index';
 import { isSuperadmin, logActivity, type User } from './db';
 import { cacheGet, cacheSet, getStreams } from './twitch';
 import { relinkDraftPlayers } from './drafts';
+import { flattenGame, SqError, sqEnabled, sqFetch, storeSqGames, syncSqGames, syncSqPlayers, type SqGame } from './sq';
 import { HttpError, json } from './http';
 import { parseStart } from './schedule';
 
@@ -131,7 +132,7 @@ async function opggSuggestions(db: D1Database): Promise<Record<string, Partial<R
 // link) and sometimes a preferred role. Profiles are read a few at a time from the cron so the
 // organizer's site isn't hammered: PROFILE_BATCH per run, each refreshed once a day.
 
-const PROFILE_BATCH = 25;
+const PROFILE_BATCH = 15; // keeps the cron under the free plan's 50 subrequests (VODs + queue + API)
 const PROFILE_CONCURRENCY = 2;
 
 export interface Account { region: string; riot: string; rank: string | null; url: string }
@@ -335,9 +336,10 @@ export async function syncQueue(env: Env): Promise<{ players: number; added: num
 
   await recordOpgg(db, (lobby.live ?? []) as ScLobby[]).catch((e) => console.error('opgg record', e));
 
+  // a game already stored from the Streamers Queue API (same number, other uid) isn't added again
   const insertMatch = db.prepare(
     `INSERT OR IGNORE INTO queue_matches (uid, number, winner, started_at, day, time_from, time_to, blue, red)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+     SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9 WHERE NOT EXISTS (SELECT 1 FROM queue_matches WHERE number = ?2)`,
   );
   const ended = [...(lobby.recent ?? []), ...(lobby.live ?? [])].filter((l) => l.state === 'ended' && l.winner);
   let added = 0;
@@ -348,10 +350,23 @@ export async function syncQueue(env: Env): Promise<{ players: number; added: num
     ));
     added = res.reduce((n, r) => n + (r.meta.changes || 0), 0);
   }
+  // Streamers Queue API: ELO + pairing, newly finished games (a failure there keeps the site data above)
+  let sq: Record<string, unknown> | null = null;
+  if (sqEnabled(env)) {
+    try {
+      const pl = await syncSqPlayers(env);
+      const gm = await syncSqGames(env);
+      sq = { ...pl, ...gm };
+      added += gm.stored;
+    } catch (err) {
+      sq = { error: (err as Error).message };
+      console.error('SQ sync', err);
+    }
+  }
   await db.prepare(`INSERT INTO queue_meta (k, v) VALUES ('synced_at', datetime('now'))
                     ON CONFLICT(k) DO UPDATE SET v = excluded.v`).run();
   const stored = await db.prepare('SELECT COUNT(*) AS n FROM queue_matches').first<{ n: number }>();
-  return { players: stmts.length, added, stored: stored?.n ?? 0 };
+  return { players: stmts.length, added, stored: stored?.n ?? 0, ...(sq ? { sq } : {}) } as { players: number; added: number; stored: number };
 }
 
 /** Live and waiting lobbies, straight from Streamers Clash (cached for a few seconds). */
@@ -457,16 +472,25 @@ export async function handleQueueApi(
       ).all(),
       db.prepare('SELECT id, name, tag, is_own_team FROM teams ORDER BY is_own_team DESC, name COLLATE NOCASE').all(),
     ]);
-    return json({
+    const rest = JSON.stringify({
       links: links.results,
       teams: teams.results,
       suggestions,
       players: players.results.map((r: Record<string, unknown>) => ({ ...r, accounts: r.accounts ? JSON.parse(String(r.accounts)) : null })),
-      matches: matches.results.map((r: Record<string, unknown>) => ({ ...r, blue: JSON.parse(String(r.blue)), red: JSON.parse(String(r.red)) })),
       // live on Twitch without permission → the admins' notes, prices and favourites stay on the server
       scout: guard.hidden ? [] : scout.results.map((r: Record<string, unknown>) => ({ ...r, fav_roles: JSON.parse(String(r.fav_roles || '[]')) })),
       synced_at: meta?.v ?? null,
       stream: guard,
+      sq_enabled: sqEnabled(env),
+    });
+    // the full history is >1000 games: the stored team JSON goes out as is instead of parse + stringify
+    // (keeps the request well inside the free plan's CPU time)
+    const q = (v: unknown) => JSON.stringify(v ?? null);
+    const m = (matches.results as Record<string, unknown>[]).map((r) =>
+      `{"uid":${q(r.uid)},"number":${q(r.number)},"winner":${q(r.winner)},"started_at":${q(r.started_at)},"day":${q(r.day)},` +
+      `"time_from":${q(r.time_from)},"time_to":${q(r.time_to)},"blue":${r.blue || '[]'},"red":${r.red || '[]'}}`);
+    return new Response(`${rest.slice(0, -1)},"matches":[${m.join(',')}]}`, {
+      headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' },
     });
   }
 
@@ -491,6 +515,30 @@ export async function handleQueueApi(
     } catch (err) {
       return json({ live: [], error: String((err as Error).message) });
     }
+  }
+
+  // Full history from the Streamers Queue API, passed through unparsed (~8 MB): the page parses it and
+  // sends it back in chunks to /api/queue/import.
+  if (path === '/api/queue/sq-history' && method === 'GET') {
+    try {
+      const res = await sqFetch(env, '/api/games?state=ENDED');
+      if (!res.ok) throw new SqError(res.status, `Streamers Queue API vrátilo HTTP ${res.status}`);
+      return new Response(res.body, { headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' } });
+    } catch (err) {
+      throw new HttpError(err instanceof SqError ? (err.status === 429 ? 429 : 502) : 502, 'upstream', (err as Error).message);
+    }
+  }
+
+  if (path === '/api/queue/import' && method === 'POST') {
+    const body = await readBody(req);
+    const games = (Array.isArray(body.games) ? body.games : []).slice(0, 200) as Record<string, unknown>[];
+    const parsed: SqGame[] = games.map((g) => (g.blue && g.red ? (g as unknown as SqGame) : flattenGame(g)));
+    const r = await storeSqGames(env, parsed);
+    if (body.last) {
+      await logActivity(db, { kind: 'user', userId: user.id }, 'queue.import', null, null, { games: body.total ?? null });
+      await db.prepare(`INSERT INTO queue_meta (k, v) VALUES ('synced_at', datetime('now')) ON CONFLICT(k) DO UPDATE SET v = excluded.v`).run();
+    }
+    return json(r);
   }
 
   if (path === '/api/queue/sync' && method === 'POST') {

@@ -16,6 +16,9 @@ export interface Env {
   READER_TOKEN?: string;
   /** Twitch logins (comma-separated) that see the activity log – superadmins, above admins. */
   SUPERADMINS?: string;
+  /** Streamers Queue API (Candi) – secret key and base URL */
+  SQ_API_KEY?: string;
+  SQ_BASE_URL?: string;
 }
 
 /** Paths reachable without logging in. */

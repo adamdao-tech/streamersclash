@@ -117,7 +117,7 @@ async function route(req: Request, env: Env, url: URL, user: User): Promise<Resp
       const [queue, pools] = await Promise.all([
         db
           .prepare(
-            `SELECT key, nickname, rank, tier, wins, losses, games, accounts, preferred_role, profile FROM queue_players
+            `SELECT key, nickname, rank, tier, wins, losses, games, elo, last_played, accounts, preferred_role, profile FROM queue_players
               WHERE key IN (SELECT COALESCE(queue_key, lower(nickname)) FROM players WHERE team_id = ?)`,
           )
           .bind(id)

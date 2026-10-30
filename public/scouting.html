@@ -126,6 +126,7 @@
       <div class="page-head-tools">
         <span class="qs-sync" id="sync-info"></span>
         <span class="qs-sync" id="live-info" title="Stránka se sama obnovuje každých 10 s"><span class="live-dot" style="display:inline-block;vertical-align:middle"></span> <span id="tick">auto 10 s</span></span>
+        <button class="btn btn-small btn-ghost" id="history" hidden title="Stáhne z Streamers Queue API celou historii zápasů (jednorázově, pak se doplňuje samo)">Načíst historii z API</button>
         <button class="btn btn-small btn-ghost" id="profiles" title="Projde profily hráčů na Streamers Clash a načte jejich účty (OP.GG, rank)">Načíst účty všem</button>
         <button class="btn btn-small" id="sync">Synchronizovat</button>
         <button class="btn btn-small btn-ghost" id="share" title="Zčerná stránku, když sdílíš obrazovku (Discord apod.). Klávesa F9.">Sdílím obrazovku (F9)</button>
@@ -221,6 +222,7 @@
       };
       for (const b of data.players) Object.assign(get(b.nickname), {
         avatar: b.avatar, profile: b.profile, rank: b.rank, tier: b.tier, wins: b.wins, losses: b.losses, games: b.games, board: true,
+        elo: b.elo ?? null, last_played: b.last_played ?? null,
         accounts: b.accounts || [], preferred_role: b.preferred_role, profile_checked: !!b.profile_checked_at && b.accounts != null, profile_error: b.profile_error,
       });
       const bump = (map, name, won) => { const r = map.get(k(name)) || { name, wins: 0, losses: 0 }; won ? r.wins++ : r.losses++; map.set(k(name), r); };
@@ -243,6 +245,7 @@
         p.form = p.history.slice(-5).map((h) => h.won);
       }
       S.players = players; S.matches = data.matches; S.suggestions = data.suggestions || {};
+      $('#history').hidden = !data.sq_enabled;
       S.links = new Map((data.links || []).map((l) => [l.queue_key, l]));
       S.teams = data.teams || [];
       S.syncedAt = data.synced_at; S.matchCount = data.matches.length; S.lastPoll = Date.now();
@@ -334,9 +337,10 @@
     };
     const roleToggles = (p) => `<span class="roles">${ROLES.map(([r, l]) => `<button type="button" class="role-t ${p.scout.fav_roles.includes(r) ? 'on' : ''}" data-role="${r}" data-key="${esc(p.key)}" title="Oblíbený na ${l}">${l}</button>`).join('')}</span>`;
 
-    const COLS = [
+    const ALL_COLS = [
       ['rank', '#', (p, i) => `<span class="zero">${p.rank ?? '–'}</span>`, 'num'],
       ['nickname', 'Hráč', (p) => `<span class="qs-pl">${avatar(p)}${esc(p.nickname)}</span>${p.tier ? `<span class="tier tier-${esc(p.tier)}">${esc(p.tier)}</span>` : ''}${p.preferred_role ? `<span class="pref" title="Preferovaná pozice (profil na SC)">${ROLE_SHORT[p.preferred_role] || esc(p.preferred_role)}</span>` : ''}${teamTag(p)}`],
+      ['elo', 'ELO', (p) => (p.elo == null ? '<span class="zero">–</span>' : `<b>${p.elo}</b>`), 'num'],
       ['games', 'Zápasy', (p) => p.games, 'num'],
       ['wins', 'W', (p) => `<span class="win">${p.wins}</span>`, 'num'],
       ['losses', 'L', (p) => `<span class="loss">${p.losses}</span>`, 'num'],
@@ -349,7 +353,7 @@
       ['note', 'Poznámka', (p) => `<div class="note-cell" title="${esc(p.scout.note || '')}">${esc(p.scout.note || '')}</div>`, 'note-td'],
     ];
     const sortVal = {
-      rank: (p) => p.rank ?? 1e9, nickname: (p) => p.nickname.toLowerCase(), games: (p) => p.games, wins: (p) => p.wins,
+      rank: (p) => p.rank ?? 1e9, nickname: (p) => p.nickname.toLowerCase(), games: (p) => p.games, elo: (p) => p.elo ?? -1e9, wins: (p) => p.wins,
       losses: (p) => p.losses, wr: (p) => p.wr ?? -1, form: (p) => p.form.filter(Boolean).length,
       fav: (p) => p.scout.fav_roles.length, lol: (p) => rankScore(bestAccount(p)?.rank), opgg: (p) => accountsOf(p).length + (p.scout.riot_euw ? 2 : 0) + (bestSug(p, 'eune') || bestSug(p, 'euw') ? 1 : 0), price: (p) => p.scout.price ?? -1, note: (p) => (p.scout.note ? 1 : 0),
     };
@@ -368,6 +372,7 @@
     }
 
     function render() {
+      const COLS = ALL_COLS.filter(([c]) => c !== 'elo' || [...S.players.values()].some((p) => p.elo != null));
       $('#thead').innerHTML = COLS.map(([c, l, , cls]) => `<th data-sort="${c}" class="${cls || ''} ${S.sort.col === c ? `sorted ${S.sort.dir > 0 ? 'asc' : ''}` : ''}">${l}</th>`).join('');
       const rows = filtered();
       $('#rows').innerHTML = rows.length
@@ -484,6 +489,7 @@
             <h2>${esc(p.nickname)}</h2>
             <div class="d-meta">
               ${p.rank ? `<span class="badge">#${p.rank} v žebříčku</span>` : ''}
+              ${p.last_played ? `<span class="chip" title="Poslední hra v queue">hrál ${esc(new Date(p.last_played).toLocaleString('cs-CZ', { day: 'numeric', month: 'numeric', hour: '2-digit', minute: '2-digit' }))}</span>` : ''}
               ${p.tier ? `<span class="tier tier-${esc(p.tier)}" style="margin:0">${esc(p.tier)}</span>` : ''}
               ${p.profile ? `<a class="chip" href="${esc(p.profile)}" target="_blank" rel="noopener">profil na SC ↗</a>` : ''}
               ${p.preferred_role ? `<span class="badge" title="Preferovaná pozice z profilu na SC">pozice: ${ROLE_SHORT[p.preferred_role] || esc(p.preferred_role)}</span>` : ''}
@@ -492,6 +498,7 @@
             ${accountsOf(p).length ? `<div class="acc-list">${accountsOf(p).map((a) => `<a class="acc" href="${esc(a.url)}" target="_blank" rel="noopener"><b>${esc(a.riot)}</b><span>${a.region.toUpperCase()}${a.rank ? ` · ${esc(a.rank)}` : ''}${a.src === 'ručně' ? ' · ručně' : ''}</span></a>`).join('')}</div>` : ''}
           </div>
           <div class="d-kpis">
+            ${p.elo != null ? `<div><b>${p.elo}</b><span>ELO</span></div>` : ''}
             <div><b>${p.games}</b><span>zápasů</span></div>
             <div><b class="win">${p.wins}</b><span>W</span></div>
             <div><b class="loss">${p.losses}</b><span>L</span></div>
@@ -632,6 +639,46 @@
     });
 
     /* ---------- načtení účtů všem hráčům ---------- */
+
+    // Celá historie z Streamers Queue API: server ji jen přepošle (~8 MB), stránka ji rozparsuje
+    // a posílá zpět po částech, server zápasy uloží a spáruje hráče.
+    $('#history').addEventListener('click', async (e) => {
+      const btn = e.currentTarget;
+      if (!confirm('Stáhnout celou historii zápasů ze Streamers Queue API? Je to jednorázové, pak se nové zápasy doplňují samy.')) return;
+      btn.disabled = true;
+      S.saving = (S.saving || 0) + 1;
+      try {
+        btn.textContent = 'Aktualizuju hráče…';
+        await api('/api/queue/sync', { method: 'POST', body: {} });
+        btn.textContent = 'Stahuju historii…';
+        const res = await fetch('/api/queue/sq-history', { cache: 'no-store' });
+        if (!res.ok) throw new Error((await res.json().catch(() => ({}))).message || `HTTP ${res.status}`);
+        const raw = await res.json();
+        const slim = (p) => ({ id: String(p.id), displayName: p.displayName ?? null, username: p.username ?? null });
+        const side = (g, s) => {
+          const list = g.teams?.[s]?.players || [];
+          return (list.length ? list : (g.players || []).filter((p) => String(p.team || '').toLowerCase() === s)).map(slim);
+        };
+        const games = (Array.isArray(raw) ? raw : []).filter((g) => g.state === 'ENDED' && g.winner)
+          .map((g) => ({ id: g.id, gameNumber: g.gameNumber, state: g.state, winner: g.winner, createdAt: g.createdAt, endedAt: g.endedAt, blue: side(g, 'blue'), red: side(g, 'red') }))
+          .sort((a, b) => a.gameNumber - b.gameNumber);
+        let done = 0, paired = 0;
+        for (let i = 0; i < games.length; i += 150) {
+          const chunk = games.slice(i, i + 150);
+          const r = await api('/api/queue/import', { method: 'POST', body: { games: chunk, last: i + 150 >= games.length, total: games.length } });
+          done += r.stored; paired += r.paired;
+          btn.textContent = `Ukládám… ${Math.min(i + 150, games.length)}/${games.length}`;
+        }
+        btn.textContent = `Hotovo: ${done} zápasů${paired ? `, spárováno ${paired} hráčů` : ''}`;
+        S.saving--; await load(); S.saving++;
+      } catch (err) {
+        btn.textContent = 'Chyba – zkus znovu';
+        alert(err.message);
+      } finally {
+        S.saving--;
+        setTimeout(() => { btn.disabled = false; btn.textContent = 'Načíst historii z API'; }, 6000);
+      }
+    });
 
     $('#profiles').addEventListener('click', async (e) => {
       const btn = e.currentTarget;

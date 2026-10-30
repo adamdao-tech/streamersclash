@@ -290,7 +290,7 @@
       const opgg = (q.accounts || []).map((a) => `<a class="opgg-mini" href="${esc(a.url)}" target="_blank" rel="noopener" title="${esc(a.riot)}${a.rank ? ' · ' + esc(a.rank) : ''}">${esc(a.region.toUpperCase())}</a>`).join('');
       const link = !q.linked && me.role === 'admin'
         ? ` <button class="link-like muted" data-qlink="${p.id}" data-qkey="${esc(q.key)}" title="Stejný nick v Streamers Queue – propojit">propojit?</button>` : '';
-      return `<span class="nowrap"><b class="wrv ${q.wins >= q.losses ? 'good' : 'bad'}">${q.wins}W ${q.losses}L</b>${q.rank ? ` <span class="muted">#${q.rank}</span>` : ''}</span>
+      return `<span class="nowrap"><b class="wrv ${q.wins >= q.losses ? 'good' : 'bad'}">${q.wins}W ${q.losses}L</b>${q.rank ? ` <span class="muted">#${q.rank}</span>` : ''}${q.elo != null ? ` <span class="muted" title="ELO ve Streamers Queue">· ${q.elo} ELO</span>` : ''}</span>
         ${best ? `<div class="muted" style="font-size:.78rem">${esc(String(best.rank).replace(/\s*·\s*/, ' '))} ${esc(best.region.toUpperCase())}</div>` : ''}
         <div class="opgg-row">${opgg}${link}</div>`;
     }

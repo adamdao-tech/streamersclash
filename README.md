@@ -31,6 +31,13 @@ Dark navy + gold, Rajdhani for headings, Inter for text. Colours and event-type 
 for the next match (`nextMatchHtml` in `app.js`, also used compact on the home page), grouped rows (`.srow`) and an event
 dialog with type cards and segmented format picker. Reuse these classes for new pages.
 
+## Streamers Queue API (Candi)
+Queue scouting takes ELO, W/L and the full game history from `https://sq.candycz01.xyz` (`src/sq.ts`).
+The key is a **secret** `SQ_API_KEY` (Cloudflare → Worker → Settings → Variables and Secrets) – never put it in the code.
+Limit 1800 requests/hour; the cron uses ~3–8 per run (players, active games, games that just ended).
+First run: *Queue scouting → Načíst historii z API* downloads the full history once (the page parses the ~8 MB and sends it back in chunks).
+API players (Discord names) are paired with streamersclash.cz players by Discord ID, name, and from games known from both sources.
+
 ## Draft reader
 See [`reader/README.md`](reader/README.md). Needs the `READER_TOKEN` secret in Cloudflare.
 

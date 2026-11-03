@@ -5,6 +5,7 @@ import { getLiveChannels, syncTwitchVods } from './vods';
 import { listDrafts, playerGames, relinkDraftPlayers, summarizeGames } from './drafts';
 import { getChampionData } from './champions';
 import { listSchedule, opponentLabel, requireOpponent, scheduleFields } from './schedule';
+import { freeSlot, listTournament, SLOTS, tournamentFields, tournamentLabel } from './tournament';
 import {
   addDeckImage, createDeck, createFolder, createShot, deleteDeck, getDeckImage, updateDeck, deleteFolder, deleteMap, deleteNote, deleteRunePage, deleteShot, getMapImage, getShotImage, loadCoaching,
   mapVersion, renameFolder, resetMapImage, saveMap, saveNote, savePool, saveRunePage, setMapImage, updateShot,
@@ -359,6 +360,37 @@ async function route(req: Request, env: Env, url: URL, user: User): Promise<Resp
     if (method === 'DELETE') {
       await db.prepare('DELETE FROM schedule WHERE id = ?').bind(id).run();
       await logActivity(db, actor, 'schedule.delete', 'schedule', id, { name: opponentLabel(current), kind: current.kind });
+      return json({ ok: true });
+    }
+  }
+
+  // --- tournament (all teams: match days + play-off bracket) --------------------
+  if (path === '/api/tournament') {
+    if (method === 'GET') return json({ matches: await listTournament(env), slots: SLOTS });
+    if (method === 'POST') {
+      const fields = await tournamentFields(db, await readBody(req), false);
+      await freeSlot(db, fields.bracket_slot, null);
+      const id = await insert(db, 'tournament_matches', fields);
+      const [t] = await listTournament(env, { id });
+      await logActivity(db, actor, 'tournament.create', 'tournament', id, { name: tournamentLabel(t) });
+      return json({ id }, 201);
+    }
+  }
+  if ((m = path.match(/^\/api\/tournament\/(\d+)$/))) {
+    const id = Number(m[1]);
+    const [current] = await listTournament(env, { id });
+    if (!current) throw new HttpError(404, 'not_found', 'Zápas neexistuje.');
+    if (method === 'PUT') {
+      const fields = await tournamentFields(db, await readBody(req), true);
+      if ('bracket_slot' in fields) await freeSlot(db, fields.bracket_slot, id);
+      await update(db, 'tournament_matches', id, fields);
+      const [t] = await listTournament(env, { id });
+      await logActivity(db, actor, 'tournament.update', 'tournament', id, { name: tournamentLabel(t) });
+      return json({ ok: true });
+    }
+    if (method === 'DELETE') {
+      await db.prepare('DELETE FROM tournament_matches WHERE id = ?').bind(id).run();
+      await logActivity(db, actor, 'tournament.delete', 'tournament', id, { name: tournamentLabel(current) });
       return json({ ok: true });
     }
   }

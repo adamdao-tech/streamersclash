@@ -10,6 +10,7 @@ import { userFromBearer } from './oauth';
 import { syncTwitchVods } from './vods';
 import { createFolder, getShotImage, loadCoaching, saveNote, savePool, saveRunePage, TIER_LABELS } from './coaching';
 import { describeRunePage, getRuneData } from './runes';
+import { compactTournament, freeSlot, listTournament, SLOTS, tournamentFields, tournamentLabel } from './tournament';
 
 // Remote MCP server (Streamable HTTP transport, JSON responses only).
 // Claude connects through the OAuth flow in oauth.ts and acts as the user who approved it;
@@ -25,6 +26,7 @@ Draft review workflow: list_drafts_for_review → get_draft_frame (look at the i
 correct champions, or discard_draft_frame if it isn't a finished draft (dodge, lobby, unreadable).
 Coaching: get_coaching shows rune pages and coaching notes per player and folder; write notes with add_coaching_note.
 Schedule: get_schedule lists our tournament matches, scrims and other events; the next opponent's opponent_team_id is the team to scout.
+Tournament: get_tournament lists every match of the whole tournament (all teams: group match days and the play-off bracket); assign teams and results with update_tournament_match.
 Reply to the user in Czech.`;
 
 type Json = Record<string, unknown>;
@@ -442,6 +444,64 @@ const TOOLS: Tool[] = [
         upcoming: all.filter((m) => isUpcoming(m)).map(compactScheduled),
         recent: past.map(compactScheduled),
       });
+    },
+  },
+  {
+    name: 'get_tournament',
+    description:
+      'The whole Streamers Clash tournament, all teams: group-stage match days ("1. hrací den"…) and play-off days, every match with time, format, ' +
+      'group, bracket position (bracket_slot: ' + Object.entries(SLOTS).map(([k, v]) => `${k} = ${v}`).join(', ') + '), both teams (TBD until known), score and link to streamersclash.cz. ' +
+      'ours = our team plays. team_id filters to one team.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        team_id: { type: 'integer', description: 'Only matches of this team' },
+        stage: { type: 'string', enum: ['group', 'playoff'] },
+      },
+    },
+    annotations: { readOnlyHint: true },
+    async run(a, { env }) {
+      const all = await listTournament(env, { teamId: a.team_id ? Number(a.team_id) : undefined });
+      const list = a.stage ? all.filter((m) => m.stage === a.stage) : all;
+      return text({ now_prague: formatPrague(new Date().toISOString()), matches: list.map((m) => compactTournament(m, formatPrague)) });
+    },
+  },
+  {
+    name: 'update_tournament_match',
+    description:
+      'Changes a tournament match (id from get_tournament): assign teams (team1_id/team2_id when the team is in the app, otherwise team1_name/team2_name), ' +
+      'the group (group_name, e.g. "A"), the bracket position (bracket_slot; the match that held it before loses it), the score (score1/score2 for team1/team2), time or notes. ' +
+      'Only the fields you pass are changed; pass null to clear. Ask Dao before changing.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        id: { type: 'integer' },
+        team1_id: { type: ['integer', 'null'] },
+        team1_name: { type: ['string', 'null'] },
+        team2_id: { type: ['integer', 'null'] },
+        team2_name: { type: ['string', 'null'] },
+        group_name: { type: ['string', 'null'] },
+        bracket_slot: { type: ['string', 'null'], enum: [...Object.keys(SLOTS), null] },
+        score1: { type: ['integer', 'null'], minimum: 0, maximum: 9 },
+        score2: { type: ['integer', 'null'], minimum: 0, maximum: 9 },
+        starts_at: { type: 'string', description: '"YYYY-MM-DD HH:MM" Prague time' },
+        format: { type: 'string', enum: ['BO1', 'BO2', 'BO3', 'BO5'] },
+        day_label: { type: 'string' },
+        notes: { type: ['string', 'null'] },
+      },
+      required: ['id'],
+    },
+    async run(a, { env, user }) {
+      const id = int(a.id, 'id');
+      const { id: _id, ...rest } = a;
+      const [current] = await listTournament(env, { id });
+      if (!current) throw new HttpError(404, 'not_found', 'Tournament match not found');
+      const fields = await tournamentFields(env.DB, rest, true);
+      if ('bracket_slot' in fields) await freeSlot(env.DB, fields.bracket_slot, id);
+      await update(env.DB, 'tournament_matches', id, fields);
+      const [t] = await listTournament(env, { id });
+      await logActivity(env.DB, { kind: 'claude', userId: user.id }, 'tournament.update', 'tournament', id, { name: tournamentLabel(t) });
+      return text({ ok: true, match: compactTournament(t, formatPrague) });
     },
   },
   {

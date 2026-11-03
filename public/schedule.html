@@ -14,9 +14,9 @@
     <div class="page-head">
       <div>
         <h1>Harmonogram</h1>
-        <p>Zápasy, scrimy, volno a další akce týmu · časy v tvém místním čase</p>
+        <p>Náš program, hrací dny celého turnaje a play-off pavouk · časy v tvém místním čase</p>
       </div>
-      <div class="page-head-tools">
+      <div class="page-head-tools" data-tab-only="ours">
         <div class="record-box" id="record" hidden></div>
         <button class="btn btn-primary btn-lg" id="add-match">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
@@ -25,6 +25,13 @@
       </div>
     </div>
 
+    <div class="tabs" id="tabs" role="tablist" aria-label="Harmonogram">
+      <button role="tab" data-tab="ours">Náš program</button>
+      <button role="tab" data-tab="days">Hrací dny</button>
+      <button role="tab" data-tab="bracket">Pavouk</button>
+    </div>
+
+    <div id="tab-ours">
     <div id="next"></div>
 
     <div class="sched-toolbar">
@@ -51,7 +58,100 @@
       </div>
       <div id="cal-day-list" class="cal-day-list"></div>
     </section>
+    </div>
+
+    <div id="tab-days" hidden>
+      <div class="sched-toolbar">
+        <div class="filter-chips" id="t-filter" aria-label="Filtr zápasů"></div>
+        <button class="btn" id="t-add">+ Přidat zápas</button>
+      </div>
+      <div id="t-standings"></div>
+      <div id="t-days"></div>
+    </div>
+
+    <div id="tab-bracket" hidden>
+      <p class="muted bk-help">Klikni na zápas pro přiřazení týmů a výsledku, na prázdné políčko pro výběr zápasu z play-off dnů.</p>
+      <div class="bk-scroll"><div class="bk" id="bracket"></div></div>
+    </div>
   </main>
+
+  <dialog id="t-dialog" class="ev-dialog">
+    <form>
+      <div class="dlg-head">
+        <div>
+          <h2>Turnajový zápas</h2>
+          <p id="t-dlg-sub"></p>
+        </div>
+        <button type="button" class="btn btn-icon btn-ghost" data-cancel aria-label="Zavřít">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+        </button>
+      </div>
+      <div class="dlg-body">
+        <div class="t-teams">
+          <label class="field"><span class="field-label">Tým 1</span>
+            <input name="team1" list="t-teams-dl" maxlength="80" autocomplete="off" placeholder="TBD – vyber nebo napiš"></label>
+          <div class="t-score">
+            <input name="score1" type="number" min="0" max="9" inputmode="numeric" placeholder="–" aria-label="Skóre týmu 1">
+            <span>:</span>
+            <input name="score2" type="number" min="0" max="9" inputmode="numeric" placeholder="–" aria-label="Skóre týmu 2">
+          </div>
+          <label class="field"><span class="field-label">Tým 2</span>
+            <input name="team2" list="t-teams-dl" maxlength="80" autocomplete="off" placeholder="TBD – vyber nebo napiš"></label>
+        </div>
+        <datalist id="t-teams-dl"></datalist>
+        <div class="field-row">
+          <label class="field grow"><span class="field-label">Datum</span><input name="date" type="date" required></label>
+          <label class="field"><span class="field-label">Čas</span><input name="time" type="time" required></label>
+        </div>
+        <div class="field-row">
+          <fieldset class="field">
+            <legend class="field-label">Formát</legend>
+            <div class="seg seg-lg">
+              <label><input type="radio" name="format" value="BO1" checked><span>BO1</span></label>
+              <label><input type="radio" name="format" value="BO3"><span>BO3</span></label>
+              <label><input type="radio" name="format" value="BO5"><span>BO5</span></label>
+            </div>
+          </fieldset>
+          <fieldset class="field">
+            <legend class="field-label">Fáze</legend>
+            <div class="seg seg-lg">
+              <label><input type="radio" name="stage" value="group" checked><span>Skupiny</span></label>
+              <label><input type="radio" name="stage" value="playoff"><span>Play-off</span></label>
+            </div>
+          </fieldset>
+        </div>
+        <div class="field-row">
+          <label class="field grow"><span class="field-label">Hrací den</span><input name="day_label" maxlength="40" placeholder="např. 1. hrací den"></label>
+          <label class="field" data-stage="group"><span class="field-label">Skupina</span><input name="group_name" maxlength="20" list="t-groups-dl" placeholder="A" class="t-group-in"></label>
+          <label class="field grow" data-stage="playoff"><span class="field-label">Pozice v pavouku</span><select name="bracket_slot" id="t-slot"></select></label>
+        </div>
+        <datalist id="t-groups-dl"><option value="A"><option value="B"></datalist>
+        <label class="field"><span class="field-label">Poznámky</span><textarea name="notes" maxlength="2000" placeholder="Poznámky – kdo je favorit, co hrají…"></textarea></label>
+        <a id="t-sc-link" href="#" target="_blank" rel="noopener" hidden>Zápas na streamersclash.cz ↗</a>
+      </div>
+      <p class="form-error"></p>
+      <div class="dlg-foot">
+        <button type="button" class="btn btn-danger" data-remove hidden>Smazat</button>
+        <span class="spacer"></span>
+        <button type="button" class="btn btn-ghost" data-cancel>Zrušit</button>
+        <button type="submit" class="btn btn-primary">Uložit</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="slot-dialog" class="ev-dialog slot-dialog">
+    <form>
+      <div class="dlg-head">
+        <div><h2 id="slot-title">Vybrat zápas</h2><p>Který play-off zápas patří na tohle místo v pavouku?</p></div>
+        <button type="button" class="btn btn-icon btn-ghost" data-cancel aria-label="Zavřít">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+        </button>
+      </div>
+      <div class="dlg-body"><label class="field"><span class="field-label">Zápas</span><select name="match" id="slot-match" required></select></label></div>
+      <p class="form-error"></p>
+      <div class="dlg-foot"><span class="spacer"></span><button type="button" class="btn btn-ghost" data-cancel>Zrušit</button><button type="submit" class="btn btn-primary">Přiřadit</button></div>
+    </form>
+  </dialog>
 
   <dialog id="match-dialog" class="ev-dialog">
     <form>
@@ -146,7 +246,7 @@
   <script type="module">
     import {
       api, esc, initPage, formDialog, matchWhen, countdown, isUpcoming, opponentName, opponentLogo,
-      scoreBadge, nextMatchHtml, startCountdowns, tickCountdowns, kindBadge, eventName, featuredEvent, seasonRecord, icon, KINDS,
+      scoreBadge, nextMatchHtml, startCountdowns, tickCountdowns, kindBadge, eventName, featuredEvent, seasonRecord, icon, KINDS, logoHtml,
     } from '/app.js';
 
     await initPage('schedule');
@@ -492,6 +592,289 @@
       }
     });
 
+
+    // === tournament: match days + play-off bracket (all teams) ===================
+    const tStore = { tab: location.hash === '#pavouk' ? 'bracket' : location.hash === '#hraci-dny' ? 'days' : (store.get('sched.tab') || 'ours') };
+    if (!['ours', 'days', 'bracket'].includes(tStore.tab)) tStore.tab = 'ours';
+    let tMatches = [];
+    let tSlots = {};
+    let tFilter = store.get('sched.tfilter') || '';
+    let tEditing = null;
+
+    const teamById = new Map(teams.map((t) => [t.id, t]));
+    const allTeamByName = (name) => teams.find((t) => t.name.toLowerCase() === String(name || '').trim().toLowerCase());
+    document.getElementById('t-teams-dl').innerHTML = teams.map((t) => `<option value="${esc(t.name)}">`).join('');
+
+    /** One side of a match: team from the app, a typed name, or TBD. */
+    function side(m, n) {
+      const id = m[`team${n}_id`];
+      const name = m[`t${n}_name`] || m[`team${n}_name`] || '';
+      return { id, name: name || 'TBD', known: !!name, tag: m[`t${n}_tag`], logo: m[`t${n}_logo`], own: !!m[`t${n}_own`], score: m[`score${n}`] };
+    }
+    const isOurs = (m) => !!(m.t1_own || m.t2_own);
+    const played = (m) => m.score1 !== null && m.score2 !== null;
+    const winner = (m) => (played(m) && m.score1 !== m.score2 ? (m.score1 > m.score2 ? 1 : 2) : 0);
+    const tbdLogo = '<div class="logo logo-tbd" aria-hidden="true">?</div>';
+    const sideLogo = (s) => (s.known ? logoHtml({ name: s.name, tag: s.tag, logo_url: s.logo }) : tbdLogo);
+    const sideName = (s) => (s.id ? `<a href="/team?id=${s.id}">${esc(s.name)}</a>` : esc(s.name));
+
+    function tRow(m) {
+      const a = side(m, 1), b = side(m, 2), w = winner(m);
+      const t = matchWhen(m.starts_at);
+      const live = !played(m) && isUpcoming({ starts_at: m.starts_at, kind: 'match' }) && new Date(m.starts_at) <= new Date();
+      const tags = [m.format, m.group_name && `Skupina ${m.group_name}`, m.bracket_slot && tSlots[m.bracket_slot]].filter(Boolean).map(esc).join(' · ');
+      return `
+        <div class="tm-row${isOurs(m) ? ' ours' : ''}${played(m) ? ' done' : ''}" data-tedit="${m.id}">
+          <div class="tm-time">${t.time}</div>
+          <div class="tm-side tm-left${w === 1 ? ' win' : w === 2 ? ' lose' : ''}${a.own ? ' own' : ''}"><span class="tm-name">${sideName(a)}</span>${sideLogo(a)}</div>
+          <div class="tm-mid">${played(m) ? `<b>${m.score1}</b><span>:</span><b>${m.score2}</b>` : live ? '<span class="tm-live">live</span>' : '<span class="tm-vs">vs</span>'}</div>
+          <div class="tm-side tm-right${w === 2 ? ' win' : w === 1 ? ' lose' : ''}${b.own ? ' own' : ''}">${sideLogo(b)}<span class="tm-name">${sideName(b)}</span></div>
+          <div class="tm-tags">${tags}${isOurs(m) ? ' <span class="kind kind-match">Náš zápas</span>' : ''}</div>
+          <div class="tm-actions">
+            ${m.sc_match_id ? `<a class="btn btn-icon" href="https://streamersclash.cz/matches/${m.sc_match_id}" target="_blank" rel="noopener" title="Na streamersclash.cz" aria-label="Na streamersclash.cz">↗</a>` : ''}
+            <button class="btn btn-icon" data-tedit="${m.id}" aria-label="Upravit" title="Přiřadit týmy / výsledek">${icon('edit')}</button>
+          </div>
+        </div>`;
+    }
+
+    function standingsHtml() {
+      const groups = new Map();
+      for (const m of tMatches) {
+        if (m.stage !== 'group' || !m.group_name) continue;
+        if (!groups.has(m.group_name)) groups.set(m.group_name, new Map());
+        const table = groups.get(m.group_name);
+        const w = winner(m);
+        for (const n of [1, 2]) {
+          const s = side(m, n);
+          if (!s.known) continue;
+          const key = s.id ? `id:${s.id}` : `n:${s.name.toLowerCase()}`;
+          if (!table.has(key)) table.set(key, { ...s, w: 0, l: 0, left: 0 });
+          const r = table.get(key);
+          if (!played(m)) r.left++;
+          else if (w === n) r.w++;
+          else if (w) r.l++;
+        }
+      }
+      if (!groups.size) return '';
+      return `<section class="sched-group"><div class="group-head"><h2>Tabulky skupin</h2><span>počítá se z výsledků zadaných níž</span></div>
+        <div class="t-tables">${[...groups.entries()].sort().map(([g, table]) => {
+          const rows = [...table.values()].sort((x, y) => y.w - x.w || x.l - y.l || x.name.localeCompare(y.name, 'cs'));
+          return `<div class="t-table"><h3>Skupina ${esc(g)}</h3><table>
+            <thead><tr><th>#</th><th>Tým</th><th title="Výhry">V</th><th title="Prohry">P</th><th title="Zbývá odehrát">Zbývá</th></tr></thead>
+            <tbody>${rows.map((r, i) => `<tr class="${r.own ? 'own' : ''}"><td>${i + 1}.</td><td><span class="t-team">${sideLogo(r)}${sideName(r)}</span></td><td>${r.w}</td><td>${r.l}</td><td>${r.left}</td></tr>`).join('')}</tbody>
+          </table></div>`;
+        }).join('')}</div></section>`;
+    }
+
+    function renderDays() {
+      const defs = [['', 'Vše'], ['group', 'Skupinová fáze'], ['playoff', 'Play-off'], ['ours', 'Naše zápasy'], ['open', 'Bez týmů']];
+      const count = (k) => tMatches.filter((m) => tPass(m, k)).length;
+      document.getElementById('t-filter').innerHTML = defs.map(([k, label]) =>
+        `<button class="fchip${k === tFilter ? ' active' : ''}" data-tfilter="${k}" aria-pressed="${k === tFilter}">${label}<span class="n">${count(k)}</span></button>`).join('');
+      document.getElementById('t-standings').innerHTML = tFilter === '' || tFilter === 'group' ? standingsHtml() : '';
+      const list = tMatches.filter((m) => tPass(m, tFilter));
+      const days = new Map();
+      for (const m of list) {
+        const k = m.day_label || dayKey(new Date(m.starts_at));
+        if (!days.has(k)) days.set(k, []);
+        days.get(k).push(m);
+      }
+      const today = dayKey(new Date());
+      document.getElementById('t-days').innerHTML = days.size ? [...days.entries()].map(([label, ms]) => {
+        const d = new Date(ms[0].starts_at);
+        const date = d.toLocaleDateString('cs-CZ', { weekday: 'long', day: 'numeric', month: 'numeric' });
+        const done = ms.every(played);
+        const isToday = ms.some((m) => dayKey(new Date(m.starts_at)) === today);
+        return `<section class="sched-group tday${done ? ' tday-done' : ''}">
+          <div class="group-head"><h2>${esc(label)}</h2><span class="tday-date">${esc(date)}</span>
+            ${isToday ? '<span class="kind kind-match">Dnes</span>' : ''}
+            <span>${ms.length} ${ms.length === 1 ? 'zápas' : ms.length <= 4 ? 'zápasy' : 'zápasů'} · ${esc(ms[0].stage === 'playoff' ? 'Play-off' : 'Skupiny')}</span></div>
+          <div class="tm-list">${ms.map(tRow).join('')}</div>
+        </section>`;
+      }).join('') : '<div class="empty">Žádné zápasy pro tenhle filtr.</div>';
+    }
+    function tPass(m, k) {
+      if (k === 'group' || k === 'playoff') return m.stage === k;
+      if (k === 'ours') return isOurs(m);
+      if (k === 'open') return !side(m, 1).known || !side(m, 2).known;
+      return true;
+    }
+
+    // Bracket layout like streamersclash.cz: upper bracket (2 rounds), lower bracket (4 rounds), finals column.
+    const BK = {
+      upper: [['UB1', 'UB2'], ['UBF']],
+      lower: [['LB1', 'LB2'], ['LB3', 'LB4'], ['LB5'], ['LBF']],
+      final: ['GF', 'F2'],
+    };
+    const shortSlot = (k) => String(tSlots[k] || k).replace(/^(Horní|Dolní) pavouk – /, '');
+    function bkCard(slot, gold = false) {
+      const m = tMatches.find((x) => x.bracket_slot === slot);
+      if (!m) {
+        return `<button type="button" class="bk-card bk-empty${gold ? ' gold' : ''}" data-slot="${slot}">
+          <div class="bk-head"><span>${esc(shortSlot(slot))}</span></div>
+          <div class="bk-team"><span class="bk-q">?</span><span>TBD</span><b>–</b></div>
+          <div class="bk-team"><span class="bk-q">?</span><span>TBD</span><b>–</b></div>
+        </button>`;
+      }
+      const w = winner(m), t = matchWhen(m.starts_at);
+      const team = (n) => {
+        const s = side(m, n);
+        return `<div class="bk-team${w === n ? ' win' : w ? ' lose' : ''}${s.own ? ' own' : ''}">
+          ${s.known ? sideLogo(s) : '<span class="bk-q">?</span>'}<span class="bk-name">${esc(s.name)}</span><b>${s.score ?? '–'}</b></div>`;
+      };
+      return `<button type="button" class="bk-card${gold ? ' gold' : ''}${isOurs(m) ? ' ours' : ''}" data-tedit="${m.id}">
+        <div class="bk-head"><span>${esc(shortSlot(slot))}</span><small>${t.weekday} ${t.date} ${t.time} · ${esc(m.format)}</small></div>
+        ${team(1)}${team(2)}
+      </button>`;
+    }
+    const bkCols = (cols) => cols.map((col) => `<div class="bk-col">${col.map((s) => bkCard(s)).join('')}</div>`).join('');
+    function renderBracket() {
+      document.getElementById('bracket').innerHTML = `
+        <section class="bk-box bk-upper"><h3><i></i>Horní pavouk</h3><div class="bk-cols">${bkCols(BK.upper)}</div></section>
+        <section class="bk-box bk-lower"><h3><i></i>Dolní pavouk</h3><div class="bk-cols">${bkCols(BK.lower)}</div></section>
+        <section class="bk-box bk-final"><h3><i></i>Finále</h3><div class="bk-final-col">${bkCard('GF', true)}${bkCard('F2')}</div></section>`;
+    }
+
+    function renderTab() {
+      for (const t of ['ours', 'days', 'bracket']) document.getElementById(`tab-${t}`).hidden = t !== tStore.tab;
+      document.querySelectorAll('[data-tab-only]').forEach((el) => { el.hidden = el.dataset.tabOnly !== tStore.tab; });
+      document.querySelectorAll('#tabs button').forEach((b) => {
+        b.classList.toggle('active', b.dataset.tab === tStore.tab);
+        b.setAttribute('aria-selected', b.dataset.tab === tStore.tab);
+      });
+      if (tStore.tab === 'days') renderDays();
+      if (tStore.tab === 'bracket') renderBracket();
+    }
+    async function loadTournament() {
+      ({ matches: tMatches, slots: tSlots } = await api('/api/tournament'));
+      renderTab();
+    }
+    document.getElementById('tabs').addEventListener('click', (e) => {
+      const b = e.target.closest('[data-tab]'); if (!b) return;
+      tStore.tab = b.dataset.tab; store.set('sched.tab', tStore.tab);
+      history.replaceState(null, '', tStore.tab === 'bracket' ? '#pavouk' : tStore.tab === 'days' ? '#hraci-dny' : location.pathname);
+      renderTab();
+    });
+
+    // --- tournament match dialog -------------------------------------------------
+    const tDialogEl = document.getElementById('t-dialog');
+    const tForm = tDialogEl.querySelector('form');
+    const tRemove = tDialogEl.querySelector('[data-remove]');
+    const slotSelect = document.getElementById('t-slot');
+    function syncStage() {
+      const st = tForm.querySelector('[name=stage]:checked')?.value || 'group';
+      tDialogEl.querySelectorAll('[data-stage]').forEach((el) => { el.hidden = el.dataset.stage !== st; });
+    }
+    tForm.addEventListener('change', (e) => { if (e.target.name === 'stage') syncStage(); });
+
+    const tDialog = formDialog(tDialogEl, {
+      async onSubmit(v) {
+        if (!v.date || !v.time) throw new Error('Zadej datum a čas.');
+        const [y, mo, d] = v.date.split('-').map(Number);
+        const [hh, mm] = v.time.split(':').map(Number);
+        const pick = (name) => {
+          const n = String(name || '').trim();
+          if (!n || n.toUpperCase() === 'TBD') return { id: null, name: null };
+          const t = allTeamByName(n);
+          return t ? { id: t.id, name: null } : { id: null, name: n };
+        };
+        const a = pick(v.team1), b = pick(v.team2);
+        if ((v.score1 === '') !== (v.score2 === '')) throw new Error('Vyplň skóre obou týmů, nebo žádné.');
+        const body = {
+          starts_at: new Date(y, mo - 1, d, hh, mm).toISOString(),
+          format: v.format || 'BO1',
+          stage: v.stage || 'group',
+          day_label: v.day_label,
+          group_name: v.stage === 'group' ? v.group_name : null,
+          bracket_slot: v.stage === 'playoff' ? v.bracket_slot || null : null,
+          team1_id: a.id, team1_name: a.name, team2_id: b.id, team2_name: b.name,
+          score1: v.score1 === '' ? null : Number(v.score1),
+          score2: v.score2 === '' ? null : Number(v.score2),
+          notes: v.notes,
+        };
+        if (tEditing) await api(`/api/tournament/${tEditing}`, { method: 'PUT', body });
+        else await api('/api/tournament', { method: 'POST', body });
+        await loadTournament();
+      },
+    });
+    function fillSlots(current) {
+      slotSelect.innerHTML = '<option value="">– mimo pavouk –</option>' + Object.entries(tSlots).map(([k, label]) => {
+        const holder = tMatches.find((x) => x.bracket_slot === k && x.id !== current);
+        return `<option value="${k}">${esc(label)}${holder ? ` (teď ${esc(matchWhen(holder.starts_at).date)} ${esc(matchWhen(holder.starts_at).time)})` : ''}</option>`;
+      }).join('');
+    }
+    function openTEdit(id) {
+      const m = tMatches.find((x) => x.id === id); if (!m) return;
+      tEditing = id;
+      fillSlots(id);
+      const d = new Date(m.starts_at);
+      const a = side(m, 1), b = side(m, 2);
+      tDialogEl.querySelector('h2').textContent = 'Turnajový zápas';
+      document.getElementById('t-dlg-sub').textContent = [m.day_label, `${matchWhen(m.starts_at).weekday} ${matchWhen(m.starts_at).date} ${matchWhen(m.starts_at).time}`].filter(Boolean).join(' · ');
+      tRemove.hidden = false;
+      const link = document.getElementById('t-sc-link');
+      link.hidden = !m.sc_match_id; if (m.sc_match_id) link.href = `https://streamersclash.cz/matches/${m.sc_match_id}`;
+      tDialog.open({
+        ...m, team1: a.known ? a.name : '', team2: b.known ? b.name : '',
+        date: dayKey(d), time: `${p2(d.getHours())}:${p2(d.getMinutes())}`,
+        score1: m.score1 ?? '', score2: m.score2 ?? '', bracket_slot: m.bracket_slot || '', group_name: m.group_name || '', notes: m.notes || '',
+      });
+      syncStage();
+    }
+    function openTNew() {
+      tEditing = null;
+      fillSlots(null);
+      tDialogEl.querySelector('h2').textContent = 'Nový turnajový zápas';
+      document.getElementById('t-dlg-sub').textContent = 'Např. tiebreak nebo přeložený zápas.';
+      tRemove.hidden = true;
+      document.getElementById('t-sc-link').hidden = true;
+      tDialog.open({ stage: tFilter === 'playoff' ? 'playoff' : 'group', format: 'BO1', date: '', time: '19:00', team1: '', team2: '', bracket_slot: '' });
+      syncStage();
+    }
+    tRemove.addEventListener('click', async () => {
+      const m = tMatches.find((x) => x.id === tEditing); if (!m) return;
+      if (!confirm(`Smazat zápas ${side(m, 1).name} vs ${side(m, 2).name} (${matchWhen(m.starts_at).date} ${matchWhen(m.starts_at).time})?`)) return;
+      await api(`/api/tournament/${m.id}`, { method: 'DELETE' });
+      tDialogEl.close();
+      await loadTournament();
+    });
+    document.getElementById('t-add').addEventListener('click', openTNew);
+    for (const dl of [tDialogEl, document.getElementById('slot-dialog')]) dl.querySelectorAll('[data-cancel]').forEach((b) => b.addEventListener('click', () => dl.close()));
+
+    // Empty bracket slot → pick which play-off match goes there.
+    const slotDialogEl = document.getElementById('slot-dialog');
+    let pickingSlot = null;
+    const slotDialog = formDialog(slotDialogEl, {
+      async onSubmit(v) {
+        if (!v.match) throw new Error('Vyber zápas.');
+        await api(`/api/tournament/${v.match}`, { method: 'PUT', body: { bracket_slot: pickingSlot, stage: 'playoff' } });
+        await loadTournament();
+      },
+    });
+    function openSlotPicker(slot) {
+      pickingSlot = slot;
+      document.getElementById('slot-title').textContent = tSlots[slot] || slot;
+      const free = tMatches.filter((m) => m.stage === 'playoff');
+      document.getElementById('slot-match').innerHTML = free.length ? free.map((m) => {
+        const w = matchWhen(m.starts_at);
+        const where = m.bracket_slot ? ` – teď: ${tSlots[m.bracket_slot]}` : '';
+        return `<option value="${m.id}"${m.bracket_slot ? '' : ''}>${esc(`${m.day_label || ''} · ${w.weekday} ${w.date} ${w.time} · ${m.format} · ${side(m, 1).name} vs ${side(m, 2).name}${where}`)}</option>`;
+      }).join('') : '<option value="">Žádné play-off zápasy</option>';
+      const firstFree = free.find((m) => !m.bracket_slot);
+      slotDialog.open({ match: firstFree ? String(firstFree.id) : '' });
+    }
+
+    document.querySelector('main').addEventListener('click', (e) => {
+      if (e.target.closest('a')) return;
+      const f = e.target.closest('[data-tfilter]');
+      if (f) { tFilter = f.dataset.tfilter; store.set('sched.tfilter', tFilter); renderDays(); return; }
+      const ed = e.target.closest('[data-tedit]');
+      if (ed) return openTEdit(Number(ed.dataset.tedit));
+      const sl = e.target.closest('[data-slot]');
+      if (sl) openSlotPicker(sl.dataset.slot);
+    });
+
+    await loadTournament();
     await load();
     startCountdowns();
   </script>

@@ -60,6 +60,12 @@ If `save_draft` says a champion is unknown, fix the spelling (e.g. "Kai'Sa", "Nu
 - "Kdy hrajeme / proti komu?" → answer from `get_schedule`, then offer a scouting report on the next opponent (Workflow 2).
 - `add_scheduled_match` – `kind` (default `match`; "mám volno v pátek" → `off`), `starts_at` as "YYYY-MM-DD HH:MM" Prague time; prefer `opponent_team_id` (find it with `list_teams`/`search`), use `opponent_name` only if the team isn't in the app. Confirm the details with Dao before adding.
 - `update_scheduled_match` – move a match or fill in the result (`our_score`, `their_score`). Ask first.
+
+## Workflow 4b – the whole tournament ("hrací dny", "pavouk", "kdo s kým hraje")
+
+- `get_tournament` – every match of the tournament for all teams: group-stage days ("1. hrací den" … "5. hrací den", BO1) and play-off days ("1. den play-off" … "Finálový den", BO3/BO5), with time, group, bracket position, both teams (TBD until known), score, `ours` (our team plays) and a link to streamersclash.cz. `team_id` filters to one team, `stage` to `group`/`playoff`.
+- `update_tournament_match` – assign teams (`team1_id`/`team2_id` when the team is in the app, otherwise `team1_name`/`team2_name`), the group (`group_name`, e.g. "A"), the bracket position (`bracket_slot`: UB1, UB2, UBF = horní pavouk; LB1–LB5, LBF = dolní pavouk; GF = finále, F2 = spodní zápas finálové sekce), the score (`score1`/`score2`) or notes. Ask Dao first.
+- Group tables on the web are computed from the results with a group filled in, so set `group_name` when assigning group matches.
 - Deleting is done by Dao on the *Harmonogram* page (list or calendar view).
 
 ## Workflow 5 – coaching ("runy pro supporta", "zapiš to do koučingu")
@@ -94,4 +100,5 @@ If `save_draft` says a champion is unknown, fix the spelling (e.g. "Kai'Sa", "Nu
 | `add_team`, `add_player` | new data |
 | `rescan_vod`, `get_activity` | reader and app status |
 | `get_schedule`, `add_scheduled_match`, `update_scheduled_match` | our match schedule |
+| `get_tournament`, `update_tournament_match` | whole tournament: match days, bracket, teams, results |
 | `get_coaching`, `get_coaching_screenshot`, `save_rune_page`, `add_coaching_note`, `add_coaching_folder`, `set_champion_pool_entry` | coaching: rune pages and notes per player/folder |

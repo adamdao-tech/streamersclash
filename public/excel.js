@@ -175,8 +175,8 @@ export function parsePrice(v) {
 
 export const foldName = (s) => String(s ?? '').toLowerCase().normalize('NFD').replace(/[^a-z0-9]/g, '');
 
-const NAME_HEAD = /^(hrac|nick|prezdivka|jmeno|name|player|streamer|ucastnik|discord|twitch|riot|summoner|ign)/;
-const PRICE_HEAD = /(cen[aeyu]?$|cena|price|hodnot|cost|kredit|coin|budget|naklad)/;
+const NAME_HEAD = /^(hrac|nick|prezdivka|jmeno|name|player|streamer|ucastnik|kapitan|discord|twitch|riot|summoner|ign)/;
+const PRICE_HEAD = /(cen[aeyu]?$|cena|price|prize|hodnot|cost|kredit|coin|budget|naklad)/;
 
 /** Odhad: který sloupec je hráč, který cena a na kterém řádku (od 1) začínají data. */
 export function guessColumns(rows) {
@@ -198,6 +198,11 @@ export function guessColumns(rows) {
   const nameCol = [...stats].filter((s) => s.c !== priceCol).sort((a, b) => b.texts - a.texts)[0]?.c ?? 0;
   const first = rows.findIndex((r) => String(r[nameCol] ?? '').trim() && parsePrice(r[priceCol]) != null);
   return { nameCol, priceCol, start: first < 0 ? 1 : first + 1 };
+}
+
+/** Kolik řádků má při daných sloupcích hráče i cenu – podle toho se pozná, který list je ten pravý. */
+export function countPriced(rows, { nameCol, priceCol, start }) {
+  return rows.slice(Math.max(start - 1, 0)).filter((r) => String(r[nameCol] ?? '').trim() && parsePrice(r[priceCol]) != null).length;
 }
 
 export const columnLabel = (i) => {

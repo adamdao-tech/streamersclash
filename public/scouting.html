@@ -229,7 +229,7 @@
 
   <script type="module">
     import { api, esc, initPage, timeAgo } from '/app.js';
-    import { columnLabel, editDistance, foldName, guessColumns, parseDelimited, parsePrice, readTable } from '/excel.js';
+    import { columnLabel, countPriced, editDistance, foldName, guessColumns, parseDelimited, parsePrice, readTable } from '/excel.js';
 
     const me = await initPage('scouting');
     if (me.role !== 'admin') location.href = '/';
@@ -805,9 +805,10 @@
     }
 
     function impLoaded(sheets) {
-      // list s nejvíc řádky bývá ten pravý
+      // pravý list je ten s nejvíc řádky, kde je hráč i cena (ne ten, co má nejvíc prázdných řádků)
       I.sheets = sheets;
-      I.sheet = sheets.reduce((best, s, i) => (s.rows.length > sheets[best].rows.length ? i : best), 0);
+      const priced = sheets.map((s) => countPriced(s.rows, guessColumns(s.rows)));
+      I.sheet = priced.indexOf(Math.max(...priced));
       I.over = new Map(); I.cache = new Map(); I.clear = false;
       impGuess();
       impRender();

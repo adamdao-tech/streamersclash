@@ -631,4 +631,18 @@ CREATE TABLE draft_variants (
   /* 27: Queue scouting – captains from the price Excel (shown separately, can't be bought in the draft) */ `
 ALTER TABLE queue_scout ADD COLUMN is_captain INTEGER NOT NULL DEFAULT 0;
 `,
+
+  /* 28: draft variants belong to the admin who saved them: two people can use the same name */ `
+CREATE TABLE draft_variants_new (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id    INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  name       TEXT NOT NULL,
+  data       TEXT NOT NULL,
+  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+  UNIQUE (user_id, name)
+);
+INSERT INTO draft_variants_new (id, user_id, name, data, updated_at) SELECT id, updated_by, name, data, updated_at FROM draft_variants;
+DROP TABLE draft_variants;
+ALTER TABLE draft_variants_new RENAME TO draft_variants;
+`,
 ];

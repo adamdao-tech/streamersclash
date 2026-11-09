@@ -54,6 +54,7 @@
     .p:disabled:hover { background: transparent; }
     #vars form { display: flex; gap: 6px; padding: 8px; border-bottom: 1px solid var(--line); }
     #vars form input { min-height: 34px; padding: 4px 8px; min-width: 0; flex: 1; }
+    .vg { margin: 6px 4px; font: 700 0.76rem var(--display); letter-spacing: .05em; text-transform: uppercase; color: var(--muted); }
     .var { display: block; width: 100%; padding: 8px 10px; margin-bottom: 6px; border: 1px solid var(--line); border-radius: 9px; background: var(--bg-2); color: var(--text); font: 500 0.84rem var(--font); text-align: left; cursor: pointer; }
     .var:hover { border-color: var(--line-2); }
     .var.cur { border-color: var(--gold); }
@@ -174,13 +175,18 @@
       const pl = plan();
       $('#var-count').textContent = S.variants.length || '';
       $('#var-save').disabled = !pl.picks.length;
-      $('#var-list').innerHTML = S.variants.map((v) => {
+      const card = (v) => {
         const rest = variantLeft(v);
-        return `<div class="var ${samePicks(v, pl) ? 'cur' : ''}" role="button" tabindex="0" data-load="${v.id}" title="Načíst tuhle variantu">
-          <header><b title="${esc(v.name)}">${esc(v.name)}</b><i class="${rest < 0 ? 'neg' : ''}">${fmt(rest)}</i><span data-del="${v.id}" title="Smazat">✕</span></header>
+        return `<div class="var ${samePicks(v, pl) ? 'cur' : ''}" role="button" tabindex="0" data-load="${v.id}" title="${v.mine ? 'Načíst tuhle variantu' : `Načíst k sobě, autorovi (${esc(v.author)}) se nic nezmění`}">
+          <header><b title="${esc(v.name)}">${esc(v.name)}</b><i class="${rest < 0 ? 'neg' : ''}">${fmt(rest)}</i>${v.mine || user.is_superadmin ? `<span data-del="${v.id}" title="Smazat">✕</span>` : ''}</header>
           ${v.picks.map((x) => { const p = S.players.get(x.key); return `<div><small>${p?.draft_role ? SHORT[p.draft_role] : ''}</small><em>${esc(p?.nickname ?? x.nickname)}</em><span>${fmt(priceOf(x))}</span></div>`; }).join('')}
         </div>`;
-      }).join('') || '<div class="none">Vyber hráče, pojmenuj variantu a ulož ji.</div>';
+      };
+      const groups = new Map([['Moje', S.variants.filter((v) => v.mine)]]);
+      for (const v of S.variants) if (!v.mine) groups.set(v.author, [...(groups.get(v.author) || []), v]);
+      $('#var-list').innerHTML = S.variants.length
+        ? [...groups].filter(([, list]) => list.length).map(([who, list]) => `<h3 class="vg">${esc(who)}</h3>${list.map(card).join('')}`).join('')
+        : '<div class="none">Vyber hráče, pojmenuj variantu a ulož ji.</div>';
     }
 
     async function refreshVariants() {
@@ -194,8 +200,8 @@
       const pl = plan();
       if (!pl.picks.length) return;
       const input = $('#var-name');
-      const name = input.value.trim() || `Varianta ${S.variants.length + 1}`;
-      if (S.variants.some((v) => v.name === name) && !confirm(`Varianta „${name}“ už existuje. Přepsat?`)) return;
+      const name = input.value.trim() || `Varianta ${S.variants.filter((v) => v.mine).length + 1}`;
+      if (S.variants.some((v) => v.mine && v.name === name) && !confirm(`Varianta „${name}“ už existuje. Přepsat?`)) return;
       S.saving++;
       try { await api('/api/queue/variants', { method: 'POST', body: { name, ...pl } }); input.value = ''; await refreshVariants(); }
       catch (err) { alert(err.message); }

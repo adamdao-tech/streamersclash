@@ -207,18 +207,19 @@
     </section>
     <section id="p-many" hidden>
       <div class="big-tools">
-        <label class="f">Počet aukcí <select id="b-target">
+        <label class="f">Počet draftů <select id="b-target">
           <option value="100000">100 tisíc</option><option value="1000000" selected>1 milion</option><option value="10000000">10 milionů</option>
           <option value="100000000">100 milionů</option><option value="1000000000">1 miliarda</option><option value="2000000000">2 miliardy</option>
         </select></label>
         <label class="f">Vlákna <input type="number" id="b-threads" min="1" max="64"></label>
+        <label class="f">Kapitáni berou <select id="b-weight"><option value="1" selected>spíš dražší (lepší) hráče</option><option value="0">úplně náhodně</option></select></label>
         <label class="chk"><input type="checkbox" id="b-board"> naklikané hráče brát jako hotové</label>
         <button class="btn btn-primary" id="b-start">Spustit</button>
         <button class="btn" id="b-pause" hidden>Pozastavit</button>
         <button class="btn btn-ghost btn-danger" id="b-stop" hidden>Zastavit</button>
       </div>
       <div class="big-prog" id="b-prog" hidden><div class="pbar"><i id="b-bar"></i></div><span id="b-text"></span></div>
-      <p class="sim-note">Pravidla v každé aukci: každý kapitán má na konci všech 5 pozic a nikdo nejde s essence do mínusu. Kdo by si nemohl dovolit dokoupit tým, nesmí přihodit tolik, aby se do toho dostal; aukce, kde to přesto nevyjde, se nepočítá. Ostatní kapitáni kupují podle ceny z excelu a posuvníku Přeplácení, naše ✕ a ★ platí jen pro SGooBa (✕ koupí jen, kdyby jinak neměl plný tým). Stránka musí zůstat otevřená, počítá tvůj počítač.</p>
+      <p class="sim-note">Bez dražby: každý hráč stojí přesně svou cenu z excelu. Kapitáni si vybírají po kolech v náhodném pořadí a každý si vezme jen takového hráče, aby mu zbylo na zbytek týmu – na konci má každý všech 5 pozic a nikdo není v mínusu. Draft, kde by to nevyšlo, se nepočítá. Naše ✕ a ★ platí jen pro SGooBa (✕ vezme jen, kdyby jinak neměl plný tým). Stránka musí zůstat otevřená, počítá tvůj počítač.</p>
       <div id="b-out"></div>
     </section>
   </main>
@@ -504,7 +505,7 @@
         players, caps: S.caps.map((c) => c),
         data: {
           players: players.map((p) => ({ price: p.price, role: ROLES.findIndex(([r]) => r === p.draft_role), blocked: !!p.blocked, fav: !!p.fav_roles?.length })),
-          caps, aggr: Number($('#aggr').value) / 100, step: STEP,
+          caps, weighted: $('#b-weight').value === '1',
         },
       };
     }
@@ -597,8 +598,8 @@
           for (const [ids, v] of sn.lineups[c]) { const k = ids.join(','); lus[c].set(k, (lus[c].get(k) || 0) + v); }
         }
       }
-      if (!valid) { $('#b-out').innerHTML = `<p class="empty">Zatím žádná platná aukce${invalid ? ` (${big(invalid)} neplatných – s těmito cenami asi nejde, aby měli všichni plný tým bez mínusu)` : ''}.</p>`; return; }
-      const pct = (x) => { const v = (x / valid) * 100; return `${v >= 10 || v === 0 ? Math.round(v) : v.toLocaleString('cs-CZ', { maximumFractionDigits: 1 })} %`; };
+      if (!valid) { $('#b-out').innerHTML = `<p class="empty">Zatím žádný platný draft${invalid ? ` (${big(invalid)} neplatných – s těmito cenami asi nejde, aby měli všichni plný tým bez mínusu)` : ''}.</p>`; return; }
+      const pct = (x) => { const v = (x / valid) * 100; return `${v >= 10 || v === 0 ? Math.round(v) : v.toLocaleString('cs-CZ', { maximumFractionDigits: v < 1 ? 2 : 1 })} %`; };
       const ownIdx = caps.findIndex((c) => c.own);
       const fixedSet = new Set(B.meta.data.caps.flatMap((c) => c.fixed));
       const roleOf = (i) => ROLES.findIndex(([r]) => r === players[i].draft_role);
@@ -612,15 +613,13 @@
 
       const rows = ROLES.map(([r, l]) => {
         const list = players.map((p, i) => i).filter((i) => players[i].draft_role === r && !fixedSet.has(i)).sort((a, b) => sold[b] - sold[a] || players[b].price - players[a].price);
-        return `<tr class="grp"><td colspan="7">${l}</td></tr>` + list.map((i) => {
+        return `<tr class="grp"><td colspan="5">${l}</td></tr>` + list.map((i) => {
           const p = players[i], tops = caps.map((c, ci) => [ci, by[i * C + ci]]).filter(([, v]) => v).sort((a, b) => b[1] - a[1]).slice(0, 3);
           const ours = ownIdx >= 0 ? by[i * C + ownIdx] : 0;
           return `<tr class="${p.blocked ? 'blocked' : ''}">
             <td>${p.blocked ? NOPE + ' ' : ''}${esc(p.nickname)}${p.fav_roles?.length ? ' <span class="fav">★</span>' : ''}</td>
             <td class="num">${fmt(p.price)}</td>
             <td class="num"><span class="bar"><i style="width:${(sold[i] / valid) * 100}%"></i></span>${pct(sold[i])}</td>
-            <td class="num">${sold[i] ? fmt(sum[i] / sold[i]) : '–'}</td>
-            <td class="num">${sold[i] ? `${fmt(mn[i])}–${fmt(mx[i])}` : '–'}</td>
             <td class="who">${tops.map(([ci, v]) => `${caps[ci].own ? '<span class="ours">' : ''}${esc(caps[ci].name)}${caps[ci].own ? '</span>' : ''}<small>${pct(v)}</small>`).join(', ') || '<span style="color:var(--muted)">nikdo</span>'}</td>
             <td class="num ${ours ? 'ours' : ''}">${ours ? pct(ours) : '–'}</td></tr>`;
         }).join('');
@@ -628,14 +627,14 @@
 
       $('#b-out').innerHTML = `
         <div class="kpis">
-          <div><b>${big(valid)}</b><span>platných aukcí</span></div>
+          <div><b>${big(valid)}</b><span>platných draftů</span></div>
           <div><b>${((invalid / (valid + invalid)) * 100).toLocaleString('cs-CZ', { maximumFractionDigits: 2 })} %</b><span>neplatných (nešlo by mít plný tým bez mínusu)</span></div>
           ${ownIdx >= 0 ? `<div><b>${fmt(left[ownIdx] / valid)}</b><span>SGooBovi v průměru zbude</span></div>` : ''}
         </div>
         <h2 class="sec" style="margin:0 0 10px">Nejčastější týmy <small style="color:var(--muted);font:500 .82rem var(--font)">top 5 sestav každého kapitána</small></h2>
         <div class="lineups">${cards}</div>
         <h2 class="sec" style="margin:0 0 10px">Hráči</h2>
-        <div class="stats-wrap"><table class="table stats"><thead><tr><th>Hráč</th><th class="num">Cena</th><th class="num">Koupí ho</th><th class="num">Ø vydraženo</th><th class="num">Rozsah</th><th>Nejčastěji u</th><th class="num">U nás</th></tr></thead>
+        <div class="stats-wrap"><table class="table stats"><thead><tr><th>Hráč</th><th class="num">Cena</th><th class="num">Koupí ho</th><th>Nejčastěji u</th><th class="num">U nás</th></tr></thead>
         <tbody>${rows}</tbody></table></div>`;
     }
 

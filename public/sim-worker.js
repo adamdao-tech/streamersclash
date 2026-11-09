@@ -1,12 +1,11 @@
 // Velká simulace picku – běží ve Web Workeru, každé jádro jeden worker.
-// Jedna simulace = jedna celá aukce. Pravidla: každý kapitán musí mít všech 5 pozic (sebe + 4 hráče)
+// Jedna simulace = jeden celý draft za ceny z excelu (bez přihazování). Pravidla: každý kapitán musí mít všech 5 pozic (sebe + 4 hráče)
 // a nikdo nesmí jít s essence do mínusu. Aukce, ve které to nevyjde, se nepočítá (je „neplatná“).
 //
 // Zprávy: main → { type: 'init', data } / { type: 'run', count } / { type: 'pause' } / { type: 'snapshot' }
 //         worker → { type: 'progress', done, valid } / { type: 'snapshot', ... } / { type: 'done' }
 
-const STEP_DEFAULT = 5;
-const LINEUP_CAP = 8000;    // kolik různých sestav na kapitána si worker pamatuje (paměť: × kapitáni × vlákna)
+const LINEUP_CAP = 20000;   // kolik různých sestav na kapitána si worker pamatuje (paměť: × kapitáni × vlákna)
 const CHUNK = 5000;         // simulací mezi kontrolami zpráv
 
 let D = null;               // připravená data
@@ -24,7 +23,7 @@ function rand() {
 }
 
 function init(data) {
-  // data: { players: [{price, role(0-4), blocked, fav}], caps: [{budget, role(-1..4), own, fixed: [playerIdx]}], aggr, step, seed }
+  // data: { players: [{price, role(0-4), blocked, fav}], caps: [{budget, role(-1..4), own, fixed: [playerIdx]}], weighted, seed }
   const n = data.players.length, C = data.caps.length;
   const price = new Float64Array(n), role = new Int8Array(n), blocked = new Uint8Array(n), fav = new Uint8Array(n);
   data.players.forEach((p, i) => { price[i] = p.price; role[i] = p.role; blocked[i] = p.blocked ? 1 : 0; fav[i] = p.fav ? 1 : 0; });
@@ -34,20 +33,19 @@ function init(data) {
   D = {
     n, C, price, role, blocked, fav, byRole, fixedTaken,
     capBudget: data.caps.map((c) => c.budget), capRole: data.caps.map((c) => c.role), capOwn: data.caps.map((c) => !!c.own),
-    capFixed: data.caps.map((c) => c.fixed), aggr: data.aggr, step: data.step || STEP_DEFAULT,
+    capFixed: data.caps.map((c) => c.fixed),
     // pracovní pole (znovupoužívaná)
     taken: new Uint8Array(n), owner: new Int16Array(n), paid: new Float64Array(n),
-    taste: new Float64Array(C * n), order: new Int32Array(n), key: new Float64Array(n),
     budget: new Float64Array(C), has: new Uint8Array(C * 5), cnt: new Int8Array(C), needCount: new Int32Array(5),
     kth: [0, 1, 2, 3, 4].map(() => new Float64Array(C + 1)), // kth[r][k] = cena k-tého nejlevnějšího volného na pozici r
-    lk: new Float64Array(C),
-    bidC: new Int32Array(C), bidMax: new Float64Array(C), tmp: new Float64Array(5), unsold: new Int32Array(n),
+    lk: new Float64Array(C), perm: new Int32Array(C), cand: new Int32Array(n), w: new Float64Array(n), weighted: data.weighted !== false,
+    tmp: new Float64Array(5),
   };
   rngState = (data.seed >>> 0) || 1;
   S = {
     valid: 0, invalid: 0,
     sold: new Float64Array(n), sum: new Float64Array(n), min: new Float64Array(n).fill(Infinity), max: new Float64Array(n),
-    by: new Float64Array(n * C), left: new Float64Array(C), lineups: Array.from({ length: C }, () => new Map()), lineupOverflow: new Float64Array(C),
+    by: new Float64Array(n * C), left: new Float64Array(C), lineups: Array.from({ length: C }, () => new Map()), lineupOverflow: new Float64Array(C), lineupFloor: new Float64Array(C),
   };
 }
 
@@ -92,7 +90,7 @@ function buy(c, p, amount) {
 }
 
 function simulateOnce() {
-  const { n, C, price, role, taken, owner, taste, order, key, budget, has, cnt, needCount, bidC, bidMax, aggr, step } = D;
+  const { n, C, price, role, taken, owner, budget, has, cnt, needCount } = D;
   taken.set(D.fixedTaken); owner.fill(-1); has.fill(0); cnt.fill(0);
   for (let c = 0; c < C; c++) {
     budget[c] = D.capBudget[c];
@@ -102,48 +100,34 @@ function simulateOnce() {
   for (let r = 0; r < 5; r++) { needCount[r] = 0; for (let c = 0; c < C; c++) if (needs(c, r)) needCount[r]++; refreshKth(r); }
   for (let r = 0; r < 5; r++) if (freeCount(r) < needCount[r]) return false; // na pozici není dost hráčů
 
-  // pořadí vyvolávání: od nejdražších s trochou náhody (klíč a index zabalené do jednoho čísla kvůli rychlému řazení)
-  let m = 0;
-  for (let p = 0; p < n; p++) if (!taken[p]) key[m++] = -Math.floor(price[p] * (0.85 + rand() * 0.3) * 64) * 1024 - p;
-  const sorted = key.subarray(0, m).sort();
-  const ord = order;
-  for (let i = 0; i < m; i++) ord[i] = (-sorted[i]) % 1024;
-
-  let un = 0;
-  for (let oi = 0; oi < m; oi++) {
-    const p = ord[oi], r = role[p], pr = price[p];
-    if (!needCount[r]) continue;
-    let nb = 0;
-    for (let c = 0; c < C; c++) {
-      if (!needs(c, r)) continue;
-      const room = budget[c] - reserve(c, r, true);
-      if (room < pr) continue;
-      let t = 1 + aggr * (rand() * 1.25 - 0.25);
-      if (D.capOwn[c]) { if (D.blocked[p]) continue; if (D.fav[p]) t += 0.1; }
-      taste[c * n + p] = t;
-      const max = Math.floor(Math.min(pr * t, room));
-      if (max >= pr) { bidC[nb] = c; bidMax[nb] = max + rand() * 0.5; nb++; }
+  // draft bez dražby: každý hráč stojí přesně svou cenu z excelu. Kapitáni vybírají po kolech v náhodném pořadí;
+  // každý si vezme hráče na pozici, kterou ještě potřebuje, a jen takového, aby mu zbylo na zbytek týmu.
+  const perm = D.perm, cand = D.cand, w = D.w;
+  for (let round = 0; round < 4; round++) {
+    let k = 0;
+    for (let c = 0; c < C; c++) if (cnt[c] < 4) perm[k++] = c;
+    for (let i = k - 1; i > 0; i--) { const j = Math.floor(rand() * (i + 1)); const t = perm[i]; perm[i] = perm[j]; perm[j] = t; }
+    for (let i = 0; i < k; i++) {
+      const c = perm[i];
+      if (cnt[c] >= 4) continue;
+      let nc = 0, total = 0;
+      for (let r = 0; r < 5; r++) {
+        if (!needs(c, r)) continue;
+        const room = budget[c] - reserve(c, r, true);
+        for (const p of D.byRole[r]) {
+          if (price[p] > room) break; // seřazeno podle ceny
+          if (taken[p] || (D.capOwn[c] && D.blocked[p])) continue;
+          let wt = D.weighted ? price[p] : 1;
+          if (D.capOwn[c] && D.fav[p]) wt *= 1.5;
+          cand[nc] = p; total += wt; w[nc] = total; nc++;
+        }
+      }
+      if (!nc) continue; // dobere se v doplnění
+      const x = rand() * total;
+      let lo = 0, hi = nc - 1;
+      while (lo < hi) { const mid = (lo + hi) >> 1; if (w[mid] > x) hi = mid; else lo = mid + 1; }
+      buy(c, cand[lo], price[cand[lo]]);
     }
-    if (!nb) { D.unsold[un++] = p; continue; }
-    let w = 0, s = -1;
-    for (let i = 1; i < nb; i++) {
-      if (bidMax[i] > bidMax[w]) { s = w; w = i; } else if (s < 0 || bidMax[i] > bidMax[s]) s = i;
-    }
-    const wm = Math.floor(bidMax[w]);
-    const amount = s >= 0 ? Math.min(wm, Math.max(pr, Math.floor(bidMax[s]) + step)) : pr;
-    buy(bidC[w], p, amount);
-  }
-  // dobírání za vyvolávací cenu: o koho nikdo nestál, dostane kapitán, kterému zbylo nejvíc
-  const rest = Array.from(D.unsold.subarray(0, un)).sort((a, b) => price[b] - price[a]);
-  for (const p of rest) {
-    const r = role[p], pr = price[p];
-    if (!needCount[r]) continue;
-    let best = -1;
-    for (let c = 0; c < C; c++) {
-      if (!needs(c, r) || (D.capOwn[c] && D.blocked[p])) continue;
-      if (budget[c] - reserve(c, r, true) >= pr && (best < 0 || budget[c] > budget[best])) best = c;
-    }
-    if (best >= 0) buy(best, p, pr);
   }
   // doplnění: komu něco chybí, dostane nejlevnějšího volného, kterého si může dovolit (i SGooB ✕, když jinak nejde)
   for (let pass = 0; pass < 2; pass++) {
@@ -188,8 +172,14 @@ function record() {
     const map = S.lineups[c];
     const v = map.get(k);
     if (v !== undefined) map.set(k, v + 1);
-    else if (map.size < LINEUP_CAP) map.set(k, 1);
-    else S.lineupOverflow[c]++;
+    else {
+      // „lossy counting“: když je sestav moc, zahodí ty nejvzácnější – časté sestavy zůstanou spočítané správně
+      if (map.size >= LINEUP_CAP) {
+        const floor = (S.lineupFloor[c] = (S.lineupFloor[c] || 0) + 1);
+        for (const [kk, vv] of map) if (vv <= floor) { map.delete(kk); S.lineupOverflow[c] += vv; }
+      }
+      map.set(k, 1 + (S.lineupFloor[c] || 0));
+    }
   }
 }
 

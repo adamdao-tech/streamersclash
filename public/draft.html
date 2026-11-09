@@ -1,0 +1,221 @@
+<!doctype html>
+<html lang="cs">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Výpočet essence · SGooBovo šedl scouting</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="preload" href="/fonts/inter-var.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="/fonts/rajdhani-700.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="/app.css">
+  <style>
+    html, body { height: 100%; }
+    body { display: flex; flex-direction: column; margin: 0; }
+    .top { display: flex; gap: 22px; align-items: center; flex-wrap: wrap; padding: 14px 18px; background: var(--panel); border-bottom: 1px solid var(--line); }
+    .left span { display: block; color: var(--muted); font-size: 0.74rem; text-transform: uppercase; letter-spacing: .05em; }
+    .left b { font: 700 3rem/1 var(--display); color: var(--gold-2); }
+    .left.neg b { color: #ff7a7e; }
+    .sets { display: flex; gap: 10px; }
+    .sets label { font-size: 0.74rem; color: var(--muted); }
+    .sets input, .pick input { width: 74px; min-height: 32px; padding: 2px 6px; text-align: right; font-variant-numeric: tabular-nums; }
+    .sets input { display: block; margin-top: 2px; }
+    .picks { display: grid; grid-template-columns: repeat(4, minmax(150px, 1fr)); gap: 8px; flex: 1; min-width: 320px; }
+    .pick, .free { display: flex; align-items: center; gap: 7px; min-height: 46px; padding: 4px 8px; border-radius: 9px; font-size: 0.9rem; min-width: 0; }
+    .pick { background: var(--bg-2); border: 1px solid var(--line-2); font-weight: 600; }
+    .pick .n { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .pick small { font: 700 0.7rem var(--display); color: var(--muted); }
+    .pick button { border: 0; background: transparent; color: var(--muted); cursor: pointer; padding: 2px 4px; }
+    .pick button:hover { color: #ff7a7e; }
+    .free { border: 1px dashed var(--line); color: var(--muted); justify-content: center; }
+    .info { color: var(--text-2); font-size: 0.86rem; line-height: 1.55; text-align: right; min-width: 150px; }
+    .info .neg { color: #ff7a7e; font-weight: 600; }
+    .reset { background: none; border: 0; padding: 0; color: var(--muted); cursor: pointer; font-size: 0.8rem; text-decoration: underline; }
+    .tools { display: flex; gap: 16px; align-items: center; flex-wrap: wrap; padding: 10px 18px; }
+    .tools input[type=search] { max-width: 240px; }
+    .tools label { display: inline-flex; gap: 6px; align-items: center; font-size: 0.86rem; color: var(--text-2); }
+    .tools label input { width: auto; }
+    .cols { flex: 1; min-height: 0; display: grid; grid-template-columns: repeat(5, minmax(160px, 1fr)); gap: 10px; padding: 0 18px 14px; overflow-x: auto; }
+    .col { display: flex; flex-direction: column; min-height: 0; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; }
+    .col h2 { display: flex; justify-content: space-between; align-items: baseline; margin: 0; padding: 10px 12px; font-size: 1.05rem; border-bottom: 1px solid var(--line); }
+    .col h2 small { color: var(--muted); font: 500 0.78rem var(--font); }
+    .col.done h2 { color: var(--gold-2); }
+    .list { flex: 1; overflow-y: auto; padding: 4px; }
+    .p { display: flex; width: 100%; gap: 6px; align-items: center; padding: 6px 8px; border: 0; border-radius: 7px; background: transparent; color: var(--text); font: 500 0.9rem var(--font); text-align: left; cursor: pointer; }
+    .p:hover { background: var(--panel-3); }
+    .p .n { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .p .fav { color: var(--gold-2); }
+    .p .c { font-weight: 700; color: var(--gold-2); font-variant-numeric: tabular-nums; }
+    .p.over .c { color: #ff7a7e; }
+    .p.over .n { color: var(--muted); }
+    .p.on { background: var(--gold); color: var(--on-gold); font-weight: 700; }
+    .p.on .c, .p.on .fav { color: var(--on-gold); }
+    .p:disabled { cursor: not-allowed; opacity: .4; }
+    .p:disabled:hover { background: transparent; }
+    .none { color: var(--muted); font-size: 0.86rem; padding: 10px; }
+    #shield { position: fixed; inset: 0; z-index: 50; background: #000; display: grid; place-items: center; text-align: center; padding: 24px; color: var(--muted); }
+    #shield[hidden] { display: none; }
+    #watermark { position: fixed; inset: -50%; z-index: 40; pointer-events: none; transform: rotate(-24deg); opacity: .06; display: flex; flex-wrap: wrap; gap: 70px 120px; align-content: flex-start; font: 700 1.1rem var(--display); color: var(--text); user-select: none; }
+    #watermark[hidden] { display: none; }
+    @media (max-width: 760px) {
+      html, body { height: auto; }
+      .picks { grid-template-columns: repeat(2, minmax(0, 1fr)); min-width: 100%; }
+      .info { text-align: left; }
+      .cols { grid-template-columns: 1fr; overflow: visible; }
+      .list { max-height: 260px; }
+    }
+  </style>
+</head>
+<body>
+  <section class="top" id="top"></section>
+  <div class="tools">
+    <input type="search" id="q" placeholder="Hledat hráče…">
+    <label><input type="checkbox" id="afford"> jen na koho mám</label>
+    <label><input type="checkbox" id="favs"> jen oblíbení</label>
+  </div>
+  <section class="cols" id="cols"></section>
+  <div id="shield" hidden><p id="shield-text"></p></div>
+  <div id="watermark" hidden aria-hidden="true"></div>
+
+  <script type="module">
+    import { api, esc } from '/app.js';
+
+    const { user } = await api('/api/me');
+    if (user.role !== 'admin') location.href = '/';
+
+    // Start 1000 essence, kapitán SGooB 325 (Jungle), dokoupit se dají 4 hráči. Cena je z excelu, v aukci jde přepsat.
+    const SLOTS = 4;
+    const ROLES = [['TOP', 'TOP'], ['JUNGLE', 'JNG'], ['MID', 'MID'], ['ADC', 'ADC'], ['SUPPORT', 'SUP']];
+    const SHORT = Object.fromEntries(ROLES);
+    const LS_SHARE = 'qs.sharing';
+    const S = { players: new Map(), planRaw: null, stream: {}, q: '', afford: false, favs: false, saving: 0 };
+    const $ = (s) => document.querySelector(s);
+    const fmt = (n) => Number(n).toLocaleString('cs-CZ');
+    const plan = () => S.planRaw || { start: 1000, captain_price: 325, picks: [] };
+    const pickOf = (key) => plan().picks.find((x) => x.key === key);
+    const priceOf = (x) => x.price ?? S.players.get(x.key)?.price ?? 0;
+    const left = () => plan().start - plan().captain_price - plan().picks.reduce((sum, x) => sum + priceOf(x), 0);
+
+    function renderTop() {
+      if ($('#top').contains(document.activeElement)) return; // rozepsané číslo nepřepisuj
+      const pl = plan(), rest = left(), free = SLOTS - pl.picks.length;
+      const have = new Set(['JUNGLE', ...pl.picks.map((x) => S.players.get(x.key)?.draft_role)]);
+      const missing = ROLES.filter(([r]) => !have.has(r)).map(([, l]) => l);
+      $('#top').innerHTML = `
+        <div class="left ${rest < 0 ? 'neg' : ''}"><span>Zbývá essence</span><b>${fmt(rest)}</b></div>
+        <div class="sets">
+          <label>Start<input type="number" min="0" id="start" value="${pl.start}"></label>
+          <label>SGooB (JNG)<input type="number" min="0" id="cap" value="${pl.captain_price}"></label>
+        </div>
+        <div class="picks">
+          ${pl.picks.map((x) => {
+            const p = S.players.get(x.key);
+            return `<div class="pick">${p?.draft_role ? `<small>${SHORT[p.draft_role]}</small>` : ''}<span class="n" title="${esc(p?.nickname ?? x.nickname)}">${esc(p?.nickname ?? x.nickname)}</span>
+              <input type="number" min="0" data-price="${esc(x.key)}" value="${priceOf(x)}" title="V aukci přepiš na vydraženou cenu">
+              <button type="button" data-off="${esc(x.key)}" title="Odebrat">✕</button></div>`;
+          }).join('')}
+          ${'<div class="free">volné místo</div>'.repeat(Math.max(free, 0))}
+        </div>
+        <div class="info">
+          ${rest < 0 ? `<span class="neg">Přes rozpočet o ${fmt(-rest)}</span><br>` : free ? `Ø ${fmt(Math.floor(rest / free))} na hráče<br>` : ''}
+          ${pl.picks.length}/${SLOTS} hráčů${missing.length ? `<br>chybí ${missing.join(', ')}` : ''}
+          ${pl.picks.length ? '<br><button type="button" class="reset" id="reset">Vymazat hráče</button>' : ''}
+        </div>`;
+    }
+
+    function renderCols() {
+      const q = S.q.toLowerCase(), rest = left(), full = plan().picks.length >= SLOTS;
+      const list = $('#cols');
+      const scroll = [...list.querySelectorAll('.list')].map((l) => l.scrollTop);
+      list.innerHTML = ROLES.map(([r, l]) => {
+        const all = [...S.players.values()].filter((p) => p.draft_role === r);
+        const rows = all.filter((p) => pickOf(p.key) || ((!q || p.nickname.toLowerCase().includes(q)) && (!S.afford || p.price <= rest) && (!S.favs || p.fav_roles.length)))
+          .sort((a, b) => b.price - a.price || a.nickname.localeCompare(b.nickname));
+        const done = r === 'JUNGLE' || all.some((p) => pickOf(p.key));
+        return `<div class="col ${done ? 'done' : ''}"><h2>${l} <small>${r === 'JUNGLE' ? 'SGooB · ' : ''}${rows.length}</small></h2><div class="list">
+          ${rows.map((p) => {
+            const on = !!pickOf(p.key), over = !on && p.price > rest;
+            return `<button type="button" class="p ${on ? 'on' : ''} ${over ? 'over' : ''}" data-key="${esc(p.key)}" ${full && !on ? 'disabled' : ''} title="${esc(p.note || '')}">
+              <span class="n">${esc(p.nickname)}</span>${p.fav_roles.length ? '<span class="fav">★</span>' : ''}<span class="c">${fmt(on ? priceOf(pickOf(p.key)) : p.price)}</span></button>`;
+          }).join('') || '<div class="none">Nikdo</div>'}
+        </div></div>`;
+      }).join('');
+      list.querySelectorAll('.list').forEach((l, i) => { l.scrollTop = scroll[i] || 0; });
+    }
+    const render = () => { renderTop(); renderCols(); };
+
+    async function save(next) {
+      const prev = S.planRaw;
+      S.planRaw = next;
+      if ($('#top').contains(document.activeElement)) document.activeElement.blur();
+      render();
+      S.saving++;
+      try { S.planRaw = (await api('/api/queue/plan', { method: 'PUT', body: next })).plan; }
+      catch (err) { S.planRaw = prev; alert(err.message); render(); }
+      finally { S.saving--; }
+    }
+    const num = (el) => Math.max(0, Number(el.value) || 0);
+
+    $('#top').addEventListener('change', (e) => {
+      const pl = plan(), t = e.target;
+      if (t.id === 'start') return save({ ...pl, start: num(t) });
+      if (t.id === 'cap') return save({ ...pl, captain_price: num(t) });
+      if (t.dataset.price) {
+        const n = num(t), base = S.players.get(t.dataset.price)?.price;
+        save({ ...pl, picks: pl.picks.map((x) => (x.key === t.dataset.price ? { ...x, price: n === base ? null : n } : x)) });
+      }
+    });
+    $('#top').addEventListener('keydown', (e) => { if (e.key === 'Enter' && e.target.matches('input')) e.target.blur(); });
+    $('#top').addEventListener('click', (e) => {
+      const pl = plan();
+      const off = e.target.closest('[data-off]');
+      if (off) return save({ ...pl, picks: pl.picks.filter((x) => x.key !== off.dataset.off) });
+      if (e.target.id === 'reset' && confirm('Vymazat všechny vybrané hráče z výpočtu?')) save({ ...pl, picks: [] });
+    });
+    $('#cols').addEventListener('click', (e) => {
+      const b = e.target.closest('.p[data-key]');
+      if (!b) return;
+      const pl = plan(), key = b.dataset.key;
+      if (pickOf(key)) return save({ ...pl, picks: pl.picks.filter((x) => x.key !== key) });
+      if (pl.picks.length < SLOTS) save({ ...pl, picks: [...pl.picks, { key, nickname: S.players.get(key).nickname, price: null }] });
+    });
+    $('#q').addEventListener('input', (e) => { S.q = e.target.value; renderCols(); });
+    $('#afford').addEventListener('change', (e) => { S.afford = e.target.checked; renderCols(); });
+    $('#favs').addEventListener('change', (e) => { S.favs = e.target.checked; renderCols(); });
+
+    /* stejná ochrana jako v Queue scoutingu: live na Twitchi nebo zapnuté "Sdílím obrazovku" (F9) */
+    function updateShield() {
+      let sharing = false;
+      try { sharing = localStorage.getItem(LS_SHARE) === '1'; } catch {}
+      const forced = !!S.stream.hidden;
+      $('#shield').hidden = !(forced || sharing);
+      $('#shield-text').textContent = forced ? 'Jsi live na Twitchi – výpočet je skrytý, dokud stream neskončí.' : 'Sdílíš obrazovku – výpočet je skrytý. Vypneš to v Queue scoutingu (F9).';
+      const wm = $('#watermark');
+      wm.hidden = !!S.stream.allowed;
+      if (!wm.hidden && !wm.childElementCount) {
+        const label = `${user.twitch_login} · ${new Date().toLocaleDateString('cs-CZ')}`;
+        wm.innerHTML = Array.from({ length: 160 }, () => `<span>${esc(label)}</span>`).join('');
+      }
+    }
+    window.addEventListener('storage', (e) => { if (e.key === LS_SHARE) updateShield(); });
+
+    async function load() {
+      if (S.saving) return;
+      const d = await api('/api/queue/draft');
+      if (S.saving) return;
+      S.stream = d.stream || {};
+      updateShield();
+      const players = JSON.stringify(d.players), plan_ = JSON.stringify(d.plan ?? null);
+      if (players === S.lastPlayers && plan_ === JSON.stringify(S.planRaw ?? null)) return;
+      if ($('#top').contains(document.activeElement)) return; // nepřepisuj rozepsanou cenu, vezme se při dalším načtení
+      S.lastPlayers = players;
+      S.players = new Map(d.players.map((p) => [p.key, p]));
+      S.planRaw = d.plan ?? null;
+      render();
+    }
+    render();
+    await load();
+    setInterval(() => { if (!document.hidden) load().catch((e) => console.warn('obnova selhala', e)); }, 5000);
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) load().catch(() => {}); });
+  </script>
+</body>
+</html>

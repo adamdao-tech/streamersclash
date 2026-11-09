@@ -473,7 +473,7 @@ export async function handleQueueApi(
   if (path === '/api/queue/stream' && method === 'GET') return json({ stream: guard });
 
   if (path === '/api/queue' && method === 'GET') {
-    const [players, matches, scout, meta, suggestions, links, teams, imported, plan] = await Promise.all([
+    const [players, matches, scout, meta, suggestions, links, teams, imported] = await Promise.all([
       db.prepare('SELECT * FROM queue_players ORDER BY rank IS NULL, rank, nickname COLLATE NOCASE').all(),
       db.prepare('SELECT * FROM queue_matches ORDER BY number DESC').all(),
       db.prepare(`SELECT s.*, u.display_name AS updated_by_name FROM queue_scout s LEFT JOIN users u ON u.id = s.updated_by`).all(),
@@ -485,7 +485,6 @@ export async function handleQueueApi(
       ).all(),
       db.prepare('SELECT id, name, tag, is_own_team FROM teams ORDER BY is_own_team DESC, name COLLATE NOCASE').all(),
       db.prepare(`SELECT v FROM queue_meta WHERE k = 'prices_imported_at'`).first<{ v: string }>(),
-      db.prepare(`SELECT v FROM queue_meta WHERE k = 'draft_plan'`).first<{ v: string }>(),
     ]);
     const rest = JSON.stringify({
       links: links.results,
@@ -496,7 +495,6 @@ export async function handleQueueApi(
       scout: guard.hidden ? [] : scout.results.map((r: Record<string, unknown>) => ({ ...r, fav_roles: JSON.parse(String(r.fav_roles || '[]')) })),
       synced_at: meta?.v ?? null,
       prices_imported_at: imported?.v ?? null,
-      plan: !guard.hidden && plan?.v ? JSON.parse(plan.v) : null,
       stream: guard,
       sq_enabled: sqEnabled(env),
     });
@@ -515,7 +513,7 @@ export async function handleQueueApi(
   if (path === '/api/queue/updates' && method === 'GET') {
     const [scout, meta] = await Promise.all([
       db.prepare(`SELECT s.*, u.display_name AS updated_by_name FROM queue_scout s LEFT JOIN users u ON u.id = s.updated_by`).all(),
-      db.prepare(`SELECT k, v FROM queue_meta WHERE k IN ('synced_at', 'match_count', 'prices_imported_at', 'draft_plan')`).all<{ k: string; v: string }>(),
+      db.prepare(`SELECT k, v FROM queue_meta WHERE k IN ('synced_at', 'match_count', 'prices_imported_at')`).all<{ k: string; v: string }>(),
     ]);
     const m = new Map(meta.results.map((r) => [r.k, r.v]));
     if (!m.has('match_count')) {
@@ -528,7 +526,6 @@ export async function handleQueueApi(
       synced_at: m.get('synced_at') ?? null,
       matches: Number(m.get('match_count') ?? 0),
       prices_imported_at: m.get('prices_imported_at') ?? null,
-      plan: !guard.hidden && m.get('draft_plan') ? JSON.parse(m.get('draft_plan')!) : null,
       stream: guard,
     });
   }
@@ -658,6 +655,23 @@ export async function handleQueueApi(
       .run();
     await logActivity(db, { kind: 'user', userId: user.id }, 'queue.scout', 'queue_player', null, { player: playerKey, ...s });
     return json({ ok: true, scout: { ...s, fav_roles: JSON.parse(s.fav_roles) } });
+  }
+
+  // Data for the essence calculator window (/draft): only the players with a price, polled every few seconds.
+  if (path === '/api/queue/draft' && method === 'GET') {
+    if (guard.hidden) return json({ players: [], plan: null, stream: guard });
+    const [players, plan] = await Promise.all([
+      db.prepare(
+        `SELECT p.key, p.nickname, s.price, s.draft_role, s.fav_roles, s.note
+           FROM queue_scout s JOIN queue_players p ON p.key = s.player_key WHERE s.price IS NOT NULL`,
+      ).all<Record<string, unknown>>(),
+      db.prepare(`SELECT v FROM queue_meta WHERE k = 'draft_plan'`).first<{ v: string }>(),
+    ]);
+    return json({
+      players: players.results.map((r) => ({ ...r, fav_roles: JSON.parse(String(r.fav_roles || '[]')) })),
+      plan: plan?.v ? JSON.parse(plan.v) : null,
+      stream: guard,
+    });
   }
 
   // The draft budget calculator: blue essence left after the captain and the players picked so far (shared by admins).

@@ -103,32 +103,6 @@
     .d-riot .sugs button:hover { border-color: var(--gold); color: var(--gold-2); }
     .opgg { display: inline-block; font: 700 0.7rem var(--display); padding: 2px 7px; border-radius: 5px; background: #5c46e8; color: #fff; margin: 4px 3px 0 0; }
     .opgg:hover { text-decoration: none; filter: brightness(1.15); }
-    /* rozpočet draftu */
-    .qs-budget { display: flex; gap: 18px; align-items: center; flex-wrap: wrap; margin-bottom: 14px; position: sticky; top: 72px; z-index: 5; box-shadow: 0 8px 20px rgba(0, 0, 0, .35); }
-    .qs-budget[hidden] { display: none; }
-    .b-left { min-width: 92px; }
-    .b-left span { display: block; color: var(--muted); font-size: 0.72rem; text-transform: uppercase; letter-spacing: .05em; }
-    .b-left b { font: 700 2.1rem/1.05 var(--display); color: var(--gold-2); }
-    .b-left.neg b { color: #ff7a7e; }
-    .b-set { display: flex; gap: 10px; }
-    .b-set label { display: block; font-size: 0.72rem; color: var(--muted); }
-    .b-set input, .b-pick input { width: 74px; min-height: 30px; padding: 2px 6px; text-align: right; font-variant-numeric: tabular-nums; }
-    .b-set input { display: block; margin-top: 2px; }
-    .b-picks { display: flex; gap: 8px; flex: 1; flex-wrap: wrap; min-width: 280px; }
-    .b-pick, .b-free { display: inline-flex; align-items: center; gap: 7px; min-height: 42px; padding: 4px 8px; border-radius: 9px; font-size: 0.88rem; }
-    .b-pick { background: var(--bg-2); border: 1px solid var(--line-2); font-weight: 600; }
-    .b-pick small { font: 700 0.68rem var(--display); color: var(--muted); }
-    .b-pick button { border: 0; background: transparent; color: var(--muted); cursor: pointer; font-size: 0.9rem; padding: 2px 4px; }
-    .b-pick button:hover { color: #ff7a7e; }
-    .b-free { border: 1px dashed var(--line); color: var(--muted); min-width: 92px; justify-content: center; }
-    .b-info { color: var(--text-2); font-size: 0.84rem; line-height: 1.5; text-align: right; }
-    .b-info .neg { color: #ff7a7e; font-weight: 600; }
-    .b-reset { background: none; border: 0; padding: 0; color: var(--muted); cursor: pointer; font: inherit; font-size: 0.78rem; text-decoration: underline; }
-    .b-add { min-width: 30px; min-height: 26px; border-radius: 7px; border: 1px solid var(--line-2); background: var(--bg-2); color: var(--text-2); font-weight: 700; cursor: pointer; }
-    .b-add:hover { border-color: var(--gold); color: var(--gold-2); }
-    .b-add.on { background: var(--gold); color: var(--on-gold); border-color: transparent; }
-    .b-add:disabled { opacity: .35; cursor: not-allowed; }
-    .b-add.over { color: #ff7a7e; }
     /* import cen z excelu */
     .qs-table tbody tr.out { opacity: .5; }
     .qs-rec li.out { opacity: .45; }
@@ -165,7 +139,7 @@
     .i-foot { display: flex; gap: 12px; align-items: center; justify-content: flex-end; flex-wrap: wrap; margin-top: 16px; }
     .i-foot label { margin-right: auto; display: inline-flex; gap: 7px; align-items: center; font-size: 0.86rem; color: var(--text-2); }
     .i-foot label input { width: auto; }
-    @media (max-width: 760px) { .qs-budget { position: static; } .b-info { text-align: left; } .d-scout, .d-riot { grid-template-columns: 1fr; } .d-kpis { margin-left: 0; } .lobbies { grid-template-columns: 1fr; } }
+    @media (max-width: 760px) { .d-scout, .d-riot { grid-template-columns: 1fr; } .d-kpis { margin-left: 0; } .lobbies { grid-template-columns: 1fr; } }
     /* ochrana při streamu */
     #shield { position: fixed; inset: 0; z-index: 50; background: #000; display: grid; place-items: center; text-align: center; padding: 24px; }
     #shield[hidden] { display: none; }
@@ -190,13 +164,12 @@
         <span class="qs-sync" id="live-info" title="Stránka se sama obnovuje každých 10 s"><span class="live-dot" style="display:inline-block;vertical-align:middle"></span> <span id="tick">auto 10 s</span></span>
         <button class="btn btn-small btn-ghost" id="history" hidden title="Stáhne z Streamers Queue API celou historii zápasů (jednorázově, pak se doplňuje samo)">Načíst historii z API</button>
         <button class="btn btn-small btn-ghost" id="profiles" title="Projde profily hráčů na Streamers Clash a načte jejich účty (OP.GG, rank)">Načíst účty všem</button>
+        <button class="btn btn-small btn-primary" id="draft" title="Otevře výpočet essence v samostatném okně">Výpočet essence</button>
         <button class="btn btn-small btn-primary" id="import" title="Nahraje excel s cenovkami. Mění se jen ceny, poznámky a oblíbení zůstávají.">Importovat ceny (excel)</button>
         <button class="btn btn-small" id="sync">Synchronizovat</button>
         <button class="btn btn-small btn-ghost" id="share" title="Zčerná stránku, když sdílíš obrazovku (Discord apod.). Klávesa F9.">Sdílím obrazovku (F9)</button>
       </div>
     </div>
-
-    <section class="card qs-budget" id="budget" hidden></section>
 
     <nav class="tabs" id="tabs">
       <button data-tab="players" class="active">Hráči <span class="count" id="c-players"></span></button>
@@ -325,7 +298,6 @@
       S.teams = data.teams || [];
       S.syncedAt = data.synced_at; S.matchCount = data.matches.length; S.lastPoll = Date.now();
       S.pricesImportedAt = data.prices_imported_at ?? null;
-      S.planRaw = data.plan ?? null;
       applyStream(data.stream);
       // po importu cen je výchozí pohled "kdo se dostal"; ostatní zůstávají pod filtrem
       if (S.pricesImportedAt && !S.stream.hidden && !S.showTouched) { S.show = 'price'; $('#show').value = 'price'; }
@@ -421,7 +393,6 @@
       ['rank', '#', (p, i) => `<span class="zero">${p.rank ?? '–'}</span>`, 'num'],
       ['nickname', 'Hráč', (p) => `<span class="qs-pl">${avatar(p)}${esc(p.nickname)}</span>${p.tier ? `<span class="tier tier-${esc(p.tier)}">${esc(p.tier)}</span>` : ''}${p.preferred_role ? `<span class="pref" title="Preferovaná pozice (profil na SC)">${ROLE_SHORT[p.preferred_role] || esc(p.preferred_role)}</span>` : ''}${teamTag(p)}`],
       ['price', 'Cena', (p) => p.scout.price != null ? `<span class="price">${fmtPrice(p.scout.price)}</span>` : '<span class="zero">–</span>', 'num'],
-      ['pick', 'Vzít', (p) => pickBtn(p)],
       ['games', 'Zápasy', (p) => p.games, 'num'],
       ['wins', 'W', (p) => `<span class="win">${p.wins}</span>`, 'num'],
       ['losses', 'L', (p) => `<span class="loss">${p.losses}</span>`, 'num'],
@@ -433,7 +404,7 @@
       ['note', 'Poznámka', (p) => `<div class="note-cell" title="${esc(p.scout.note || '')}">${esc(p.scout.note || '')}</div>`, 'note-td'],
     ];
     const sortVal = {
-      rank: (p) => p.rank ?? 1e9, nickname: (p) => p.nickname.toLowerCase(), pick: (p) => (planPick(p.key) ? 1 : 0), games: (p) => p.games, wins: (p) => p.wins,
+      rank: (p) => p.rank ?? 1e9, nickname: (p) => p.nickname.toLowerCase(), games: (p) => p.games, wins: (p) => p.wins,
       losses: (p) => p.losses, wr: (p) => p.wr ?? -1, form: (p) => p.form.filter(Boolean).length,
       fav: (p) => p.scout.fav_roles.length, lol: (p) => rankScore(bestAccount(p)?.rank), opgg: (p) => accountsOf(p).length + (p.scout.riot_euw ? 2 : 0) + (bestSug(p, 'eune') || bestSug(p, 'euw') ? 1 : 0), price: (p) => p.scout.price ?? -1, note: (p) => (p.scout.note ? 1 : 0),
     };
@@ -471,85 +442,8 @@
       $('#show').querySelector('[value=noprice]').textContent = `Nedostali se – bez ceny (${all - priced})`;
       $('#foot').textContent = `${rows.length} hráčů${S.show === 'price' ? ` · dalších ${all - priced} je ve filtru Nedostali se, nic se nemaže` : ''} · W/L a pořadí z oficiálního žebříčku, forma a detail z uložených zápasů.`;
       renderFavs();
-      renderBudget();
       if (S.tab === 'duos') renderDuos();
     }
-
-    /* ---------- rozpočet draftu ---------- */
-    // Start 1000 essence, kapitán SGooB 325 (Jungle), dokoupit se dají 4 hráči. Cena hráče je z excelu,
-    // v aukci jde přepsat. Plán je uložený na serveru, vidí ho všichni admini.
-
-    const SLOTS = 4;
-    const plan = () => S.planRaw || { start: 1000, captain_price: 325, picks: [] };
-    const planPick = (key) => plan().picks.find((x) => x.key === key);
-    const pickPrice = (x) => x.price ?? S.players.get(x.key)?.scout.price ?? 0;
-    const budgetLeft = () => plan().start - plan().captain_price - plan().picks.reduce((sum, x) => sum + pickPrice(x), 0);
-
-    function pickBtn(p) {
-      if (p.scout.price == null) return '';
-      if (planPick(p.key)) return `<button type="button" class="b-add on" data-pick="${esc(p.key)}" title="Odebrat z týmu">✓</button>`;
-      const full = plan().picks.length >= SLOTS, over = p.scout.price > budgetLeft();
-      return `<button type="button" class="b-add ${over ? 'over' : ''}" data-pick="${esc(p.key)}" ${full ? 'disabled' : ''} title="${full ? 'Tým je plný' : over ? 'Na základní cenu už nezbývá essence' : 'Přidat do týmu'}">+</button>`;
-    }
-
-    function renderBudget() {
-      const box = $('#budget');
-      box.hidden = !S.pricesImportedAt;
-      if (box.hidden || box.contains(document.activeElement)) return; // rozepsané číslo nepřepisuj
-      const pl = plan(), left = budgetLeft();
-      const roles = new Set(['JUNGLE', ...pl.picks.map((x) => S.players.get(x.key)?.scout.draft_role)]);
-      const missing = ROLES.filter(([r]) => !roles.has(r)).map(([, l]) => l);
-      const free = SLOTS - pl.picks.length;
-      box.innerHTML = `
-        <div class="b-left ${left < 0 ? 'neg' : ''}"><span>Zbývá essence</span><b>${fmtPrice(left)}</b></div>
-        <div class="b-set">
-          <label>Start<input type="number" min="0" id="b-start" value="${pl.start}"></label>
-          <label>SGooB (JNG)<input type="number" min="0" id="b-cap" value="${pl.captain_price}"></label>
-        </div>
-        <div class="b-picks">
-          ${pl.picks.map((x) => {
-            const pp = S.players.get(x.key), r = pp?.scout.draft_role;
-            return `<span class="b-pick">${r ? `<small>${ROLE_SHORT[r]}</small>` : ''}${esc(pp?.nickname ?? x.nickname)}
-              <input type="number" min="0" data-price="${esc(x.key)}" value="${pickPrice(x)}" title="Cena – v aukci ji přepiš na vydraženou">
-              <button type="button" data-unpick="${esc(x.key)}" title="Odebrat">✕</button></span>`;
-          }).join('')}
-          ${'<span class="b-free">volné místo</span>'.repeat(Math.max(free, 0))}
-        </div>
-        <div class="b-info">
-          ${left < 0 ? `<span class="neg">Přes rozpočet o ${fmtPrice(-left)}</span><br>` : free ? `Ø ${fmtPrice(Math.floor(left / free))} na hráče<br>` : ''}
-          ${pl.picks.length}/${SLOTS} hráčů${missing.length ? ` · chybí ${missing.join(', ')}` : ''}<br>
-          ${pl.picks.length ? '<button type="button" class="b-reset" id="b-reset">Vymazat hráče</button>' : ''}
-        </div>`;
-    }
-
-    async function savePlan(next) {
-      const prev = S.planRaw;
-      S.planRaw = next;
-      if (document.activeElement && $('#budget').contains(document.activeElement)) document.activeElement.blur();
-      render();
-      S.saving = (S.saving || 0) + 1;
-      try { S.planRaw = (await api('/api/queue/plan', { method: 'PUT', body: next })).plan; }
-      catch (err) { S.planRaw = prev; alert(err.message); render(); }
-      finally { S.saving--; }
-    }
-    const numberOf = (el) => Math.max(0, Number(el.value) || 0);
-
-    $('#budget').addEventListener('change', (e) => {
-      const pl = plan(), t = e.target;
-      if (t.id === 'b-start') return savePlan({ ...pl, start: numberOf(t) });
-      if (t.id === 'b-cap') return savePlan({ ...pl, captain_price: numberOf(t) });
-      if (t.dataset.price) {
-        const n = numberOf(t), base = S.players.get(t.dataset.price)?.scout.price;
-        savePlan({ ...pl, picks: pl.picks.map((x) => (x.key === t.dataset.price ? { ...x, price: n === base ? null : n } : x)) });
-      }
-    });
-    $('#budget').addEventListener('keydown', (e) => { if (e.key === 'Enter' && e.target.matches('input')) e.target.blur(); });
-    $('#budget').addEventListener('click', (e) => {
-      const pl = plan();
-      const un = e.target.closest('[data-unpick]');
-      if (un) return savePlan({ ...pl, picks: pl.picks.filter((x) => x.key !== un.dataset.unpick) });
-      if (e.target.id === 'b-reset' && confirm('Vymazat všechny vybrané hráče z výpočtu?')) savePlan({ ...pl, picks: [] });
-    });
 
     /** Po importu cen: hráč bez ceny se do turnaje nedostal (zůstává v databázi, jen je ztlumený). */
     const isOut = (p) => !!S.pricesImportedAt && p.scout.price == null;
@@ -776,14 +670,6 @@
         const c = th.dataset.sort;
         S.sort = { col: c, dir: S.sort.col === c ? -S.sort.dir : (['rank', 'nickname'].includes(c) ? 1 : -1) };
         return render();
-      }
-      const add = e.target.closest('[data-pick]');
-      if (add) {
-        e.stopPropagation();
-        const pl = plan(), key = add.dataset.pick;
-        if (planPick(key)) return savePlan({ ...pl, picks: pl.picks.filter((x) => x.key !== key) });
-        if (pl.picks.length < SLOTS) savePlan({ ...pl, picks: [...pl.picks, { key, nickname: S.players.get(key).nickname, price: null }] });
-        return;
       }
       const toggle = e.target.closest('.role-t');
       if (toggle) {
@@ -1038,6 +924,7 @@
       } finally { S.saving--; }
     }
 
+    $('#draft').addEventListener('click', () => window.open('/draft', 'sc-draft', 'popup,width=1240,height=820'));
     $('#import').addEventListener('click', () => { impPick(); $('#imp').showModal(); });
 
     /* ---------- načtení účtů všem hráčům ---------- */
@@ -1176,7 +1063,6 @@
         if (u.synced_at !== S.syncedAt || u.matches !== S.matchCount || (u.prices_imported_at ?? null) !== S.pricesImportedAt) return void (await load());
         const byKey = new Map(u.scout.map((x) => [x.player_key, x]));
         let changed = false;
-        if (JSON.stringify(u.plan ?? null) !== JSON.stringify(S.planRaw ?? null) && !$('#budget').contains(document.activeElement)) { S.planRaw = u.plan ?? null; changed = true; }
         for (const p of S.players.values()) {
           const next = byKey.get(p.key) || { fav_roles: [], price: null, note: null };
           if (!sameScout(p.scout, next)) { p.scout = next; changed = true; }

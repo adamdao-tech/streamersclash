@@ -94,6 +94,39 @@
     #shield[hidden] { display: none; }
     #watermark { position: fixed; inset: -50%; z-index: 40; pointer-events: none; transform: rotate(-24deg); opacity: .06; display: flex; flex-wrap: wrap; gap: 70px 120px; align-content: flex-start; font: 700 1.1rem var(--display); color: var(--text); user-select: none; }
     #watermark[hidden] { display: none; }
+    /* dražba */
+    .auc { display: grid; grid-template-columns: minmax(300px, 420px) minmax(0, 1fr); gap: 14px; align-items: start; }
+    .lot { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 16px; display: flex; flex-direction: column; gap: 12px; }
+    .lot .who-l { display: flex; align-items: center; gap: 8px; font: 700 1.6rem/1.1 var(--display); }
+    .lot .meta { color: var(--muted); font-size: 0.86rem; display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+    .lot .bid { display: flex; align-items: baseline; gap: 12px; padding: 12px 14px; border-radius: 10px; background: var(--bg-2); border: 1px solid var(--line); }
+    .lot .bid b { font: 700 3rem/1 var(--display); color: var(--gold-2); font-variant-numeric: tabular-nums; }
+    .lot .bid span { color: var(--text-2); font-size: 0.95rem; }
+    .lot .bid span strong { color: var(--text); }
+    .lot .bid.own b, .lot .bid.own strong { color: var(--gold-2); }
+    .lot .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+    .lot .row input[type=number] { width: 80px; min-height: 34px; padding: 2px 8px; text-align: right; }
+    .lot .row input[type=search] { flex: 1; min-width: 140px; }
+    .lot .chk { display: inline-flex; gap: 6px; align-items: center; font-size: 0.86rem; color: var(--text-2); }
+    .lot .chk input { width: auto; }
+    .log { max-height: 210px; overflow-y: auto; font-size: 0.84rem; color: var(--text-2); border-top: 1px solid var(--line); padding-top: 8px; }
+    .log p { margin: 2px 0; display: flex; justify-content: space-between; gap: 8px; }
+    .log p b { color: var(--gold-2); font-variant-numeric: tabular-nums; }
+    .log p.sale { color: var(--green); font-weight: 600; }
+    .bidders { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+    .bidders h2 { margin: 0; padding: 10px 14px; font-size: 1rem; border-bottom: 1px solid var(--line); }
+    .bidder { display: grid; grid-template-columns: minmax(0, 1fr) auto auto auto; gap: 10px; align-items: center; padding: 8px 14px; border-bottom: 1px solid var(--line); }
+    .bidder:last-child { border-bottom: 0; }
+    .bidder .n { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+    .bidder .n small { display: block; color: var(--muted); font: 500 0.74rem var(--font); }
+    .bidder .mx { color: var(--muted); font-size: 0.8rem; font-variant-numeric: tabular-nums; text-align: right; }
+    .bidder.lead { background: rgba(232,184,74,.14); box-shadow: inset 3px 0 0 var(--gold); }
+    .bidder.own .n { color: var(--gold-2); }
+    .bidder.out { opacity: .45; }
+    .bidder.out .n small { color: #ff9a9d; }
+    .bidder .btn { min-width: 64px; }
+    .queue-next { color: var(--muted); font-size: 0.82rem; }
+    @media (max-width: 900px) { .auc { grid-template-columns: 1fr; } }
     @media (max-width: 900px) {
       .board { grid-template-columns: 1fr; }
       .side { position: static; max-height: 70vh; order: -1; }
@@ -114,6 +147,7 @@
 
     <div class="tabs2" id="tabs">
       <button data-t="board" class="active">Klikání</button>
+      <button data-t="auction">Dražba</button>
       <button data-t="many">Šance z 500 simulací</button>
     </div>
 
@@ -139,6 +173,12 @@
           </header>
           <div class="plist" id="plist"></div>
         </aside>
+      </div>
+    </section>
+    <section id="p-auction" hidden>
+      <div class="auc">
+        <div class="lot" id="lot"></div>
+        <div class="bidders" id="bidders"></div>
       </div>
     </section>
     <section id="p-many" hidden></section>
@@ -262,6 +302,7 @@
     function changed() {
       S.many = null;
       renderBoard();
+      if (S.tab === 'auction') renderAuction();
       clearTimeout(saveTimer);
       saveTimer = setTimeout(() => api('/api/queue/sim', { method: 'PUT', body: S.board }).catch((e) => alert(`Uložení se nepovedlo: ${e.message}`)), 600);
     }
@@ -449,8 +490,157 @@
       const b = e.target.closest('button[data-t]'); if (!b) return;
       S.tab = b.dataset.t;
       document.querySelectorAll('#tabs button').forEach((x) => x.classList.toggle('active', x === b));
-      $('#p-board').hidden = S.tab !== 'board'; $('#p-many').hidden = S.tab !== 'many';
-      if (S.tab === 'many') renderMany(); else renderBoard();
+      $('#p-board').hidden = S.tab !== 'board'; $('#p-many').hidden = S.tab !== 'many'; $('#p-auction').hidden = S.tab !== 'auction';
+      if (S.tab === 'many') renderMany(); else if (S.tab === 'auction') { renderStatus(); renderAuction(); } else renderBoard();
+    });
+
+    /* ---------- dražba ---------- */
+
+    // S.auc = { key, price, leader, taste: Map(cap → koeficient), log: [] }; S.sold = [{ cap, key }] pro „Vrátit“
+    S.auc = null; S.sold = []; S.bots = true; S.step = 5; S.botTimer = null;
+    const freePlayers = () => [...S.players.values()].filter((p) => !p.is_captain && p.draft_role && !owner(p.key));
+    const needsRole = (c, role) => capRole(c) !== role && !slotPick(c, role) && picks(c).length < 4;
+    /** Kolik kapitán může nabídnout: co mu zbývá, mínus nejlevnější volní hráči na ostatní pozice, které ještě potřebuje. */
+    function maxBid(c, p) {
+      const free = freePlayers().filter((q) => q.key !== p.key);
+      const rest = (capRole(c) ? missing(c) : ROLES.map(([r]) => r).filter((r) => !slotPick(c, r))).filter((r) => r !== p.draft_role);
+      const slots = 4 - picks(c).length - 1;
+      const reserve = rest.map((r) => Math.min(...free.filter((q) => q.draft_role === r).map((q) => q.price)))
+        .map((m) => (Number.isFinite(m) ? m : 0)).sort((a, b) => a - b).slice(0, Math.max(slots, 0)).reduce((s, m) => s + m, 0);
+      return budgetLeft(c) - reserve;
+    }
+    const minNext = () => (S.auc.leader ? S.auc.price + S.step : S.auc.price);
+    const lotPlayer = () => S.auc && S.players.get(S.auc.key);
+
+    function nominate(key) {
+      clearTimeout(S.botTimer);
+      const p = S.players.get(key);
+      if (!p || owner(key)) return;
+      const aggr = Number($('#aggr').value) / 100;
+      const taste = new Map(S.caps.map((c) => [c.key, 1 + aggr * (Math.random() * 1.25 - 0.25)]));
+      S.auc = { key, price: p.price, leader: null, taste, log: [] };
+      renderAuction();
+      if (S.bots) botsLater();
+    }
+    function nextKey(random) {
+      const need = freePlayers().filter((p) => S.caps.some((c) => needsRole(c, p.draft_role)));
+      if (!need.length) return null;
+      if (random) return need[Math.floor(Math.random() * need.length)].key;
+      return need.sort((a, b) => b.price - a.price)[0].key;
+    }
+    function bid(capKey, amount, bot = false) {
+      const a = S.auc, c = S.caps.find((x) => x.key === capKey);
+      if (!a || !c) return false;
+      if (amount < minNext() || amount > maxBid(c, lotPlayer())) return false;
+      a.price = amount; a.leader = capKey;
+      a.log.unshift({ cap: c.name, amount, bot });
+      return true;
+    }
+    /** Boti (všichni kromě SGooBa) přihazují po příhozu, dokud někdo z nich má chuť a peníze. */
+    function botsRespond() {
+      const a = S.auc, p = lotPlayer();
+      if (!a || !p) return;
+      for (let guard = 0; guard < 400; guard++) {
+        const next = minNext();
+        const cand = S.caps.filter((c) => !c.own && c.key !== a.leader && needsRole(c, p.draft_role))
+          .map((c) => ({ c, max: Math.floor(Math.min(p.price * a.taste.get(c.key), maxBid(c, p))) }))
+          .filter((x) => x.max >= next);
+        if (!cand.length) break;
+        // přihodí náhodný z těch, kdo ještě chtějí (víc to připomíná živou dražbu než jen „kdo má nejvíc“)
+        const pick = cand[Math.floor(Math.random() * cand.length)];
+        bid(pick.c.key, next, true);
+      }
+      renderAuction();
+    }
+    function botsLater() { clearTimeout(S.botTimer); S.botTimer = setTimeout(botsRespond, 450); }
+
+    function sell() {
+      const a = S.auc, p = lotPlayer();
+      if (!a || !a.leader) return;
+      clearTimeout(S.botTimer);
+      const c = S.caps.find((x) => x.key === a.leader);
+      S.board.teams[c.key] = [...picks(c).filter((x) => S.players.get(x.key)?.draft_role !== p.draft_role), { key: p.key, price: a.price === p.price ? null : a.price }];
+      S.sold.unshift({ cap: c.key, key: p.key, name: p.nickname, capName: c.name, price: a.price });
+      S.auc = null;
+      changed();
+      const k = nextKey(false);
+      if (k && $('#auto-next')?.checked) nominate(k); else renderAuction();
+    }
+
+    function renderAuction() {
+      const a = S.auc, p = lotPlayer();
+      const leader = a?.leader && S.caps.find((c) => c.key === a.leader);
+      const left = freePlayers().filter((q) => S.caps.some((c) => needsRole(c, q.draft_role))).length;
+      const autoNext = $('#auto-next')?.checked ?? true;
+      $('#lot').innerHTML = `
+        ${p ? `
+          <div class="who-l">${p.blocked ? NOPE : ''}${esc(p.nickname)}${p.fav_roles?.length ? ' <span class="fav">★</span>' : ''}</div>
+          <div class="meta"><span class="ctag">${SHORT[p.draft_role]}</span><span>cena z excelu <b style="color:var(--gold-2)">${fmt(p.price)}</b></span><span>${p.wins ?? 0}W ${p.losses ?? 0}L</span></div>
+          <div class="bid ${leader?.own ? 'own' : ''}"><b>${fmt(a.price)}</b><span>${leader ? `drží <strong>${esc(leader.name)}</strong>` : 'zatím nikdo – vyvolávací cena'}</span></div>
+          <div class="row">
+            <button class="btn btn-primary" id="a-sell" ${leader ? '' : 'disabled'}>Prodáno${leader ? ` – ${esc(leader.name)}` : ''}</button>
+            <button class="btn btn-ghost" id="a-pass" title="Nikdo ho nechce, zůstane volný">Nikdo</button>
+          </div>`
+        : `<div class="who-l" style="font-size:1.2rem">${left ? 'Vyvolej hráče' : 'Všechny pozice jsou obsazené 🎉'}</div>
+           <p class="queue-next">${left ? `Volných hráčů, které ještě někdo potřebuje: ${left}` : 'Výsledek je na záložce Klikání.'}</p>`}
+        <div class="row">
+          <button class="btn btn-small" id="a-next" ${left ? '' : 'disabled'}>Další – nejdražší</button>
+          <button class="btn btn-small" id="a-rand" ${left ? '' : 'disabled'}>Další – náhodný</button>
+          <input type="search" id="a-pick" list="a-list" placeholder="Vyvolat konkrétního…">
+          <datalist id="a-list">${freePlayers().sort((x, y) => x.nickname.localeCompare(y.nickname)).map((q) => `<option value="${esc(q.nickname)}">${SHORT[q.draft_role]} · ${fmt(q.price)}</option>`).join('')}</datalist>
+        </div>
+        <div class="row">
+          <label class="chk"><input type="checkbox" id="a-bots" ${S.bots ? 'checked' : ''}> ostatní kapitáni přihazují sami</label>
+          <label class="chk"><input type="checkbox" id="auto-next" ${autoNext ? 'checked' : ''}> po prodeji hned další</label>
+          <label class="chk">příhoz <input type="number" id="a-step" min="1" value="${S.step}"></label>
+        </div>
+        ${a?.log.length || S.sold.length ? `<div class="log">
+          ${(a?.log || []).slice(0, 30).map((l) => `<p><span>${esc(l.cap)}${l.bot ? '' : ' <small style="color:var(--muted)">(ty)</small>'}</span><b>${fmt(l.amount)}</b></p>`).join('')}
+          ${S.sold.slice(0, 8).map((x, i) => `<p class="sale"><span>✔ ${esc(x.name)} → ${esc(x.capName)}</span><span><b>${fmt(x.price)}</b>${i === 0 ? ' <button class="btn btn-small btn-ghost" id="a-undo" style="min-height:24px;padding:1px 8px;margin-left:6px">Vrátit</button>' : ''}</span></p>`).join('')}
+        </div>` : ''}`;
+
+      if (!p) { $('#bidders').innerHTML = `<h2>Kapitáni</h2>${S.caps.map((c) => `<div class="bidder ${c.own ? 'own' : ''}"><span class="n">${esc(c.name)}<small>zbývá ${fmt(budgetLeft(c))} · chybí ${missing(c).length}</small></span><span></span><span></span><span></span></div>`).join('')}`; return; }
+      const next = minNext();
+      const rows = S.caps.map((c) => {
+        const need = needsRole(c, p.draft_role), mx = maxBid(c, p);
+        const can = need && mx >= next && a.leader !== c.key;
+        const why = !need ? (capRole(c) === p.draft_role ? 'je kapitán na této pozici' : 'pozici už má') : mx < next ? `nemá na to (max ${fmt(Math.max(mx, 0))})` : '';
+        return { c, need, can, mx, why };
+      }).sort((x, y) => y.c.own - x.c.own || y.need - x.need || x.c.name.localeCompare(y.c.name));
+      $('#bidders').innerHTML = `<h2>Kdo přihodí? <small style="color:var(--muted);font:500 .8rem var(--font)">další nabídka ${fmt(next)}</small></h2>` + rows.map(({ c, need, can, mx, why }) => `
+        <div class="bidder ${c.own ? 'own' : ''} ${a.leader === c.key ? 'lead' : ''} ${!need || (!can && a.leader !== c.key) ? 'out' : ''}">
+          <span class="n">${esc(c.name)}${c.own ? ' <span class="ctag">TY</span>' : ''}<small>${a.leader === c.key ? 'vede' : why || `zbývá ${fmt(budgetLeft(c))}`}</small></span>
+          <span class="mx">${need ? `max ${fmt(Math.max(mx, 0))}` : ''}</span>
+          <button class="btn btn-small ${c.own ? 'btn-primary' : ''}" data-bid="${esc(c.key)}" data-amt="${next}" ${can && (c.own || !S.bots) ? '' : 'disabled'}>${fmt(next)}</button>
+          <button class="btn btn-small btn-ghost" data-bid="${esc(c.key)}" data-amt="${next + S.step * 4}" ${can && mx >= next + S.step * 4 && (c.own || !S.bots) ? '' : 'disabled'}>${fmt(next + S.step * 4)}</button>
+        </div>`).join('');
+    }
+
+    $('#p-auction').addEventListener('click', (e) => {
+      const t = e.target;
+      const b = t.closest('[data-bid]');
+      if (b) {
+        if (bid(b.dataset.bid, Number(b.dataset.amt))) { renderAuction(); if (S.bots) botsLater(); }
+        return;
+      }
+      if (t.id === 'a-sell') return sell();
+      if (t.id === 'a-pass') { clearTimeout(S.botTimer); S.auc = null; return renderAuction(); }
+      if (t.id === 'a-next' || t.id === 'a-rand') { const k = nextKey(t.id === 'a-rand'); return k ? nominate(k) : renderAuction(); }
+      if (t.id === 'a-undo') {
+        const x = S.sold.shift();
+        if (x) S.board.teams[x.cap] = (S.board.teams[x.cap] || []).filter((y) => y.key !== x.key);
+        clearTimeout(S.botTimer); S.auc = null;
+        return changed();
+      }
+    });
+    $('#p-auction').addEventListener('change', (e) => {
+      const t = e.target;
+      if (t.id === 'a-bots') { S.bots = t.checked; renderAuction(); if (S.bots && S.auc) botsLater(); }
+      if (t.id === 'a-step') { S.step = Math.max(1, Number(t.value) || 5); renderAuction(); }
+      if (t.id === 'a-pick') {
+        const p = freePlayers().find((q) => q.nickname.toLowerCase() === t.value.trim().toLowerCase());
+        if (p) nominate(p.key);
+      }
     });
 
     /* stejná ochrana jako v Queue scoutingu: live na Twitchi nebo zapnuté "Sdílím obrazovku" (F9) */

@@ -391,7 +391,7 @@
     const ALL_COLS = [
       ['rank', '#', (p, i) => `<span class="zero">${p.rank ?? '–'}</span>`, 'num'],
       ['nickname', 'Hráč', (p) => `<span class="qs-pl">${avatar(p)}${esc(p.nickname)}</span>${p.tier ? `<span class="tier tier-${esc(p.tier)}">${esc(p.tier)}</span>` : ''}${p.preferred_role ? `<span class="pref" title="Preferovaná pozice (profil na SC)">${ROLE_SHORT[p.preferred_role] || esc(p.preferred_role)}</span>` : ''}${teamTag(p)}`],
-      ['elo', 'ELO', (p) => (p.elo == null ? '<span class="zero">–</span>' : `<b>${p.elo}</b>`), 'num'],
+      ['price', 'Cena', (p) => p.scout.price != null ? `<span class="price">${fmtPrice(p.scout.price)}</span>` : '<span class="zero">–</span>', 'num'],
       ['games', 'Zápasy', (p) => p.games, 'num'],
       ['wins', 'W', (p) => `<span class="win">${p.wins}</span>`, 'num'],
       ['losses', 'L', (p) => `<span class="loss">${p.losses}</span>`, 'num'],
@@ -400,11 +400,10 @@
       ['lol', 'LoL rank', (p) => { const a = bestAccount(p); return a ? `<span class="lolrank" title="${esc(a.riot)}">${esc(shortRank(a.rank))}<small>${a.region.toUpperCase()}</small></span>` : profileState(p); }],
       ['opgg', 'OP.GG', (p) => opggChips(p) || '<span class="zero">–</span>'],
       ['fav', 'Oblíbený na', (p) => roleToggles(p)],
-      ['price', 'Cena', (p) => p.scout.price != null ? `<span class="price">${fmtPrice(p.scout.price)}</span>` : '<span class="zero">–</span>', 'num'],
       ['note', 'Poznámka', (p) => `<div class="note-cell" title="${esc(p.scout.note || '')}">${esc(p.scout.note || '')}</div>`, 'note-td'],
     ];
     const sortVal = {
-      rank: (p) => p.rank ?? 1e9, nickname: (p) => p.nickname.toLowerCase(), games: (p) => p.games, elo: (p) => p.elo ?? -1e9, wins: (p) => p.wins,
+      rank: (p) => p.rank ?? 1e9, nickname: (p) => p.nickname.toLowerCase(), games: (p) => p.games, wins: (p) => p.wins,
       losses: (p) => p.losses, wr: (p) => p.wr ?? -1, form: (p) => p.form.filter(Boolean).length,
       fav: (p) => p.scout.fav_roles.length, lol: (p) => rankScore(bestAccount(p)?.rank), opgg: (p) => accountsOf(p).length + (p.scout.riot_euw ? 2 : 0) + (bestSug(p, 'eune') || bestSug(p, 'euw') ? 1 : 0), price: (p) => p.scout.price ?? -1, note: (p) => (p.scout.note ? 1 : 0),
     };
@@ -423,7 +422,7 @@
     }
 
     function render() {
-      const COLS = ALL_COLS.filter(([c]) => c !== 'elo' || [...S.players.values()].some((p) => p.elo != null));
+      const COLS = ALL_COLS;
       $('#thead').innerHTML = COLS.map(([c, l, , cls]) => `<th data-sort="${c}" class="${cls || ''} ${S.sort.col === c ? `sorted ${S.sort.dir > 0 ? 'asc' : ''}` : ''}">${l}</th>`).join('');
       const rows = filtered();
       const rowHtml = (p, i) => `<tr data-key="${esc(p.key)}" class="${isOut(p) ? 'out' : ''}">${COLS.map(([, , fn, cls]) => `<td class="${cls || ''}">${fn(p, i)}</td>`).join('')}</tr>`;
@@ -564,7 +563,7 @@
             ${accountsOf(p).length ? `<div class="acc-list">${accountsOf(p).map((a) => `<a class="acc" href="${esc(a.url)}" target="_blank" rel="noopener"><b>${esc(a.riot)}</b><span>${a.region.toUpperCase()}${a.rank ? ` · ${esc(a.rank)}` : ''}${a.src === 'ručně' ? ' · ručně' : ''}</span></a>`).join('')}</div>` : ''}
           </div>
           <div class="d-kpis">
-            ${p.elo != null ? `<div><b>${p.elo}</b><span>ELO</span></div>` : ''}
+            ${p.scout.price != null ? `<div><b class="price">${fmtPrice(p.scout.price)}</b><span>cena</span></div>` : ''}
             <div><b>${p.games}</b><span>zápasů</span></div>
             <div><b class="win">${p.wins}</b><span>W</span></div>
             <div><b class="loss">${p.losses}</b><span>L</span></div>

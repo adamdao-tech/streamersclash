@@ -46,6 +46,15 @@
     .role-t:hover { color: var(--text-2); border-color: var(--line-2); }
     .role-t.on { background: var(--gold); color: var(--on-gold); border-color: transparent; }
     .price { font-weight: 700; color: var(--gold-2); }
+    /* hráč, kterého nechceme: velký červený křížek */
+    .nope { display: inline-grid; place-items: center; width: 26px; height: 26px; margin-right: 6px; border-radius: 6px; background: #e5383b; color: #fff; font: 900 1.25rem/1 var(--font); vertical-align: middle; flex: none; box-shadow: 0 0 0 2px rgba(229,56,59,.35); }
+    .nope-lg { width: 44px; height: 44px; font-size: 2.1rem; border-radius: 10px; }
+    .qs-table tbody tr.blocked, .qs-rec li.blocked { background: rgba(229,56,59,.10); box-shadow: inset 4px 0 0 #e5383b; }
+    .qs-table tbody tr.blocked:hover { background: rgba(229,56,59,.16); }
+    tr.blocked .price, li.blocked .price { color: #ff7a7e; text-decoration: line-through; }
+    .nope-t { font: 900 0.9rem/1 var(--font); width: 30px; padding: 3px 0; margin-left: 6px; text-align: center; border-radius: 6px; border: 1px solid var(--line); background: var(--bg-2); color: #5d6a86; cursor: pointer; }
+    .nope-t:hover { color: #ff7a7e; border-color: #e5383b; }
+    .nope-t.on { background: #e5383b; color: #fff; border-color: transparent; }
     .qs-board { display: grid; grid-template-columns: repeat(5, minmax(200px, 1fr)); gap: 12px; overflow-x: auto; }
     .qs-board .card h2 { display: flex; justify-content: space-between; align-items: baseline; }
     .qs-board .card h2 small { color: var(--muted); font: 500 0.8rem var(--font); }
@@ -205,6 +214,8 @@
           <option value="noprice">Nedostali se (bez ceny)</option>
           <option value="fav">Jen oblíbení</option>
           <option value="note">S poznámkou</option>
+          <option value="blocked">✕ Nechceme</option>
+          <option value="wanted">Bez nechtěných</option>
         </select>
         <label class="qs-sync">Min. zápasů <input type="number" id="min" min="0" value="0" style="width:70px"></label>
       </div>
@@ -419,12 +430,14 @@
       }
       return out.length ? `<span class="opgg-set">${out.join('')}</span>` : '';
     };
+    const nope = (p, cls = '') => (p?.scout.blocked ? `<span class="nope ${cls}" title="Tohohle hráče nechceme">✕</span>` : '');
+    const nopeToggle = (p) => `<button type="button" class="nope-t ${p.scout.blocked ? 'on' : ''}" data-nope="${esc(p.key)}" title="${p.scout.blocked ? 'Zrušit „nechceme“' : 'Nechceme – velký červený křížek'}">✕</button>`;
     const roleToggles = (p) => `<span class="roles">${ROLES.map(([r, l]) => `<button type="button" class="role-t ${p.scout.fav_roles.includes(r) ? 'on' : ''}" data-role="${r}" data-key="${esc(p.key)}" title="Oblíbený na ${l}">${l}</button>`).join('')}</span>`;
 
     const ALL_COLS = [
       ['rank', '#', (p, i) => `<span class="zero">${p.rank ?? '–'}</span>`, 'num'],
-      ['nickname', 'Hráč', (p) => `<span class="qs-pl">${avatar(p)}${esc(p.nickname)}</span>${p.tier ? `<span class="tier tier-${esc(p.tier)}">${esc(p.tier)}</span>` : ''}${p.preferred_role ? `<span class="pref" title="Preferovaná pozice (profil na SC)">${ROLE_SHORT[p.preferred_role] || esc(p.preferred_role)}</span>` : ''}${teamTag(p)}`],
-      ['price', 'Cena', (p) => p.scout.price != null ? `<span class="price">${fmtPrice(p.scout.price)}</span>` : '<span class="zero">–</span>', 'num'],
+      ['nickname', 'Hráč', (p) => `<span class="qs-pl">${nope(p)}${avatar(p)}${esc(p.nickname)}</span>${p.tier ? `<span class="tier tier-${esc(p.tier)}">${esc(p.tier)}</span>` : ''}${p.preferred_role ? `<span class="pref" title="Preferovaná pozice (profil na SC)">${ROLE_SHORT[p.preferred_role] || esc(p.preferred_role)}</span>` : ''}${teamTag(p)}`],
+      ['price', 'Cena', (p) => p.scout.price != null ? `${nope(p)}<span class="price">${fmtPrice(p.scout.price)}</span>` : `${nope(p)}<span class="zero">–</span>`, 'num'],
       ['games', 'Zápasy', (p) => p.games, 'num'],
       ['wins', 'W', (p) => `<span class="win">${p.wins}</span>`, 'num'],
       ['losses', 'L', (p) => `<span class="loss">${p.losses}</span>`, 'num'],
@@ -432,7 +445,7 @@
       ['form', 'Forma', (p) => formDots(p.form)],
       ['lol', 'LoL rank', (p) => { const a = bestAccount(p); return a ? `<span class="lolrank" title="${esc(a.riot)}">${esc(shortRank(a.rank))}<small>${a.region.toUpperCase()}</small></span>` : profileState(p); }],
       ['opgg', 'OP.GG', (p) => opggChips(p) || '<span class="zero">–</span>'],
-      ['fav', 'Oblíbený na', (p) => roleToggles(p)],
+      ['fav', 'Oblíbený na', (p) => `<span style="display:inline-flex;align-items:center">${roleToggles(p)}${nopeToggle(p)}</span>`],
       ['note', 'Poznámka', (p) => `<div class="note-cell" title="${esc(p.scout.note || '')}">${esc(p.scout.note || '')}</div>`, 'note-td'],
     ];
     const sortVal = {
@@ -440,6 +453,8 @@
       losses: (p) => p.losses, wr: (p) => p.wr ?? -1, form: (p) => p.form.filter(Boolean).length,
       fav: (p) => p.scout.fav_roles.length, lol: (p) => rankScore(bestAccount(p)?.rank), opgg: (p) => accountsOf(p).length + (p.scout.riot_euw ? 2 : 0) + (bestSug(p, 'eune') || bestSug(p, 'euw') ? 1 : 0), price: (p) => p.scout.price ?? -1, note: (p) => (p.scout.note ? 1 : 0),
     };
+    // nechtění padají v každém řazení na konec
+    const byBlocked = (a, b) => (a.scout.blocked ? 1 : 0) - (b.scout.blocked ? 1 : 0);
 
     function filtered() {
       const q = S.q.toLowerCase();
@@ -447,8 +462,9 @@
       return [...S.players.values()].filter((p) =>
         (!q || p.nickname.toLowerCase().includes(q)) && p.games >= S.min &&
         (!S.role || (p.scout.draft_role && S.show !== 'fav' ? p.scout.draft_role === S.role : p.scout.fav_roles.includes(S.role))) &&
-        (S.show === 'all' || (S.show === 'fav' && p.scout.fav_roles.length) || (S.show === 'note' && p.scout.note) || (S.show === 'price' && p.scout.price != null) || (S.show === 'noprice' && p.scout.price == null)),
+        (S.show === 'all' || (S.show === 'fav' && p.scout.fav_roles.length) || (S.show === 'note' && p.scout.note) || (S.show === 'price' && p.scout.price != null) || (S.show === 'noprice' && p.scout.price == null) || (S.show === 'blocked' && p.scout.blocked) || (S.show === 'wanted' && !p.scout.blocked)),
       ).sort((a, b) => {
+        if (byBlocked(a, b)) return byBlocked(a, b);
         const va = sortVal[col](a), vb = sortVal[col](b);
         return (typeof va === 'string' ? va.localeCompare(vb) : va - vb) * dir || b.wins - a.wins;
       });
@@ -458,7 +474,7 @@
       const COLS = ALL_COLS;
       $('#thead').innerHTML = COLS.map(([c, l, , cls]) => `<th data-sort="${c}" class="${cls || ''} ${S.sort.col === c ? `sorted ${S.sort.dir > 0 ? 'asc' : ''}` : ''}">${l}</th>`).join('');
       const rows = filtered();
-      const rowHtml = (p, i) => `<tr data-key="${esc(p.key)}" class="${isOut(p) ? 'out' : ''}">${COLS.map(([, , fn, cls]) => `<td class="${cls || ''}">${fn(p, i)}</td>`).join('')}</tr>`;
+      const rowHtml = (p, i) => `<tr data-key="${esc(p.key)}" class="${isOut(p) ? 'out' : ''} ${p.scout.blocked ? 'blocked' : ''}">${COLS.map(([, , fn, cls]) => `<td class="${cls || ''}">${fn(p, i)}</td>`).join('')}</tr>`;
       // po importu s pozicemi je tabulka rozdělená na TOP / JNG / MID / ADC / SUP (a případné hráče bez pozice)
       const grouped = rows.some((p) => p.scout.draft_role || p.scout.is_captain);
       const groupOf = (p) => (p.scout.is_captain ? 'CAPTAIN' : p.scout.draft_role || '');
@@ -544,9 +560,9 @@
       return `<div class="qs-table-wrap"><table class="table qs-table"><thead><tr><th>Pozice</th><th>Hráč</th><th class="num">Cena</th><th class="num">Zápasy</th><th class="num">W</th><th class="num">L</th><th class="num">Winrate</th><th>Forma</th><th>LoL rank</th><th>OP.GG</th><th>Poznámka</th></tr></thead><tbody>
         ${variantRows(v).map((r) => {
           const p = r.p, acc = p && bestAccount(p);
-          return `<tr ${p ? `class="v-row" data-key="${esc(p.key)}"` : ''}>
+          return `<tr ${p ? `class="v-row ${p.scout.blocked ? 'blocked' : ''}" data-key="${esc(p.key)}"` : ''}>
             <td>${r.role ? ROLE_SHORT[r.role] : dash}</td>
-            <td><span class="qs-pl">${p ? avatar(p) : ''}${esc(r.name)}</span>${r.captain ? '<span class="v-cap">KAPITÁN</span>' : ''}</td>
+            <td><span class="qs-pl">${p ? nope(p) + avatar(p) : ''}${esc(r.name)}</span>${r.captain ? '<span class="v-cap">KAPITÁN</span>' : ''}</td>
             <td class="num"><span class="price">${fmtPrice(r.price)}</span>${r.base != null ? `<span class="v-bid" title="Cena z excelu">z ${fmtPrice(r.base)}</span>` : ''}</td>
             <td class="num">${p ? p.games : dash}</td>
             <td class="num">${p ? `<span class="win">${p.wins}</span>` : dash}</td>
@@ -588,10 +604,10 @@
 
     function renderFavs() {
       $('#favs').innerHTML = ROLES.map(([r, l]) => {
-        const list = [...S.players.values()].filter((p) => p.scout.fav_roles.includes(r)).sort((a, b) => isOut(a) - isOut(b) || (b.wr ?? 0) - (a.wr ?? 0));
+        const list = [...S.players.values()].filter((p) => p.scout.fav_roles.includes(r)).sort((a, b) => byBlocked(a, b) || isOut(a) - isOut(b) || (b.wr ?? 0) - (a.wr ?? 0));
         return `<section class="card"><h2>${l} <small>${list.length}</small></h2>
-          ${list.length ? `<ul class="qs-rec">${list.map((p) => `<li data-key="${esc(p.key)}" class="${isOut(p) ? 'out' : ''}" style="cursor:pointer" title="${isOut(p) ? 'Nedostal se (bez ceny)' : ''}">
-            <span><span class="qs-pl">${avatar(p)}${esc(p.nickname)}</span> ${opggChips(p)}${p.scout.note ? `<span class="sub">${esc(p.scout.note)}</span>` : ''}</span>
+          ${list.length ? `<ul class="qs-rec">${list.map((p) => `<li data-key="${esc(p.key)}" class="${isOut(p) ? 'out' : ''} ${p.scout.blocked ? 'blocked' : ''}" style="cursor:pointer" title="${p.scout.blocked ? 'Nechceme' : isOut(p) ? 'Nedostal se (bez ceny)' : ''}">
+            <span><span class="qs-pl">${nope(p)}${avatar(p)}${esc(p.nickname)}</span> ${opggChips(p)}${p.scout.note ? `<span class="sub">${esc(p.scout.note)}</span>` : ''}</span>
             <span style="text-align:right">${wl(p)}<span class="sub">${pct(p.wr)}${p.scout.price != null ? ` · <span class="price">${fmtPrice(p.scout.price)}</span>` : ''}</span></span></li>`).join('')}</ul>`
             : '<p class="zero" style="font-size:.88rem">Zatím nikdo. Označ hráče v tabulce.</p>'}</section>`;
       }).join('');
@@ -604,7 +620,7 @@
       const row = (pl) => {
         const p = S.players.get(k(pl.nickname));
         const fav = p?.scout.fav_roles.length;
-        return `<div class="row ${fav ? 'fav' : ''}" data-key="${esc(k(pl.nickname))}" style="cursor:pointer">${avatar(p || pl)}${esc(pl.nickname)}${fav ? ' ★' : ''} ${opggChips(p, false)}<small>${p ? `${p.wins}W ${p.losses}L` : ''}</small></div>`;
+        return `<div class="row ${fav ? 'fav' : ''}" data-key="${esc(k(pl.nickname))}" style="cursor:pointer">${nope(p)}${avatar(p || pl)}${esc(pl.nickname)}${fav ? ' ★' : ''} ${opggChips(p, false)}<small>${p ? `${p.wins}W ${p.losses}L` : ''}</small></div>`;
       };
       const team = (l, side) => `<div class="${side}"><h4>${side.toUpperCase()}</h4>${l[side].map(row).join('')}
         ${(l.opgg?.[side] || []).map((o) => `<a class="opgg" href="${esc(o.url)}" target="_blank" rel="noopener">${esc(String(o.server).toUpperCase())} ${o.players}/5</a>`).join('')}</div>`;
@@ -647,7 +663,7 @@
         <div class="d-hero">
           ${avatar(p, 'qs-av-lg')}
           <div>
-            <h2>${esc(p.nickname)}</h2>
+            <h2 style="display:flex;align-items:center">${nope(p, 'nope-lg')}${esc(p.nickname)}${p.scout.blocked ? '<span class="badge" style="margin-left:10px;background:#e5383b;color:#fff">NECHCEME</span>' : ''}</h2>
             <div class="d-meta">
               ${S.pricesImportedAt ? (isOut(p) ? '<span class="badge badge-out">nedostal se</span>' : `<span class="badge badge-in">${p.scout.is_captain ? 'kapitán' : 'dostal se'}${p.scout.draft_role ? ` · ${ROLE_SHORT[p.scout.draft_role]}` : ''} · ${fmtPrice(p.scout.price)}</span>`) : ''}
               ${p.rank ? `<span class="badge">#${p.rank} v žebříčku</span>` : ''}
@@ -670,7 +686,7 @@
         </div>
 
         <form class="d-scout" id="d-form">
-          <div class="field"><span class="field-label">Oblíbený na pozici</span>${roleToggles(p)}</div>
+          <div class="field"><span class="field-label">Oblíbený na pozici</span><span style="display:inline-flex;align-items:center">${roleToggles(p)}${nopeToggle(p)}<small style="margin-left:6px;color:var(--muted)">nechceme</small></span></div>
           <label class="field"><span class="field-label">Cena</span><input name="price" inputmode="decimal" placeholder="zatím neznámá" value="${p.scout.price ?? ''}"></label>
           <label class="field"><span class="field-label">Poznámka</span><textarea name="note" rows="2" placeholder="Co o něm víme…">${esc(p.scout.note || '')}</textarea></label>
           <button class="btn btn-primary" type="submit">Uložit</button>
@@ -731,9 +747,9 @@
         const f = e.target;
         const roles = [...f.querySelectorAll('.role-t.on')].map((b) => b.dataset.role);
         try {
-          await saveScout(p, { fav_roles: roles, price: f.price.value.trim() === '' ? null : f.price.value, note: f.note.value, riot_eune: f.riot_eune.value, riot_euw: f.riot_euw.value });
+          await saveScout(p, { fav_roles: roles, blocked: !!f.querySelector('.nope-t.on'), price: f.price.value.trim() === '' ? null : f.price.value, note: f.note.value, riot_eune: f.riot_eune.value, riot_euw: f.riot_euw.value });
           dlg.close();
-          render();
+          render(); renderFavs();
         } catch (err) { $('#d-err').textContent = err.message; }
       };
     }
@@ -773,6 +789,15 @@
         const id = +varHead.dataset.var;
         S.varOpen.has(id) ? S.varOpen.delete(id) : S.varOpen.add(id);
         return renderVariants();
+      }
+      const no = e.target.closest('.nope-t');
+      if (no) {
+        e.preventDefault(); e.stopPropagation();
+        if (no.closest('#d-form')) return no.classList.toggle('on'); // v detailu se ukládá tlačítkem
+        const p = S.players.get(no.dataset.nope);
+        try { await saveScout(p, { blocked: !p.scout.blocked }); render(); renderFavs(); if (S.tab === 'vars') renderVariants(); }
+        catch (err) { alert(err.message); }
+        return;
       }
       const toggle = e.target.closest('.role-t');
       if (toggle) {

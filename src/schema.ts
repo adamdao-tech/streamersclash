@@ -645,4 +645,8 @@ INSERT INTO draft_variants_new (id, user_id, name, data, updated_at) SELECT id, 
 DROP TABLE draft_variants;
 ALTER TABLE draft_variants_new RENAME TO draft_variants;
 `,
+
+  /* 29: Queue scouting – players we don't want (big red cross in scouting and in the essence calculator) */ `
+ALTER TABLE queue_scout ADD COLUMN blocked INTEGER NOT NULL DEFAULT 0;
+`,
 ];

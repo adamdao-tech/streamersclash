@@ -51,6 +51,15 @@
     .p.on { background: var(--gold); color: var(--on-gold); font-weight: 700; }
     .p.on .c, .p.on .fav { color: var(--on-gold); }
     .p:disabled { cursor: not-allowed; opacity: .4; }
+    /* nechceme: velký červený křížek */
+    .nope { display: inline-grid; place-items: center; width: 24px; height: 24px; border-radius: 6px; background: #e5383b; color: #fff; font: 900 1.2rem/1 var(--font); flex: none; box-shadow: 0 0 0 2px rgba(229,56,59,.35); }
+    .p.blocked { background: rgba(229,56,59,.12); box-shadow: inset 3px 0 0 #e5383b; }
+    .p.blocked .n { color: #ff9a9d; text-decoration: line-through; text-decoration-color: rgba(229,56,59,.7); }
+    .p.blocked .c { color: #ff7a7e; }
+    .p.blocked.on { background: #e5383b; color: #fff; }
+    .slot.blocked { border-color: #e5383b; background: rgba(229,56,59,.14); }
+    .slot .nope { width: 20px; height: 20px; font-size: 1rem; margin-right: 5px; vertical-align: middle; }
+    .info .warn { color: #ff7a7e; font-weight: 700; }
     .p:disabled:hover { background: transparent; }
     #vars form { display: flex; gap: 6px; padding: 8px; border-bottom: 1px solid var(--line); }
     #vars form input { min-height: 34px; padding: 4px 8px; min-width: 0; flex: 1; }
@@ -87,6 +96,7 @@
     <input type="search" id="q" placeholder="Hledat hráče…">
     <label><input type="checkbox" id="afford"> jen na koho mám</label>
     <label><input type="checkbox" id="favs"> jen oblíbení</label>
+    <label><input type="checkbox" id="hide-blocked"> skrýt nechtěné <span class="nope" style="width:18px;height:18px;font-size:.9rem">✕</span></label>
   </div>
   <section class="cols">
     <div id="cols" style="display: contents"></div>
@@ -110,7 +120,8 @@
     const ROLES = [['TOP', 'TOP'], ['JUNGLE', 'JNG'], ['MID', 'MID'], ['ADC', 'ADC'], ['SUPPORT', 'SUP']];
     const SHORT = Object.fromEntries(ROLES);
     const LS_SHARE = 'qs.sharing';
-    const S = { players: new Map(), planRaw: null, variants: [], stream: {}, q: '', afford: false, favs: false, saving: 0 };
+    const S = { players: new Map(), planRaw: null, variants: [], stream: {}, q: '', afford: false, favs: false, hideBlocked: false, saving: 0 };
+    const NOPE = '<span class="nope" title="Tohohle hráče nechceme">✕</span>';
     const $ = (s) => document.querySelector(s);
     const fmt = (n) => Number(n).toLocaleString('cs-CZ');
     const plan = () => S.planRaw || { start: 1000, captain_price: 325, picks: [] };
@@ -123,6 +134,7 @@
       const pl = plan(), rest = left(), free = SLOTS - pl.picks.length;
       const have = new Set(['JUNGLE', ...pl.picks.map((x) => S.players.get(x.key)?.draft_role)]);
       const missing = ROLES.filter(([r]) => !have.has(r)).map(([, l]) => l);
+      const unwanted = pl.picks.filter((x) => S.players.get(x.key)?.blocked).length;
       $('#top').innerHTML = `
         <div class="left ${rest < 0 ? 'neg' : ''}"><span>Zbývá essence</span><b>${fmt(rest)}</b></div>
         <div class="sets">
@@ -133,7 +145,7 @@
           ${pl.picks.map((x) => {
             const p = S.players.get(x.key);
             const name = p?.nickname ?? x.nickname;
-            return `<div class="slot"><span class="n" title="${esc(name)}">${p?.draft_role ? `<small>${SHORT[p.draft_role]}</small>` : ''}${esc(name)}</span>
+            return `<div class="slot ${p?.blocked ? 'blocked' : ''}"><span class="n" title="${esc(name)}${p?.blocked ? ' – nechceme' : ''}">${p?.blocked ? NOPE : ''}${p?.draft_role ? `<small>${SHORT[p.draft_role]}</small>` : ''}${esc(name)}</span>
               <button type="button" data-off="${esc(x.key)}" title="Odebrat">✕</button>
               <input type="number" min="0" data-price="${esc(x.key)}" value="${priceOf(x)}" title="V aukci přepiš na vydraženou cenu"></div>`;
           }).join('')}
@@ -141,6 +153,7 @@
         </div>
         <div class="info">
           ${rest < 0 ? `<span class="neg">Přes rozpočet o ${fmt(-rest)}</span><br>` : free ? `Ø ${fmt(Math.floor(rest / free))} na hráče<br>` : ''}
+          ${unwanted ? `<span class="warn">✕ ${unwanted === 1 ? 'vybraný hráč je mezi nechtěnými' : `${unwanted} vybraní jsou mezi nechtěnými`}</span><br>` : ''}
           ${pl.picks.length}/${SLOTS} hráčů${missing.length ? `<br>chybí ${missing.join(', ')}` : ''}
           ${pl.picks.length ? '<br><button type="button" class="reset" id="reset">Vymazat hráče</button>' : ''}
         </div>`;
@@ -152,14 +165,14 @@
       const scroll = [...list.querySelectorAll('.list')].map((l) => l.scrollTop);
       list.innerHTML = ROLES.map(([r, l]) => {
         const all = [...S.players.values()].filter((p) => p.draft_role === r);
-        const rows = all.filter((p) => pickOf(p.key) || ((!q || p.nickname.toLowerCase().includes(q)) && (!S.afford || p.price <= rest) && (!S.favs || p.fav_roles.length)))
-          .sort((a, b) => b.price - a.price || a.nickname.localeCompare(b.nickname));
+        const rows = all.filter((p) => pickOf(p.key) || ((!q || p.nickname.toLowerCase().includes(q)) && (!S.afford || p.price <= rest) && (!S.favs || p.fav_roles.length) && (!S.hideBlocked || !p.blocked)))
+          .sort((a, b) => (a.blocked ? 1 : 0) - (b.blocked ? 1 : 0) || b.price - a.price || a.nickname.localeCompare(b.nickname));
         const done = r === 'JUNGLE' || all.some((p) => pickOf(p.key));
         return `<div class="col ${done ? 'done' : ''}"><h2>${l} <small>${r === 'JUNGLE' ? 'SGooB · ' : ''}${rows.length}</small></h2><div class="list">
           ${rows.map((p) => {
             const on = !!pickOf(p.key), over = !on && p.price > rest;
-            return `<button type="button" class="p ${on ? 'on' : ''} ${over ? 'over' : ''}" data-key="${esc(p.key)}" ${full && !on ? 'disabled' : ''} title="${esc(p.note || '')}">
-              <span class="n">${esc(p.nickname)}</span>${p.fav_roles.length ? '<span class="fav">★</span>' : ''}<span class="c">${fmt(on ? priceOf(pickOf(p.key)) : p.price)}</span></button>`;
+            return `<button type="button" class="p ${on ? 'on' : ''} ${over ? 'over' : ''} ${p.blocked ? 'blocked' : ''}" data-key="${esc(p.key)}" ${full && !on ? 'disabled' : ''} title="${p.blocked ? 'NECHCEME' + (p.note ? ' – ' : '') : ''}${esc(p.note || '')}">
+              ${p.blocked ? NOPE : ''}<span class="n">${esc(p.nickname)}</span>${p.fav_roles.length ? '<span class="fav">★</span>' : ''}<span class="c">${fmt(on ? priceOf(pickOf(p.key)) : p.price)}</span></button>`;
           }).join('') || '<div class="none">Nikdo</div>'}
         </div></div>`;
       }).join('');
@@ -179,7 +192,7 @@
         const rest = variantLeft(v);
         return `<div class="var ${samePicks(v, pl) ? 'cur' : ''}" role="button" tabindex="0" data-load="${v.id}" title="${v.mine ? 'Načíst tuhle variantu' : `Načíst k sobě, autorovi (${esc(v.author)}) se nic nezmění`}">
           <header><b title="${esc(v.name)}">${esc(v.name)}</b><i class="${rest < 0 ? 'neg' : ''}">${fmt(rest)}</i>${v.mine || user.is_superadmin ? `<span data-del="${v.id}" title="Smazat">✕</span>` : ''}</header>
-          ${v.picks.map((x) => { const p = S.players.get(x.key); return `<div><small>${p?.draft_role ? SHORT[p.draft_role] : ''}</small><em>${esc(p?.nickname ?? x.nickname)}</em><span>${fmt(priceOf(x))}</span></div>`; }).join('')}
+          ${v.picks.map((x) => { const p = S.players.get(x.key); return `<div><small>${p?.draft_role ? SHORT[p.draft_role] : ''}</small>${p?.blocked ? NOPE.replace('class="nope"', 'class="nope" style="width:16px;height:16px;font-size:.8rem"') : ''}<em>${esc(p?.nickname ?? x.nickname)}</em><span>${fmt(priceOf(x))}</span></div>`; }).join('')}
         </div>`;
       };
       const groups = new Map([['Moje', S.variants.filter((v) => v.mine)]]);
@@ -267,11 +280,13 @@
       if (!b) return;
       const pl = plan(), key = b.dataset.key;
       if (pickOf(key)) return save({ ...pl, picks: pl.picks.filter((x) => x.key !== key) });
+      if (S.players.get(key)?.blocked && !confirm(`${S.players.get(key).nickname} je označený, že ho nechceme. Přesto přidat do výpočtu?`)) return;
       if (pl.picks.length < SLOTS) save({ ...pl, picks: [...pl.picks, { key, nickname: S.players.get(key).nickname, price: null }] });
     });
     $('#q').addEventListener('input', (e) => { S.q = e.target.value; renderCols(); });
     $('#afford').addEventListener('change', (e) => { S.afford = e.target.checked; renderCols(); });
     $('#favs').addEventListener('change', (e) => { S.favs = e.target.checked; renderCols(); });
+    $('#hide-blocked').addEventListener('change', (e) => { S.hideBlocked = e.target.checked; renderCols(); });
 
     /* stejná ochrana jako v Queue scoutingu: live na Twitchi nebo zapnuté "Sdílím obrazovku" (F9) */
     function updateShield() {

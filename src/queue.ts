@@ -429,7 +429,8 @@ function mergeScout(prev: Record<string, unknown> | null, body: Record<string, u
   const note = has('note') ? (body.note == null ? null : String(body.note).slice(0, 4000).trim() || null) : ((prev?.note as string) ?? null);
   const riot_eune = has('riot_eune') ? riotId(body.riot_eune, 'EUNE') : ((prev?.riot_eune as string) ?? null);
   const riot_euw = has('riot_euw') ? riotId(body.riot_euw, 'EUW') : ((prev?.riot_euw as string) ?? null);
-  return { fav_roles: JSON.stringify([...new Set(fav)]), price, note, riot_eune, riot_euw };
+  const blocked = has('blocked') ? (body.blocked ? 1 : 0) : (prev?.blocked ? 1 : 0);
+  return { fav_roles: JSON.stringify([...new Set(fav)]), price, note, riot_eune, riot_euw, blocked };
 }
 
 // --- stream guard -----------------------------------------------------------------
@@ -661,13 +662,13 @@ export async function handleQueueApi(
     const s = mergeScout(prev, await readBody(req));
     await db
       .prepare(
-        `INSERT INTO queue_scout (player_key, fav_roles, price, note, riot_eune, riot_euw, updated_by, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))
+        `INSERT INTO queue_scout (player_key, fav_roles, price, note, riot_eune, riot_euw, blocked, updated_by, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
          ON CONFLICT(player_key) DO UPDATE SET fav_roles = excluded.fav_roles, price = excluded.price,
-           note = excluded.note, riot_eune = excluded.riot_eune, riot_euw = excluded.riot_euw,
+           note = excluded.note, riot_eune = excluded.riot_eune, riot_euw = excluded.riot_euw, blocked = excluded.blocked,
            updated_by = excluded.updated_by, updated_at = excluded.updated_at`,
       )
-      .bind(playerKey, s.fav_roles, s.price, s.note, s.riot_eune, s.riot_euw, user.id)
+      .bind(playerKey, s.fav_roles, s.price, s.note, s.riot_eune, s.riot_euw, s.blocked, user.id)
       .run();
     await logActivity(db, { kind: 'user', userId: user.id }, 'queue.scout', 'queue_player', null, { player: playerKey, ...s });
     return json({ ok: true, scout: { ...s, fav_roles: JSON.parse(s.fav_roles) } });
@@ -678,7 +679,7 @@ export async function handleQueueApi(
     if (guard.hidden) return json({ players: [], plan: null, variants: [], stream: guard });
     const [players, plan, variants] = await Promise.all([
       db.prepare(
-        `SELECT p.key, p.nickname, s.price, s.draft_role, s.fav_roles, s.note
+        `SELECT p.key, p.nickname, s.price, s.draft_role, s.fav_roles, s.note, s.blocked
            FROM queue_scout s JOIN queue_players p ON p.key = s.player_key WHERE s.price IS NOT NULL AND s.is_captain = 0`,
       ).all<Record<string, unknown>>(),
       // everyone clicks in their own selection; the old shared one is only a starting point for the superadmin

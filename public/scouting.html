@@ -711,33 +711,36 @@
     const I = { sheets: [], sheet: 0, nameCol: 0, priceCol: 1, roleCol: -1, start: 1, over: new Map(), clear: false, cache: new Map() };
 
     function buildIndex() {
-      const folded = new Map();
-      const add = (name, key) => {
+      const nicks = new Map(), accounts = new Map();
+      const add = (map, name, key) => {
         const f = foldName(name);
         if (!f) return;
-        if (!folded.has(f)) folded.set(f, new Set());
-        folded.get(f).add(key);
+        if (!map.has(f)) map.set(f, new Set());
+        map.get(f).add(key);
       };
       for (const p of S.players.values()) {
-        add(p.nickname, p.key);
-        for (const a of accountsOf(p)) add(a.riot.split('#')[0], p.key);
+        add(nicks, p.nickname, p.key);
+        for (const a of accountsOf(p)) add(accounts, a.riot.split('#')[0], p.key);
       }
-      for (const l of S.links?.values() || []) add(l.nickname, l.queue_key);
-      return folded;
+      for (const l of S.links?.values() || []) add(nicks, l.nickname, l.queue_key);
+      return { nicks, accounts };
     }
 
     /** Excelové jméno → hráč: auto = jistá shoda, review = návrh ke kontrole, none = nikdo. */
-    function matchName(name, folded) {
+    function matchName(name, { nicks, accounts }) {
       if (I.cache.has(name)) return I.cache.get(name);
       const done = (r) => (I.cache.set(name, r), r);
       if (S.players.has(k(name))) return done({ how: 'auto', key: k(name) });
       const f = foldName(name.split('#')[0]);
       if (!f) return done({ how: 'none' });
-      const hit = folded.get(f);
+      const hit = nicks.get(f);
       if (hit?.size === 1) return done({ how: 'auto', key: [...hit][0] });
       if (hit?.size > 1) return done({ how: 'review', key: [...hit][0] });
+      // Riot účet může patřit komukoliv (smurf, půjčený účet): jen přesná shoda a jen jako návrh
+      const acc = accounts.get(f);
+      if (acc?.size === 1) return done({ how: 'review', key: [...acc][0] });
       let best = null, bestScore = Infinity;
-      for (const [cand, keys] of folded) {
+      for (const [cand, keys] of nicks) {
         const short = Math.min(cand.length, f.length);
         if (short < 4) continue;
         let score = Infinity;
@@ -765,6 +768,9 @@
       read(rows, I, isCaptainSheet(rows, I));
       const caps = I.withCaps && I.capSheet >= 0 && I.capSheet !== I.sheet ? I.sheets[I.capSheet].rows : null;
       if (caps) read(caps, guessColumns(caps), true);
+      // hráč jistě spárovaný s jedním řádkem excelu se nesmí nabízet k jinému řádku
+      const taken = new Set(out.filter((r) => r.m.how === 'auto').map((r) => r.m.key));
+      for (const r of out) if (r.m.how === 'review' && taken.has(r.m.key)) r.m = { how: 'none' };
       return out;
     };
     const overOf = (r) => {

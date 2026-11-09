@@ -699,6 +699,23 @@ export async function handleQueueApi(
     });
   }
 
+  // Data for the pick simulation (/simulace): every priced player incl. the captains, plus the admin's own calculator plan.
+  if (path === '/api/queue/sim' && method === 'GET') {
+    if (guard.hidden) return json({ players: [], plan: null, stream: guard });
+    const [players, plan] = await Promise.all([
+      db.prepare(
+        `SELECT p.key, p.nickname, p.avatar, p.wins, p.losses, s.price, s.draft_role, s.is_captain, s.fav_roles, s.blocked
+           FROM queue_scout s JOIN queue_players p ON p.key = s.player_key WHERE s.price IS NOT NULL`,
+      ).all<Record<string, unknown>>(),
+      db.prepare(`SELECT v FROM queue_meta WHERE k = ?`).bind(`draft_plan:${user.id}`).first<{ v: string }>(),
+    ]);
+    return json({
+      players: players.results.map((r) => ({ ...r, fav_roles: JSON.parse(String(r.fav_roles || '[]')) })),
+      plan: plan ? JSON.parse(plan.v) : null,
+      stream: guard,
+    });
+  }
+
   // The draft budget calculator: blue essence left after the captain and the players picked so far (each admin has their own).
   if (path === '/api/queue/plan' && method === 'PUT') {
     if (guard.hidden) throw new HttpError(423, 'live', 'Jsi live na Twitchi – během streamu se scouting upravovat nedá.');

@@ -1,0 +1,335 @@
+<!doctype html>
+<html lang="cs">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Simulace picku · SGooBovo šedl scouting</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="preload" href="/fonts/inter-var.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="/fonts/rajdhani-700.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="/app.css">
+  <style>
+    .sim-tools { display: flex; gap: 14px 18px; align-items: flex-end; flex-wrap: wrap; margin-bottom: 18px; padding: 14px 16px; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); }
+    .sim-tools label.f { display: flex; flex-direction: column; gap: 4px; font-size: 0.74rem; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
+    .sim-tools label.f input[type=number] { width: 90px; min-height: 34px; padding: 2px 8px; text-align: right; font-variant-numeric: tabular-nums; }
+    .sim-tools label.f input[type=range] { width: 160px; }
+    .sim-tools label.c { display: inline-flex; gap: 6px; align-items: center; font-size: 0.86rem; color: var(--text-2); }
+    .sim-tools label.c input { width: auto; }
+    .sim-tools .seed { color: var(--muted); font-size: 0.8rem; font-variant-numeric: tabular-nums; }
+    .sim-note { color: var(--muted); font-size: 0.84rem; line-height: 1.5; margin: -6px 0 18px; }
+    .teams { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 12px; }
+    .team { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+    .team.own { border-color: var(--gold); box-shadow: 0 0 0 1px var(--gold) inset; }
+    .team header { display: flex; align-items: baseline; gap: 8px; padding: 10px 12px; border-bottom: 1px solid var(--line); }
+    .team header b { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 700 1.1rem var(--display); }
+    .team.own header b { color: var(--gold-2); }
+    .team header i { font: 700 1.05rem var(--display); font-style: normal; color: var(--gold-2); }
+    .team header i small { color: var(--muted); font: 500 0.7rem var(--font); margin-left: 3px; }
+    .team header i.neg { color: #ff7a7e; }
+    .slot { display: grid; grid-template-columns: 34px 1fr auto; gap: 6px; align-items: center; padding: 6px 12px; border-bottom: 1px solid var(--line); font-size: 0.9rem; }
+    .slot:last-child { border-bottom: 0; }
+    .slot small { font: 700 0.7rem var(--display); color: var(--muted); letter-spacing: .04em; }
+    .slot .n { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: flex; align-items: center; gap: 5px; }
+    .slot .p { font-weight: 700; color: var(--gold-2); font-variant-numeric: tabular-nums; text-align: right; }
+    .slot .p span { display: block; font: 500 0.7rem var(--font); color: var(--muted); }
+    .slot .p.over { color: #ffb36b; }
+    .slot.cap .n { color: var(--text); font-weight: 700; }
+    .slot.cap .p { color: var(--muted); font-weight: 500; }
+    .slot.empty .n { color: #ff7a7e; font-style: italic; }
+    .slot.blocked { background: rgba(229,56,59,.12); box-shadow: inset 3px 0 0 #e5383b; }
+    .fav { color: var(--gold-2); }
+    .nope { display: inline-grid; place-items: center; width: 20px; height: 20px; border-radius: 5px; background: #e5383b; color: #fff; font: 900 1rem/1 var(--font); flex: none; }
+    .ctag { display: inline-block; font: 700 0.66rem var(--display); letter-spacing: .05em; padding: 1px 6px; border-radius: 5px; background: var(--bg-2); border: 1px solid var(--line); color: var(--muted); }
+    h2.sec { margin: 26px 0 10px; font-size: 1.15rem; }
+    h2.sec small { color: var(--muted); font: 500 0.82rem var(--font); margin-left: 6px; }
+    .unsold { display: grid; grid-template-columns: repeat(5, minmax(150px, 1fr)); gap: 10px; }
+    .unsold div { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; font-size: 0.86rem; }
+    .unsold h3 { margin: 0 0 6px; font: 700 0.8rem var(--display); color: var(--muted); letter-spacing: .05em; }
+    .unsold p { margin: 2px 0; display: flex; justify-content: space-between; gap: 6px; color: var(--text-2); }
+    .stats-wrap { overflow-x: auto; border-radius: var(--radius); }
+    .stats td, .stats th { white-space: nowrap; padding: 7px 11px; }
+    .stats .num { text-align: right; font-variant-numeric: tabular-nums; }
+    .stats tr.grp td { font: 700 0.95rem var(--display); letter-spacing: .06em; color: var(--gold-2); background: var(--bg-2); }
+    .stats tr.blocked { background: rgba(229,56,59,.10); }
+    .bar { display: inline-block; width: 70px; height: 7px; border-radius: 4px; background: var(--bg-2); vertical-align: middle; margin-right: 6px; overflow: hidden; }
+    .bar i { display: block; height: 100%; background: var(--gold); }
+    .who { color: var(--text-2); }
+    .who small { color: var(--muted); margin-left: 4px; }
+    .ours { color: var(--gold-2); font-weight: 700; }
+    .tabs2 { display: flex; gap: 6px; margin-bottom: 14px; }
+    .tabs2 button { padding: 7px 14px; border-radius: 9px; border: 1px solid var(--line); background: var(--panel); color: var(--text-2); font: 600 0.88rem var(--font); cursor: pointer; }
+    .tabs2 button.active { background: var(--gold); color: var(--on-gold); border-color: transparent; }
+    #shield { position: fixed; inset: 0; z-index: 50; background: #000; display: grid; place-items: center; text-align: center; padding: 24px; color: var(--muted); }
+    #shield[hidden] { display: none; }
+    #watermark { position: fixed; inset: -50%; z-index: 40; pointer-events: none; transform: rotate(-24deg); opacity: .06; display: flex; flex-wrap: wrap; gap: 70px 120px; align-content: flex-start; font: 700 1.1rem var(--display); color: var(--text); user-select: none; }
+    #watermark[hidden] { display: none; }
+    @media (max-width: 760px) { .unsold { grid-template-columns: 1fr 1fr; } }
+  </style>
+</head>
+<body>
+  <main style="max-width: none; padding-left: 28px; padding-right: 28px">
+    <div class="page-head">
+      <div>
+        <h1>Simulace picku</h1>
+        <p>Jak by mohla dopadnout aukce hráčů pro všechny kapitány. Je to odhad z cen v excelu, ne předpověď.</p>
+      </div>
+      <div class="page-head-tools">
+        <a class="btn btn-small btn-ghost" href="/scouting">← Queue scouting</a>
+      </div>
+    </div>
+
+    <div class="sim-tools">
+      <label class="f">Start essence<input type="number" id="start" min="0" step="10"></label>
+      <label class="f">Přeplácení <span id="aggr-v"></span><input type="range" id="aggr" min="0" max="60" step="5" value="20"></label>
+      <label class="c"><input type="checkbox" id="own-plan"> SGooB podle mého výpočtu essence</label>
+      <label class="c"><input type="checkbox" id="own-nope" checked> SGooB nekupuje nechtěné <span class="nope" style="width:16px;height:16px;font-size:.8rem">✕</span></label>
+      <button class="btn btn-primary" id="again">Nová simulace</button>
+      <span class="seed" id="seed"></span>
+    </div>
+    <p class="sim-note" id="note"></p>
+
+    <div class="tabs2" id="tabs">
+      <button data-t="one" class="active">Jedna simulace</button>
+      <button data-t="many">Přehled z 500 simulací</button>
+    </div>
+    <section id="one"></section>
+    <section id="many" hidden></section>
+  </main>
+
+  <div id="shield" hidden><p id="shield-text"></p></div>
+  <div id="watermark" hidden aria-hidden="true"></div>
+
+  <script type="module">
+    import { api, esc, initPage } from '/app.js';
+
+    const me = await initPage('scouting');
+    if (me.role !== 'admin') location.href = '/';
+
+    const ROLES = [['TOP', 'TOP'], ['JUNGLE', 'JNG'], ['MID', 'MID'], ['ADC', 'ADC'], ['SUPPORT', 'SUP']];
+    const SHORT = Object.fromEntries(ROLES);
+    const SLOTS = 4;      // každý kapitán dokupuje 4 hráče
+    const STEP = 5;       // příhoz v aukci
+    const RUNS = 500;
+    const OWN = 'sgoob';
+    const LS_SHARE = 'qs.sharing';
+    const $ = (s) => document.querySelector(s);
+    const fmt = (n) => Number(Math.round(n)).toLocaleString('cs-CZ');
+    const S = { players: [], plan: null, stream: {}, seed: newSeed(), tab: 'one', many: null };
+
+    function newSeed() { return Math.floor(Math.random() * 1e9); }
+    /** Deterministický generátor: stejné číslo simulace = stejný výsledek. */
+    function rng(seed) {
+      let a = seed >>> 0;
+      return () => { a = (a + 0x6d2b79f5) >>> 0; let t = a; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+    }
+
+    const opts = () => ({
+      start: Math.max(0, Number($('#start').value) || 1000),
+      aggr: Number($('#aggr').value) / 100,
+      ownPlan: $('#own-plan').checked && !!S.plan?.picks?.length,
+      ownNope: $('#own-nope').checked,
+    });
+
+    /**
+     * Jedna aukce. Hráči se draží od nejdražších (s trochou náhody v pořadí). Každý kapitán má na hráče
+     * vlastní "chuť" (cena × náhodný koeficient podle přeplácení) a nikdy neutratí tolik, aby mu nezbylo
+     * na nejlevnější hráče na pozice, které ještě potřebuje. Vyhraje ten, kdo dá nejvíc, a platí
+     * o příhoz víc než druhý nejvyšší (anglická aukce). Kdo v prvním kole nikoho nenašel, dobírá se
+     * na konci za vyvolávací cenu.
+     */
+    function simulate(o, seed) {
+      const rand = rng(seed);
+      const caps = S.players.filter((p) => p.is_captain).map((c) => ({
+        key: c.key, name: c.nickname, role: c.draft_role || null, price: c.price, own: c.key === OWN,
+        budget: o.start - c.price, picks: [], taste: new Map(),
+      })).sort((a, b) => b.own - a.own || a.name.localeCompare(b.name));
+      let pool = S.players.filter((p) => !p.is_captain && p.draft_role);
+      const own = caps.find((c) => c.own);
+
+      if (own && o.ownPlan) {
+        own.budget = (S.plan.start ?? o.start) - (S.plan.captain_price ?? own.price);
+        for (const x of S.plan.picks) {
+          const p = pool.find((q) => q.key === x.key);
+          if (!p) continue;
+          const paid = x.price ?? p.price;
+          own.picks.push({ p, paid, fixed: true });
+          own.budget -= paid;
+          pool = pool.filter((q) => q !== p);
+        }
+      }
+      const needs = (c) => {
+        if (c.picks.length >= SLOTS) return [];
+        const have = new Set([c.role, ...c.picks.map((x) => x.p.draft_role)]);
+        return ROLES.map(([r]) => r).filter((r) => !have.has(r));
+      };
+      const lockedOwn = own && o.ownPlan;
+      for (const c of caps) for (const p of pool) {
+        let t = 1 + o.aggr * (rand() * 1.25 - 0.25);
+        if (c.own && o.ownNope && p.blocked) t = 0;
+        if (c.own && p.fav_roles?.length) t += 0.1;
+        c.taste.set(p.key, t);
+      }
+      /** Kolik si kapitán musí nechat na zbylé pozice, když teď koupí hráče na pozici `role`. */
+      const reserve = (c, role, left) => {
+        const rest = needs(c).filter((r) => r !== role);
+        const slots = SLOTS - c.picks.length - 1;
+        const mins = rest.map((r) => Math.min(...left.filter((p) => p.draft_role === r).map((p) => p.price)))
+          .map((m) => (Number.isFinite(m) ? m : 0)).sort((a, b) => a - b).slice(0, Math.max(slots, 0));
+        return mins.reduce((s, m) => s + m, 0);
+      };
+      const order = pool.map((p) => ({ p, k: p.price * (0.85 + rand() * 0.3) })).sort((a, b) => b.k - a.k).map((x) => x.p);
+      const unsold = [];
+      const auction = (p, eager) => {
+        const left = pool.filter((q) => q !== p);
+        const bids = [];
+        for (const c of caps) {
+          if (c === own && lockedOwn) continue;
+          if (!needs(c).includes(p.draft_role)) continue;
+          const t = c.taste.get(p.key);
+          if (!t) continue;
+          const cap = c.budget - reserve(c, p.draft_role, left);
+          const max = Math.floor(Math.min(eager ? Infinity : p.price * t, cap));
+          if (max >= p.price) bids.push({ c, max: eager ? p.price : max, r: rand() });
+        }
+        if (!bids.length) return false;
+        bids.sort((a, b) => b.max - a.max || (eager ? a.c.budget - b.c.budget : 0) || a.r - b.r);
+        const [win, second] = bids;
+        const paid = second ? Math.min(win.max, Math.max(p.price, second.max + STEP)) : p.price;
+        win.c.picks.push({ p, paid });
+        win.c.budget -= paid;
+        pool = left;
+        return true;
+      };
+      for (const p of order) if (!auction(p, false)) unsold.push(p);
+      // dobírání: hráči, o které nikdo nestál, za vyvolávací cenu – bere ten, komu zbylo nejvíc
+      for (const p of [...unsold].sort((a, b) => b.price - a.price)) if (auction(p, true)) unsold.splice(unsold.indexOf(p), 1);
+      return { caps, unsold: pool };
+    }
+
+    /* ---------- jedna simulace ---------- */
+
+    const NOPE = '<span class="nope" title="Nechceme">✕</span>';
+    function renderOne() {
+      const caps = S.players.filter((p) => p.is_captain);
+      if (!caps.length) {
+        $('#one').innerHTML = '<p class="empty">Zatím nejsou naimportovaní kapitáni. V Queue scoutingu nahraj excel i s listem kapitánů.</p>';
+        return;
+      }
+      const o = opts();
+      const res = simulate(o, S.seed);
+      $('#seed').textContent = `simulace č. ${S.seed}`;
+      $('#one').innerHTML = `<div class="teams">${res.caps.map((c) => {
+        const slots = ROLES.map(([r, l]) => {
+          if (c.role === r) return `<div class="slot cap"><small>${l}</small><span class="n">${esc(c.name)} <span class="ctag">KAPITÁN</span></span><span class="p">${fmt(c.price)}</span></div>`;
+          const x = c.picks.find((y) => y.p.draft_role === r);
+          if (!x) return c.role || c.picks.length < SLOTS ? `<div class="slot empty"><small>${l}</small><span class="n">nikdo</span><span></span></div>` : '';
+          const over = x.paid > x.p.price;
+          return `<div class="slot ${x.p.blocked ? 'blocked' : ''}"><small>${l}</small>
+            <span class="n" title="${esc(x.p.nickname)}">${x.p.blocked ? NOPE : ''}${esc(x.p.nickname)}${x.p.fav_roles?.length ? ' <span class="fav">★</span>' : ''}${x.fixed ? ' <span class="ctag" title="Z tvého výpočtu essence">PLÁN</span>' : ''}</span>
+            <span class="p ${over ? 'over' : ''}">${fmt(x.paid)}${over ? `<span>z ${fmt(x.p.price)}</span>` : ''}</span></div>`;
+        }).join('');
+        return `<article class="team ${c.own ? 'own' : ''}"><header><b title="${esc(c.name)}">${esc(c.name)}</b>
+          <i class="${c.budget < 0 ? 'neg' : ''}">${fmt(c.budget)}<small>zbývá</small></i></header>${slots}</article>`;
+      }).join('')}</div>
+      <h2 class="sec">Nikdo je nekoupil <small>${res.unsold.length}</small></h2>
+      ${res.unsold.length ? `<div class="unsold">${ROLES.map(([r, l]) => {
+        const list = res.unsold.filter((p) => p.draft_role === r).sort((a, b) => b.price - a.price);
+        return `<div><h3>${l} · ${list.length}</h3>${list.map((p) => `<p><span>${p.blocked ? '✕ ' : ''}${esc(p.nickname)}</span><span>${fmt(p.price)}</span></p>`).join('') || '<p>–</p>'}</div>`;
+      }).join('')}</div>` : '<p class="empty">Všichni se prodali.</p>'}`;
+    }
+
+    /* ---------- 500 simulací ---------- */
+
+    function computeMany() {
+      const o = opts();
+      const stat = new Map(S.players.filter((p) => !p.is_captain && p.draft_role).map((p) => [p.key, { p, sold: 0, paid: 0, by: new Map() }]));
+      const capNames = new Map(S.players.filter((p) => p.is_captain).map((c) => [c.key, c.nickname]));
+      const empty = new Map();
+      for (let i = 0; i < RUNS; i++) {
+        const res = simulate(o, 1000003 * (i + 1) + 17);
+        for (const c of res.caps) {
+          for (const x of c.picks) {
+            const s = stat.get(x.p.key);
+            s.sold++; s.paid += x.paid; s.by.set(c.key, (s.by.get(c.key) || 0) + 1);
+          }
+          if (c.picks.length < SLOTS && !(c.own && o.ownPlan)) empty.set(c.key, (empty.get(c.key) || 0) + 1);
+        }
+      }
+      return { stat, capNames, empty, o };
+    }
+    function renderMany() {
+      if (!S.players.some((p) => p.is_captain)) { $('#many').innerHTML = '<p class="empty">Zatím nejsou naimportovaní kapitáni.</p>'; return; }
+      if (!S.many) S.many = computeMany();
+      const { stat, capNames, empty } = S.many;
+      const pct = (n) => `${Math.round((n / RUNS) * 100)} %`;
+      const rows = ROLES.map(([r, l]) => {
+        const list = [...stat.values()].filter((s) => s.p.draft_role === r).sort((a, b) => b.sold - a.sold || b.p.price - a.p.price);
+        return `<tr class="grp"><td colspan="6">${l} <small style="color:var(--muted);font:500 .8rem var(--font)">${list.length}</small></td></tr>` + list.map((s) => {
+          const top = [...s.by.entries()].sort((a, b) => b[1] - a[1]).slice(0, 2);
+          const ours = s.by.get(OWN) || 0;
+          return `<tr class="${s.p.blocked ? 'blocked' : ''}">
+            <td>${s.p.blocked ? NOPE + ' ' : ''}${esc(s.p.nickname)}${s.p.fav_roles?.length ? ' <span class="fav">★</span>' : ''}</td>
+            <td class="num">${fmt(s.p.price)}</td>
+            <td class="num"><span class="bar"><i style="width:${(s.sold / RUNS) * 100}%"></i></span>${pct(s.sold)}</td>
+            <td class="num">${s.sold ? fmt(s.paid / s.sold) : '–'}</td>
+            <td class="who">${top.map(([k, n]) => `${k === OWN ? '<span class="ours">' : ''}${esc(capNames.get(k) || k)}${k === OWN ? '</span>' : ''}<small>${pct(n)}</small>`).join(', ') || '<span style="color:var(--muted)">nikdo</span>'}</td>
+            <td class="num ${ours ? 'ours' : ''}">${ours ? pct(ours) : '–'}</td></tr>`;
+        }).join('');
+      }).join('');
+      const holes = [...empty.entries()].sort((a, b) => b[1] - a[1]);
+      $('#many').innerHTML = `
+        ${holes.length ? `<p class="sim-note" style="margin:0 0 12px">Kapitáni, kterým často nezbyde na celý tým: ${holes.map(([k, n]) => `<b>${esc(capNames.get(k) || k)}</b> ${pct(n)}`).join(' · ')}</p>` : ''}
+        <div class="stats-wrap"><table class="table stats"><thead><tr><th>Hráč</th><th class="num">Cena</th><th class="num">Prodá se</th><th class="num">Ø vydraženo</th><th>Nejčastěji koupí</th><th class="num">U nás</th></tr></thead>
+        <tbody>${rows}</tbody></table></div>`;
+    }
+
+    function render() {
+      const o = opts();
+      $('#aggr-v').textContent = `${Math.round(o.aggr * 100)} %`;
+      const caps = S.players.filter((p) => p.is_captain).length, pl = S.players.length - caps;
+      $('#note').textContent = `${caps} kapitánů, ${pl} hráčů s cenou. Každý kapitán má ${fmt(o.start)} essence mínus svoji cenu a dokupuje ${SLOTS} hráče na chybějící pozice. `
+        + `Ostatní kapitáni kupují podle ceny z excelu a „přeplácení“ (jak moc jsou ochotní dát víc), nikdy si ale neutratí peníze na zbylé pozice. `
+        + `Naše ✕ a ★ platí jen pro SGooBa – ostatní je neznají.`;
+      $('#own-plan').disabled = !S.plan?.picks?.length;
+      $('#own-plan').parentElement.title = S.plan?.picks?.length ? 'Naši hráči se vezmou z tvého okna Výpočet essence' : 'Ve výpočtu essence nemáš vybrané hráče';
+      if (S.tab === 'one') renderOne(); else renderMany();
+    }
+
+    $('#again').addEventListener('click', () => { S.seed = newSeed(); S.tab === 'many' ? (S.tab = 'one', switchTab()) : render(); });
+    for (const id of ['#start', '#aggr', '#own-plan', '#own-nope']) $(id).addEventListener('input', () => { S.many = null; render(); });
+    function switchTab() {
+      document.querySelectorAll('#tabs button').forEach((b) => b.classList.toggle('active', b.dataset.t === S.tab));
+      $('#one').hidden = S.tab !== 'one'; $('#many').hidden = S.tab !== 'many';
+      render();
+    }
+    $('#tabs').addEventListener('click', (e) => {
+      const b = e.target.closest('button[data-t]'); if (!b) return;
+      S.tab = b.dataset.t; switchTab();
+    });
+
+    /* stejná ochrana jako v Queue scoutingu: live na Twitchi nebo zapnuté "Sdílím obrazovku" (F9) */
+    function updateShield() {
+      let sharing = false;
+      try { sharing = localStorage.getItem(LS_SHARE) === '1'; } catch {}
+      const forced = !!S.stream.hidden;
+      $('#shield').hidden = !(forced || sharing);
+      $('#shield-text').textContent = forced ? 'Jsi live na Twitchi – simulace je skrytá, dokud stream neskončí.' : 'Sdílíš obrazovku – simulace je skrytá. Vypneš to v Queue scoutingu (F9).';
+      const wm = $('#watermark');
+      wm.hidden = !!S.stream.allowed;
+      if (!wm.hidden && !wm.childElementCount) {
+        const label = `${me.twitch_login} · ${new Date().toLocaleDateString('cs-CZ')}`;
+        wm.innerHTML = Array.from({ length: 160 }, () => `<span>${esc(label)}</span>`).join('');
+      }
+    }
+    window.addEventListener('storage', (e) => { if (e.key === LS_SHARE) updateShield(); });
+
+    const d = await api('/api/queue/sim');
+    S.players = d.players || [];
+    S.plan = d.plan;
+    S.stream = d.stream || {};
+    $('#start').value = S.plan?.start ?? 1000;
+    updateShield();
+    render();
+  </script>
+</body>
+</html>

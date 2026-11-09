@@ -126,6 +126,30 @@
     .bidder.out .n small { color: #ff9a9d; }
     .bidder .btn { min-width: 64px; }
     .queue-next { color: var(--muted); font-size: 0.82rem; }
+    .big-tools { display: flex; gap: 12px 16px; align-items: center; flex-wrap: wrap; margin-bottom: 12px; }
+    .big-tools .f { display: inline-flex; gap: 8px; align-items: center; font-size: 0.84rem; color: var(--muted); }
+    .big-tools select, .big-tools input[type=number] { min-height: 34px; padding: 2px 8px; }
+    .big-tools input[type=number] { width: 70px; text-align: right; }
+    .big-tools .chk { display: inline-flex; gap: 6px; align-items: center; font-size: 0.86rem; color: var(--text-2); }
+    .big-tools .chk input { width: auto; }
+    .big-prog { display: flex; gap: 12px; align-items: center; margin-bottom: 12px; font-size: 0.88rem; color: var(--text-2); font-variant-numeric: tabular-nums; }
+    .pbar { flex: 1; max-width: 520px; height: 10px; border-radius: 6px; background: var(--bg-2); border: 1px solid var(--line); overflow: hidden; }
+    .pbar i { display: block; height: 100%; width: 0; background: var(--gold); transition: width .3s; }
+    .kpis { display: flex; gap: 10px; flex-wrap: wrap; margin: 6px 0 16px; }
+    .kpis div { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 10px 14px; min-width: 150px; }
+    .kpis b { display: block; font: 700 1.6rem/1.1 var(--display); color: var(--gold-2); font-variant-numeric: tabular-nums; }
+    .kpis span { color: var(--muted); font-size: 0.78rem; }
+    .lineups { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 10px; margin-bottom: 18px; }
+    .lu { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+    .lu.own { border-color: var(--gold); }
+    .lu header { display: flex; gap: 8px; align-items: baseline; padding: 9px 12px; border-bottom: 1px solid var(--line); }
+    .lu header b { flex: 1; font: 700 1.05rem var(--display); }
+    .lu.own header b { color: var(--gold-2); }
+    .lu header span { color: var(--muted); font-size: 0.78rem; }
+    .lu ol { margin: 0; padding: 6px 12px 8px 30px; font-size: 0.84rem; color: var(--text-2); }
+    .lu li { margin: 4px 0; }
+    .lu li b { color: var(--gold-2); font-variant-numeric: tabular-nums; margin-right: 6px; }
+    .lu li small { color: var(--muted); font: 700 0.66rem var(--display); margin-right: 3px; }
     @media (max-width: 900px) { .auc { grid-template-columns: 1fr; } }
     @media (max-width: 900px) {
       .board { grid-template-columns: 1fr; }
@@ -148,7 +172,7 @@
     <div class="tabs2" id="tabs">
       <button data-t="board" class="active">Klikání</button>
       <button data-t="auction">Dražba</button>
-      <button data-t="many">Šance z 500 simulací</button>
+      <button data-t="many">Velká simulace</button>
     </div>
 
     <div class="sim-tools">
@@ -181,7 +205,22 @@
         <div class="bidders" id="bidders"></div>
       </div>
     </section>
-    <section id="p-many" hidden></section>
+    <section id="p-many" hidden>
+      <div class="big-tools">
+        <label class="f">Počet aukcí <select id="b-target">
+          <option value="100000">100 tisíc</option><option value="1000000" selected>1 milion</option><option value="10000000">10 milionů</option>
+          <option value="100000000">100 milionů</option><option value="1000000000">1 miliarda</option><option value="2000000000">2 miliardy</option>
+        </select></label>
+        <label class="f">Vlákna <input type="number" id="b-threads" min="1" max="64"></label>
+        <label class="chk"><input type="checkbox" id="b-board"> naklikané hráče brát jako hotové</label>
+        <button class="btn btn-primary" id="b-start">Spustit</button>
+        <button class="btn" id="b-pause" hidden>Pozastavit</button>
+        <button class="btn btn-ghost btn-danger" id="b-stop" hidden>Zastavit</button>
+      </div>
+      <div class="big-prog" id="b-prog" hidden><div class="pbar"><i id="b-bar"></i></div><span id="b-text"></span></div>
+      <p class="sim-note">Pravidla v každé aukci: každý kapitán má na konci všech 5 pozic a nikdo nejde s essence do mínusu. Kdo by si nemohl dovolit dokoupit tým, nesmí přihodit tolik, aby se do toho dostal; aukce, kde to přesto nevyjde, se nepočítá. Ostatní kapitáni kupují podle ceny z excelu a posuvníku Přeplácení, naše ✕ a ★ platí jen pro SGooBa (✕ koupí jen, kdyby jinak neměl plný tým). Stránka musí zůstat otevřená, počítá tvůj počítač.</p>
+      <div id="b-out"></div>
+    </section>
   </main>
 
   <div id="shield" hidden><p id="shield-text"></p></div>
@@ -195,7 +234,7 @@
 
     const ROLES = [['TOP', 'TOP'], ['JUNGLE', 'JNG'], ['MID', 'MID'], ['ADC', 'ADC'], ['SUPPORT', 'SUP']];
     const SHORT = Object.fromEntries(ROLES);
-    const STEP = 5, RUNS = 500, OWN = 'sgoob', LS_SHARE = 'qs.sharing';
+    const STEP = 5, OWN = 'sgoob', LS_SHARE = 'qs.sharing';
     const $ = (s) => document.querySelector(s);
     const fmt = (n) => Number(Math.round(n)).toLocaleString('cs-CZ');
     const NOPE = '<span class="nope" title="Nechceme">✕</span>';
@@ -300,7 +339,6 @@
 
     let saveTimer = null;
     function changed() {
-      S.many = null;
       renderBoard();
       if (S.tab === 'auction') renderAuction();
       clearTimeout(saveTimer);
@@ -373,7 +411,7 @@
       S.active = null;
       changed();
     });
-    $('#aggr').addEventListener('input', () => { $('#aggr-v').textContent = `${$('#aggr').value} %`; S.many = null; if (S.tab === 'many') renderMany(); });
+    $('#aggr').addEventListener('input', () => { $('#aggr-v').textContent = `${$('#aggr').value} %`; });
 
     /* ---------- automatická aukce (doplnění a šance) ---------- */
 
@@ -446,52 +484,172 @@
       return { caps, unsold: pool };
     }
 
-    function renderMany() {
-      if (!S.caps.length) { $('#p-many').innerHTML = '<p class="empty">Zatím nejsou naimportovaní kapitáni.</p>'; return; }
-      if (!S.many) {
-        const aggr = Number($('#aggr').value) / 100;
-        const stat = new Map([...S.players.values()].filter((p) => !p.is_captain && p.draft_role).map((p) => [p.key, { p, sold: 0, paid: 0, by: new Map() }]));
-        const holes = new Map();
-        for (let i = 0; i < RUNS; i++) {
-          const res = simulate(aggr, 1000003 * (i + 1) + 17);
-          for (const c of res.caps) {
-            for (const x of c.picks) { const s = stat.get(x.p.key); s.sold++; s.paid += x.paid; s.by.set(c.key, (s.by.get(c.key) || 0) + 1); }
-            if (needs5(c)) holes.set(c.key, (holes.get(c.key) || 0) + 1);
-          }
-        }
-        S.many = { stat, holes };
+    /* ---------- velká simulace (Web Workery) ---------- */
+
+    const B = { workers: [], snaps: [], prog: [], target: 0, startedAt: 0, pausedMs: 0, pauseAt: 0, state: 'idle', meta: null, lastRender: 0 };
+    $('#b-threads').value = Math.max(1, (navigator.hardwareConcurrency || 4) - 1);
+
+    function bigData() {
+      const useBoard = $('#b-board').checked;
+      const players = [...S.players.values()].filter((p) => !p.is_captain && p.draft_role);
+      const idx = new Map(players.map((p, i) => [p.key, i]));
+      const caps = S.caps.map((c) => {
+        const fixed = useBoard ? picks(c).filter((x) => idx.has(x.key)) : [];
+        return {
+          budget: S.board.start - c.price - fixed.reduce((s, x) => s + priceOf(x), 0),
+          role: ROLES.findIndex(([r]) => r === capRole(c)), own: c.own, fixed: fixed.map((x) => idx.get(x.key)),
+        };
+      });
+      return {
+        players, caps: S.caps.map((c) => c),
+        data: {
+          players: players.map((p) => ({ price: p.price, role: ROLES.findIndex(([r]) => r === p.draft_role), blocked: !!p.blocked, fav: !!p.fav_roles?.length })),
+          caps, aggr: Number($('#aggr').value) / 100, step: STEP,
+        },
+      };
+    }
+
+    function bigStart() {
+      if (!S.caps.length) return alert('Zatím nejsou naimportovaní kapitáni.');
+      const noRole = S.caps.filter((c) => !capRole(c));
+      if (noRole.length && !confirm(`${noRole.map((c) => c.name).join(', ')} nemá pozici – v simulaci si koupí 4 hráče na libovolné pozice. Pokračovat?`)) return;
+      bigStop(true);
+      const prep = bigData();
+      if ($('#b-board').checked) {
+        const neg = prep.data.caps.map((c, i) => [S.caps[i], c.budget]).filter(([, b]) => b < 0);
+        if (neg.length) return alert(`Naklikaní hráči posílají do mínusu: ${neg.map(([c, b]) => `${c.name} (${fmt(b)})`).join(', ')}. Oprav je, nebo vypni „naklikané hráče brát jako hotové“.`);
       }
-      const { stat, holes } = S.many;
-      const name = (k) => S.caps.find((c) => c.key === k)?.name ?? k;
-      const pct = (n) => `${Math.round((n / RUNS) * 100)} %`;
-      const clicked = S.caps.reduce((n, c) => n + picks(c).length, 0);
+      const threads = Math.min(64, Math.max(1, Number($('#b-threads').value) || 1));
+      const target = Number($('#b-target').value);
+      B.meta = prep; B.target = target; B.startedAt = performance.now(); B.pausedMs = 0; B.state = 'run';
+      B.snaps = Array(threads).fill(null); B.prog = Array(threads).fill(0);
+      for (let i = 0; i < threads; i++) {
+        const w = new Worker('/sim-worker.js');
+        const share = Math.floor(target / threads) + (i < target % threads ? 1 : 0);
+        w.onmessage = (e) => {
+          const m = e.data;
+          if (m.type === 'progress') B.prog[i] = m.done;
+          if (m.type === 'snapshot') B.snaps[i] = m;
+          if (m.type === 'done') B.prog[i] = share;
+          bigRender();
+        };
+        w.onerror = (e) => { console.error(e); alert(`Simulace spadla: ${e.message}`); bigStop(); };
+        w.postMessage({ type: 'init', data: { ...prep.data, seed: (Math.random() * 2 ** 31) ^ (i * 7919 + 1) } });
+        w.postMessage({ type: 'run', count: share });
+        B.workers.push({ w, share });
+      }
+      bigButtons(); bigRender(true);
+    }
+    function bigPause() {
+      if (B.state === 'run') {
+        B.state = 'pause'; B.pauseAt = performance.now();
+        B.workers.forEach(({ w }) => w.postMessage({ type: 'pause' }));
+      } else if (B.state === 'pause') {
+        B.state = 'run'; B.pausedMs += performance.now() - B.pauseAt;
+        B.workers.forEach(({ w, share }, i) => w.postMessage({ type: 'run', count: share - B.prog[i] }));
+      }
+      bigButtons(); bigRender(true);
+    }
+    function bigStop(silent) {
+      B.workers.forEach(({ w }) => w.terminate());
+      B.workers = [];
+      if (B.state === 'run' || B.state === 'pause') B.state = 'stopped';
+      if (!silent) { bigButtons(); bigRender(true); }
+    }
+    function bigButtons() {
+      const on = B.state === 'run' || B.state === 'pause';
+      $('#b-start').textContent = on ? 'Spustit znovu' : 'Spustit';
+      $('#b-pause').hidden = !on; $('#b-pause').textContent = B.state === 'pause' ? 'Pokračovat' : 'Pozastavit';
+      $('#b-stop').hidden = !on;
+    }
+    const big = (n) => (n >= 1e9 ? `${(n / 1e9).toLocaleString('cs-CZ', { maximumFractionDigits: 2 })} mld.` : n >= 1e6 ? `${(n / 1e6).toLocaleString('cs-CZ', { maximumFractionDigits: 1 })} mil.` : fmt(n));
+    const dur = (s) => (s >= 3600 ? `${Math.floor(s / 3600)} h ${Math.floor((s % 3600) / 60)} min` : s >= 60 ? `${Math.floor(s / 60)} min ${Math.floor(s % 60)} s` : `${Math.ceil(s)} s`);
+
+    function bigRender(force) {
+      const now = performance.now();
+      const done = B.prog.reduce((a, b) => a + b, 0);
+      if (B.state === 'run' && done >= B.target) { B.state = 'done'; bigStop(true); bigButtons(); force = true; }
+      if (!force && now - B.lastRender < 1000) return;
+      B.lastRender = now;
+      if (B.state === 'idle') { $('#b-prog').hidden = true; $('#b-out').innerHTML = ''; return; }
+      const elapsed = ((B.state === 'pause' ? B.pauseAt : now) - B.startedAt - B.pausedMs) / 1000;
+      const rate = done / Math.max(elapsed, 0.001);
+      $('#b-prog').hidden = false;
+      $('#b-bar').style.width = `${Math.min(100, (done / B.target) * 100)}%`;
+      $('#b-text').textContent = `${big(done)} / ${big(B.target)} · ${big(Math.round(rate))}/s`
+        + (B.state === 'run' ? ` · zbývá ~${dur((B.target - done) / Math.max(rate, 1))}` : B.state === 'pause' ? ' · pozastaveno' : B.state === 'done' ? ` · hotovo za ${dur(elapsed)}` : ' · zastaveno');
+      renderBigStats();
+    }
+
+    function renderBigStats() {
+      const snaps = B.snaps.filter(Boolean);
+      if (!snaps.length || !B.meta) { $('#b-out').innerHTML = '<p class="empty">Počítám první výsledky…</p>'; return; }
+      const { players } = B.meta, caps = S.caps, C = caps.length, n = players.length;
+      let valid = 0, invalid = 0;
+      const sold = new Float64Array(n), sum = new Float64Array(n), mn = new Float64Array(n).fill(Infinity), mx = new Float64Array(n), by = new Float64Array(n * C), left = new Float64Array(C);
+      const lus = Array.from({ length: C }, () => new Map());
+      for (const sn of snaps) {
+        valid += sn.valid; invalid += sn.invalid;
+        for (let i = 0; i < n; i++) { sold[i] += sn.sold[i]; sum[i] += sn.sum[i]; if (sn.min[i] < mn[i]) mn[i] = sn.min[i]; if (sn.max[i] > mx[i]) mx[i] = sn.max[i]; }
+        for (let i = 0; i < n * C; i++) by[i] += sn.by[i];
+        for (let c = 0; c < C; c++) {
+          left[c] += sn.left[c];
+          for (const [ids, v] of sn.lineups[c]) { const k = ids.join(','); lus[c].set(k, (lus[c].get(k) || 0) + v); }
+        }
+      }
+      if (!valid) { $('#b-out').innerHTML = `<p class="empty">Zatím žádná platná aukce${invalid ? ` (${big(invalid)} neplatných – s těmito cenami asi nejde, aby měli všichni plný tým bez mínusu)` : ''}.</p>`; return; }
+      const pct = (x) => { const v = (x / valid) * 100; return `${v >= 10 || v === 0 ? Math.round(v) : v.toLocaleString('cs-CZ', { maximumFractionDigits: 1 })} %`; };
+      const ownIdx = caps.findIndex((c) => c.own);
+      const fixedSet = new Set(B.meta.data.caps.flatMap((c) => c.fixed));
+      const roleOf = (i) => ROLES.findIndex(([r]) => r === players[i].draft_role);
+      const name = (i) => `${players[i].blocked ? '✕ ' : ''}${esc(players[i].nickname)}`;
+
+      const cards = caps.map((c, ci) => {
+        const top = [...lus[ci].entries()].sort((a, b) => b[1] - a[1]).slice(0, 5);
+        return `<article class="lu ${c.own ? 'own' : ''}"><header><b>${esc(c.name)}</b><span>${capRole(c) ? SHORT[capRole(c)] : 'bez pozice'} · Ø zbývá ${fmt(left[ci] / valid)}</span></header>
+          <ol>${top.map(([k, v]) => `<li><b>${pct(v)}</b>${k.split(',').map(Number).sort((a, b) => roleOf(a) - roleOf(b)).map((i) => `<small>${SHORT[players[i].draft_role]}</small>${name(i)}`).join(' · ')}</li>`).join('')}</ol></article>`;
+      }).join('');
+
       const rows = ROLES.map(([r, l]) => {
-        const list = [...stat.values()].filter((s) => s.p.draft_role === r).sort((a, b) => b.sold - a.sold || b.p.price - a.p.price);
-        return `<tr class="grp"><td colspan="6">${l}</td></tr>` + list.map((s) => {
-          const top = [...s.by.entries()].sort((a, b) => b[1] - a[1]).slice(0, 2), ours = s.by.get(OWN) || 0;
-          return `<tr class="${s.p.blocked ? 'blocked' : ''}">
-            <td>${s.p.blocked ? NOPE + ' ' : ''}${esc(s.p.nickname)}${s.p.fav_roles?.length ? ' <span class="fav">★</span>' : ''}</td>
-            <td class="num">${fmt(s.p.price)}</td>
-            <td class="num"><span class="bar"><i style="width:${(s.sold / RUNS) * 100}%"></i></span>${pct(s.sold)}</td>
-            <td class="num">${s.sold ? fmt(s.paid / s.sold) : '–'}</td>
-            <td class="who">${top.map(([k, n]) => `${k === OWN ? '<span class="ours">' : ''}${esc(name(k))}${k === OWN ? '</span>' : ''}<small>${pct(n)}</small>`).join(', ') || '<span style="color:var(--muted)">nikdo</span>'}</td>
+        const list = players.map((p, i) => i).filter((i) => players[i].draft_role === r && !fixedSet.has(i)).sort((a, b) => sold[b] - sold[a] || players[b].price - players[a].price);
+        return `<tr class="grp"><td colspan="7">${l}</td></tr>` + list.map((i) => {
+          const p = players[i], tops = caps.map((c, ci) => [ci, by[i * C + ci]]).filter(([, v]) => v).sort((a, b) => b[1] - a[1]).slice(0, 3);
+          const ours = ownIdx >= 0 ? by[i * C + ownIdx] : 0;
+          return `<tr class="${p.blocked ? 'blocked' : ''}">
+            <td>${p.blocked ? NOPE + ' ' : ''}${esc(p.nickname)}${p.fav_roles?.length ? ' <span class="fav">★</span>' : ''}</td>
+            <td class="num">${fmt(p.price)}</td>
+            <td class="num"><span class="bar"><i style="width:${(sold[i] / valid) * 100}%"></i></span>${pct(sold[i])}</td>
+            <td class="num">${sold[i] ? fmt(sum[i] / sold[i]) : '–'}</td>
+            <td class="num">${sold[i] ? `${fmt(mn[i])}–${fmt(mx[i])}` : '–'}</td>
+            <td class="who">${tops.map(([ci, v]) => `${caps[ci].own ? '<span class="ours">' : ''}${esc(caps[ci].name)}${caps[ci].own ? '</span>' : ''}<small>${pct(v)}</small>`).join(', ') || '<span style="color:var(--muted)">nikdo</span>'}</td>
             <td class="num ${ours ? 'ours' : ''}">${ours ? pct(ours) : '–'}</td></tr>`;
         }).join('');
       }).join('');
-      const hl = [...holes.entries()].sort((a, b) => b[1] - a[1]);
-      $('#p-many').innerHTML = `<p class="sim-note">${RUNS} náhodných aukcí${clicked ? `, ${clicked} naklikaných hráčů zůstává pevně ve svých týmech (100 %)` : ''}. Ostatní kapitáni kupují podle ceny z excelu a přeplácení; naše ✕ a ★ platí jen pro SGooBa.</p>
-        ${hl.length ? `<p class="sim-note" style="color:#ff9a9d">Komu často nezbyde na všech 5 pozic: ${hl.map(([k, n]) => `<b>${esc(name(k))}</b> ${pct(n)}`).join(' · ')}</p>` : ''}
-        <div class="stats-wrap"><table class="table stats"><thead><tr><th>Hráč</th><th class="num">Cena</th><th class="num">Koupí ho</th><th class="num">Ø vydraženo</th><th>Nejčastěji u</th><th class="num">U nás</th></tr></thead>
+
+      $('#b-out').innerHTML = `
+        <div class="kpis">
+          <div><b>${big(valid)}</b><span>platných aukcí</span></div>
+          <div><b>${((invalid / (valid + invalid)) * 100).toLocaleString('cs-CZ', { maximumFractionDigits: 2 })} %</b><span>neplatných (nešlo by mít plný tým bez mínusu)</span></div>
+          ${ownIdx >= 0 ? `<div><b>${fmt(left[ownIdx] / valid)}</b><span>SGooBovi v průměru zbude</span></div>` : ''}
+        </div>
+        <h2 class="sec" style="margin:0 0 10px">Nejčastější týmy <small style="color:var(--muted);font:500 .82rem var(--font)">top 5 sestav každého kapitána</small></h2>
+        <div class="lineups">${cards}</div>
+        <h2 class="sec" style="margin:0 0 10px">Hráči</h2>
+        <div class="stats-wrap"><table class="table stats"><thead><tr><th>Hráč</th><th class="num">Cena</th><th class="num">Koupí ho</th><th class="num">Ø vydraženo</th><th class="num">Rozsah</th><th>Nejčastěji u</th><th class="num">U nás</th></tr></thead>
         <tbody>${rows}</tbody></table></div>`;
     }
-    const needs5 = (c) => { const have = new Set([c.role, ...c.picks.map((x) => x.p.draft_role)]); return ROLES.some(([r]) => !have.has(r)); };
+
+    $('#b-start').addEventListener('click', bigStart);
+    $('#b-pause').addEventListener('click', bigPause);
+    $('#b-stop').addEventListener('click', () => bigStop());
+    window.addEventListener('beforeunload', (e) => { if (B.state === 'run') { e.preventDefault(); e.returnValue = ''; } });
 
     $('#tabs').addEventListener('click', (e) => {
       const b = e.target.closest('button[data-t]'); if (!b) return;
       S.tab = b.dataset.t;
       document.querySelectorAll('#tabs button').forEach((x) => x.classList.toggle('active', x === b));
       $('#p-board').hidden = S.tab !== 'board'; $('#p-many').hidden = S.tab !== 'many'; $('#p-auction').hidden = S.tab !== 'auction';
-      if (S.tab === 'many') renderMany(); else if (S.tab === 'auction') { renderStatus(); renderAuction(); } else renderBoard();
+      if (S.tab === 'many') bigRender(true); else if (S.tab === 'auction') { renderStatus(); renderAuction(); } else renderBoard();
     });
 
     /* ---------- dražba ---------- */

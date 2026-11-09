@@ -178,13 +178,17 @@ export const foldName = (s) => String(s ?? '').toLowerCase().normalize('NFD').re
 const NAME_HEAD = /^(hrac|nick|prezdivka|jmeno|name|player|streamer|ucastnik|kapitan|discord|twitch|riot|summoner|ign)/;
 const PRICE_HEAD = /(cen[aeyu]?$|cena|price|prize|hodnot|cost|kredit|coin|budget|naklad)/;
 
+const ROLE_HEAD = /^(primar|hlavni|pozice|role|lane|linka)/;
+const ROLE_ALIASES = { top: 'TOP', jungle: 'JUNGLE', jng: 'JUNGLE', jgl: 'JUNGLE', jg: 'JUNGLE', mid: 'MID', middle: 'MID', adc: 'ADC', bot: 'ADC', bottom: 'ADC', support: 'SUPPORT', supp: 'SUPPORT', sup: 'SUPPORT' };
+export const parseRole = (v) => ROLE_ALIASES[foldName(v)] ?? null;
+
 /** Odhad: který sloupec je hráč, který cena a na kterém řádku (od 1) začínají data. */
 export function guessColumns(rows) {
   for (let i = 0; i < Math.min(rows.length, 25); i++) {
     const heads = (rows[i] || []).map(foldName);
     const priceCol = heads.findIndex((h) => PRICE_HEAD.test(h));
     const nameCol = heads.findIndex((h, c) => c !== priceCol && NAME_HEAD.test(h));
-    if (priceCol >= 0 && nameCol >= 0) return { nameCol, priceCol, start: i + 2 };
+    if (priceCol >= 0 && nameCol >= 0) return { nameCol, priceCol, roleCol: heads.findIndex((h) => ROLE_HEAD.test(h)), start: i + 2 };
   }
   // bez hlavičky: cena = sloupec s nejvíc čísly (ne pořadí 1, 2, 3…), hráč = sloupec s nejvíc texty
   const width = Math.max(0, ...rows.map((r) => r.length));
@@ -197,7 +201,7 @@ export function guessColumns(rows) {
   const priceCol = [...stats].sort((a, b) => b.nums - a.nums)[0]?.c ?? 0;
   const nameCol = [...stats].filter((s) => s.c !== priceCol).sort((a, b) => b.texts - a.texts)[0]?.c ?? 0;
   const first = rows.findIndex((r) => String(r[nameCol] ?? '').trim() && parsePrice(r[priceCol]) != null);
-  return { nameCol, priceCol, start: first < 0 ? 1 : first + 1 };
+  return { nameCol, priceCol, roleCol: -1, start: first < 0 ? 1 : first + 1 };
 }
 
 /** Kolik řádků má při daných sloupcích hráče i cenu – podle toho se pozná, který list je ten pravý. */

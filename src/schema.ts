@@ -613,4 +613,8 @@ INSERT INTO tournament_matches (sc_match_id, starts_at, format, stage, day_label
   (412, '2026-12-12T11:00:00.000Z', 'BO3', 'playoff', 'Finálový den', 'F2'),
   (413, '2026-12-12T15:00:00.000Z', 'BO5', 'playoff', 'Finálový den', 'GF');
 `,
+
+  /* 25: Queue scouting – the position a player is sold on, from the organizer's price Excel */ `
+ALTER TABLE queue_scout ADD COLUMN draft_role TEXT;
+`,
 ];

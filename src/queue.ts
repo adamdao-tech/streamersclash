@@ -671,27 +671,29 @@ export async function handleQueueApi(
       if (!playerKey || !Number.isFinite(price) || price < 0 || it.price === null || it.price === '') {
         throw new HttpError(400, 'invalid', `Neplatná cena u hráče ${playerKey || '?'}.`);
       }
-      return { playerKey, price, nickname: it.nickname ? String(it.nickname).trim().slice(0, 64) : null };
+      const role = (QUEUE_ROLES as readonly string[]).includes(String(it.role)) ? String(it.role) : null;
+      return { playerKey, price, role, nickname: it.nickname ? String(it.nickname).trim().slice(0, 64) : null };
     });
 
     const upsert = db.prepare(
-      `INSERT INTO queue_scout (player_key, price, updated_by, updated_at) VALUES (?1, ?2, ?3, datetime('now'))
-       ON CONFLICT(player_key) DO UPDATE SET price = excluded.price, updated_by = excluded.updated_by, updated_at = excluded.updated_at
-       WHERE price IS NOT excluded.price`,
+      `INSERT INTO queue_scout (player_key, price, draft_role, updated_by, updated_at) VALUES (?1, ?2, ?3, ?4, datetime('now'))
+       ON CONFLICT(player_key) DO UPDATE SET price = excluded.price, draft_role = COALESCE(excluded.draft_role, draft_role),
+         updated_by = excluded.updated_by, updated_at = excluded.updated_at
+       WHERE price IS NOT excluded.price OR (excluded.draft_role IS NOT NULL AND draft_role IS NOT excluded.draft_role)`,
     );
     // someone in the Excel who has never been seen in the queue still needs a row to show up in the table
     const addPlayer = db.prepare('INSERT OR IGNORE INTO queue_players (key, nickname) VALUES (?, ?)');
     const stmts: D1PreparedStatement[] = [];
     for (const it of items) {
       if (it.nickname) stmts.push(addPlayer.bind(it.playerKey, it.nickname));
-      stmts.push(upsert.bind(it.playerKey, it.price, user.id));
+      stmts.push(upsert.bind(it.playerKey, it.price, it.role, user.id));
     }
 
     let cleared = 0;
     if (body.clear_missing) {
       const keep = new Set(items.map((it) => it.playerKey));
       const { results } = await db.prepare('SELECT player_key FROM queue_scout WHERE price IS NOT NULL').all<{ player_key: string }>();
-      const clear = db.prepare(`UPDATE queue_scout SET price = NULL, updated_by = ?, updated_at = datetime('now') WHERE player_key = ?`);
+      const clear = db.prepare(`UPDATE queue_scout SET price = NULL, draft_role = NULL, updated_by = ?, updated_at = datetime('now') WHERE player_key = ?`);
       for (const r of results) {
         if (keep.has(r.player_key)) continue;
         stmts.push(clear.bind(user.id, r.player_key));

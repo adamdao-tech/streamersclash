@@ -17,16 +17,17 @@
     .left.neg b { color: #ff7a7e; }
     .sets { display: flex; gap: 10px; }
     .sets label { font-size: 0.74rem; color: var(--muted); }
-    .sets input, .pick input { width: 74px; min-height: 32px; padding: 2px 6px; text-align: right; font-variant-numeric: tabular-nums; }
+    .sets input { width: 74px; min-height: 32px; padding: 2px 6px; text-align: right; font-variant-numeric: tabular-nums; }
     .sets input { display: block; margin-top: 2px; }
     .picks { display: grid; grid-template-columns: repeat(4, minmax(150px, 1fr)); gap: 8px; flex: 1; min-width: 320px; }
-    .pick, .free { display: flex; align-items: center; gap: 7px; min-height: 46px; padding: 4px 8px; border-radius: 9px; font-size: 0.9rem; min-width: 0; }
-    .pick { background: var(--bg-2); border: 1px solid var(--line-2); font-weight: 600; }
-    .pick .n { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .pick small { font: 700 0.7rem var(--display); color: var(--muted); }
-    .pick button { border: 0; background: transparent; color: var(--muted); cursor: pointer; padding: 2px 4px; }
-    .pick button:hover { color: #ff7a7e; }
-    .free { border: 1px dashed var(--line); color: var(--muted); justify-content: center; }
+    .slot, .free { min-height: 72px; padding: 6px 8px; border-radius: 9px; font-size: 0.9rem; min-width: 0; }
+    .slot { display: grid; grid-template-columns: 1fr auto; gap: 4px 6px; align-items: center; background: var(--bg-2); border: 1px solid var(--line-2); font-weight: 600; }
+    .slot .n { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .slot small { font: 700 0.7rem var(--display); color: var(--muted); margin-right: 5px; }
+    .slot input { grid-column: 1 / -1; width: 100%; min-height: 30px; padding: 2px 6px; text-align: right; font-variant-numeric: tabular-nums; }
+    .slot button { border: 0; background: transparent; color: var(--muted); cursor: pointer; padding: 0 3px; }
+    .slot button:hover { color: #ff7a7e; }
+    .free { display: flex; align-items: center; border: 1px dashed var(--line); color: var(--muted); justify-content: center; }
     .info { color: var(--text-2); font-size: 0.86rem; line-height: 1.55; text-align: right; min-width: 150px; }
     .info .neg { color: #ff7a7e; font-weight: 600; }
     .reset { background: none; border: 0; padding: 0; color: var(--muted); cursor: pointer; font-size: 0.8rem; text-decoration: underline; }
@@ -109,9 +110,10 @@
         <div class="picks">
           ${pl.picks.map((x) => {
             const p = S.players.get(x.key);
-            return `<div class="pick">${p?.draft_role ? `<small>${SHORT[p.draft_role]}</small>` : ''}<span class="n" title="${esc(p?.nickname ?? x.nickname)}">${esc(p?.nickname ?? x.nickname)}</span>
-              <input type="number" min="0" data-price="${esc(x.key)}" value="${priceOf(x)}" title="V aukci přepiš na vydraženou cenu">
-              <button type="button" data-off="${esc(x.key)}" title="Odebrat">✕</button></div>`;
+            const name = p?.nickname ?? x.nickname;
+            return `<div class="slot"><span class="n" title="${esc(name)}">${p?.draft_role ? `<small>${SHORT[p.draft_role]}</small>` : ''}${esc(name)}</span>
+              <button type="button" data-off="${esc(x.key)}" title="Odebrat">✕</button>
+              <input type="number" min="0" data-price="${esc(x.key)}" value="${priceOf(x)}" title="V aukci přepiš na vydraženou cenu"></div>`;
           }).join('')}
           ${'<div class="free">volné místo</div>'.repeat(Math.max(free, 0))}
         </div>

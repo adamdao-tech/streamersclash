@@ -103,6 +103,22 @@
     .d-riot .sugs button:hover { border-color: var(--gold); color: var(--gold-2); }
     .opgg { display: inline-block; font: 700 0.7rem var(--display); padding: 2px 7px; border-radius: 5px; background: #5c46e8; color: #fff; margin: 4px 3px 0 0; }
     .opgg:hover { text-decoration: none; filter: brightness(1.15); }
+    /* uložené varianty týmu */
+    .v-who { margin: 18px 0 8px; font: 700 0.82rem var(--display); letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+    .v-who:first-child { margin-top: 0; }
+    .v-card { margin-bottom: 8px; padding: 0; overflow: hidden; }
+    .v-head { display: flex; width: 100%; gap: 14px; align-items: center; padding: 12px 14px; border: 0; background: transparent; color: var(--text); text-align: left; cursor: pointer; font: 500 0.9rem var(--font); }
+    .v-head:hover { background: var(--panel-2); }
+    .v-head b.v-name { font: 700 1.1rem var(--display); min-width: 150px; }
+    .v-head .v-names { flex: 1; min-width: 0; color: var(--text-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .v-head .v-left { color: var(--muted); font-size: 0.82rem; white-space: nowrap; }
+    .v-head .v-left b { font: 700 1.2rem var(--display); color: var(--gold-2); margin-left: 4px; }
+    .v-head .v-left.neg b { color: #ff7a7e; }
+    .v-head .v-arrow { color: var(--muted); transition: transform .12s; }
+    .v-card.open .v-arrow { transform: rotate(90deg); }
+    .v-card .qs-table-wrap { border-top: 1px solid var(--line); border-radius: 0; }
+    .v-cap { font: 700 0.66rem var(--display); color: var(--on-gold); background: var(--gold); border-radius: 4px; padding: 0 5px; margin-left: 6px; }
+    .v-bid { color: var(--muted); font-size: 0.76rem; font-weight: 500; margin-left: 5px; }
     /* import cen z excelu */
     .qs-table tbody tr.out { opacity: .5; }
     .qs-rec li.out { opacity: .45; }
@@ -174,6 +190,7 @@
     <nav class="tabs" id="tabs">
       <button data-tab="players" class="active">Hráči <span class="count" id="c-players"></span></button>
       <button data-tab="favs">Oblíbení podle pozic <span class="count" id="c-favs"></span></button>
+      <button data-tab="vars">Varianty <span class="count" id="c-vars"></span></button>
       <button data-tab="duos">Dua</button>
       <button data-tab="live">Živě <span class="count" id="c-live"></span></button>
     </nav>
@@ -202,6 +219,10 @@
 
     <section class="tab-panel" data-panel="favs" hidden>
       <div class="qs-board" id="favs"></div>
+    </section>
+
+    <section class="tab-panel" data-panel="vars" hidden>
+      <div id="vars"></div>
     </section>
 
     <section class="tab-panel" data-panel="duos" hidden>
@@ -239,7 +260,7 @@
     if (me.role !== 'admin') location.href = '/';
 
     const ROLES = [['TOP', 'TOP'], ['JUNGLE', 'JNG'], ['MID', 'MID'], ['ADC', 'ADC'], ['SUPPORT', 'SUP']];
-    const S = { players: new Map(), matches: [], live: [], sort: { col: 'rank', dir: 1 }, q: '', role: '', show: 'all', min: 0, tab: 'players' };
+    const S = { players: new Map(), matches: [], live: [], sort: { col: 'rank', dir: 1 }, q: '', role: '', show: 'all', min: 0, tab: 'players', varOpen: new Set() };
     const $ = (s) => document.querySelector(s);
     const pct = (x) => (x == null || Number.isNaN(x) ? '–' : `${Math.round(x * 100)} %`);
     const k = (n) => String(n).trim().toLowerCase();
@@ -306,6 +327,17 @@
       $('#c-players').textContent = players.size;
       $('#c-favs').textContent = [...players.values()].filter((p) => p.scout.fav_roles.length).length || '';
       render();
+      loadVariants().catch((e) => console.warn('varianty', e));
+    }
+
+    /** Uložené varianty z výpočtu essence (okno /draft). */
+    async function loadVariants() {
+      const { variants = [] } = await api('/api/queue/draft');
+      const raw = JSON.stringify(variants);
+      if (raw === S.variantsRaw) return;
+      S.variantsRaw = raw; S.variants = variants;
+      $('#c-vars').textContent = variants.length || '';
+      renderVariants();
     }
 
     async function loadLive() {
@@ -489,6 +521,69 @@
     }
     for (const id of ['#duo-q', '#duo-min', '#duo-fav']) $(id).addEventListener('input', renderDuos);
 
+    /* ---------- uložené varianty ---------- */
+
+    const ROLE_ORDER = ROLES.map(([r]) => r);
+    const dash = '<span class="zero">–</span>';
+
+    /** Řádky týmu: kapitán + vybraní hráči, seřazení podle pozice. */
+    function variantRows(v) {
+      const captain = [...S.players.values()].find((p) => p.scout.is_captain && foldName(p.nickname) === 'sgoob') || S.players.get('sgoob');
+      const rows = [
+        { p: captain, name: captain?.nickname ?? 'SGooB', role: captain?.scout.draft_role || 'JUNGLE', price: v.captain_price, captain: true },
+        ...v.picks.map((x) => {
+          const p = S.players.get(x.key), base = p?.scout.price ?? null;
+          return { p, name: p?.nickname ?? x.nickname, role: p?.scout.draft_role ?? '', price: x.price ?? base ?? 0, base: x.price != null && x.price !== base ? base : null };
+        }),
+      ];
+      const at = (r) => { const i = ROLE_ORDER.indexOf(r.role); return i < 0 ? 9 : i; };
+      return rows.sort((a, b) => at(a) - at(b));
+    }
+
+    function variantTable(v) {
+      return `<div class="qs-table-wrap"><table class="table qs-table"><thead><tr><th>Pozice</th><th>Hráč</th><th class="num">Cena</th><th class="num">Zápasy</th><th class="num">W</th><th class="num">L</th><th class="num">Winrate</th><th>Forma</th><th>LoL rank</th><th>OP.GG</th><th>Poznámka</th></tr></thead><tbody>
+        ${variantRows(v).map((r) => {
+          const p = r.p, acc = p && bestAccount(p);
+          return `<tr ${p ? `class="v-row" data-key="${esc(p.key)}"` : ''}>
+            <td>${r.role ? ROLE_SHORT[r.role] : dash}</td>
+            <td><span class="qs-pl">${p ? avatar(p) : ''}${esc(r.name)}</span>${r.captain ? '<span class="v-cap">KAPITÁN</span>' : ''}</td>
+            <td class="num"><span class="price">${fmtPrice(r.price)}</span>${r.base != null ? `<span class="v-bid" title="Cena z excelu">z ${fmtPrice(r.base)}</span>` : ''}</td>
+            <td class="num">${p ? p.games : dash}</td>
+            <td class="num">${p ? `<span class="win">${p.wins}</span>` : dash}</td>
+            <td class="num">${p ? `<span class="loss">${p.losses}</span>` : dash}</td>
+            <td class="num">${p ? wrBar(p.wr) : dash}</td>
+            <td>${p ? formDots(p.form) : dash}</td>
+            <td>${acc ? `<span class="lolrank" title="${esc(acc.riot)}">${esc(shortRank(acc.rank))}<small>${acc.region.toUpperCase()}</small></span>` : p ? profileState(p) : dash}</td>
+            <td>${p ? opggChips(p) || dash : dash}</td>
+            <td class="note-td"><div class="note-cell" title="${esc(p?.scout.note || '')}">${esc(p?.scout.note || '')}</div></td>
+          </tr>`;
+        }).join('')}
+      </tbody></table></div>`;
+    }
+
+    function renderVariants() {
+      const box = $('#vars');
+      const variants = S.variants || [];
+      if (!variants.length) { box.innerHTML = '<p class="empty">Zatím žádná varianta. Ulož ji v okně Výpočet essence.</p>'; return; }
+      const groups = new Map([['Moje', variants.filter((v) => v.mine)]]);
+      for (const v of variants) if (!v.mine) groups.set(v.author, [...(groups.get(v.author) || []), v]);
+      const card = (v) => {
+        const rows = variantRows(v);
+        const rest = v.start - rows.reduce((sum, r) => sum + r.price, 0);
+        const open = S.varOpen.has(v.id);
+        return `<article class="card v-card ${open ? 'open' : ''}">
+          <button type="button" class="v-head" data-var="${v.id}" aria-expanded="${open}">
+            <b class="v-name">${esc(v.name)}</b>
+            <span class="v-names">${rows.filter((r) => !r.captain).map((r) => esc(r.name)).join(' · ')}</span>
+            <span class="v-left ${rest < 0 ? 'neg' : ''}">zbývá<b>${fmtPrice(rest)}</b></span>
+            <span class="v-arrow">▸</span>
+          </button>
+          ${open ? variantTable(v) : ''}
+        </article>`;
+      };
+      box.innerHTML = [...groups].filter(([, list]) => list.length).map(([who, list]) => `<h3 class="v-who">${esc(who)}</h3>${list.map(card).join('')}`).join('');
+    }
+
     /* ---------- oblíbení podle pozic ---------- */
 
     function renderFavs() {
@@ -663,6 +758,7 @@
       document.querySelectorAll('.tab-panel').forEach((p) => (p.hidden = p.dataset.panel !== S.tab));
       if (S.tab === 'live') loadLive();
       if (S.tab === 'duos') renderDuos();
+      if (S.tab === 'vars') loadVariants().catch((e) => console.warn('varianty', e));
     });
 
     document.addEventListener('click', async (e) => {
@@ -671,6 +767,12 @@
         const c = th.dataset.sort;
         S.sort = { col: c, dir: S.sort.col === c ? -S.sort.dir : (['rank', 'nickname'].includes(c) ? 1 : -1) };
         return render();
+      }
+      const varHead = e.target.closest('[data-var]');
+      if (varHead) {
+        const id = +varHead.dataset.var;
+        S.varOpen.has(id) ? S.varOpen.delete(id) : S.varOpen.add(id);
+        return renderVariants();
       }
       const toggle = e.target.closest('.role-t');
       if (toggle) {
@@ -689,7 +791,7 @@
       if (e.target.closest('a.opgg')) return; // odkaz na op.gg neotevírá detail
       const open = e.target.closest('[data-open]');
       if (open) { e.preventDefault(); return openDetail(open.dataset.open); }
-      const row = e.target.closest('#rows tr[data-key], .qs-rec li[data-key], .lobby .row[data-key]');
+      const row = e.target.closest('#rows tr[data-key], .v-row[data-key], .qs-rec li[data-key], .lobby .row[data-key]');
       if (row && S.players.has(row.dataset.key)) openDetail(row.dataset.key);
     });
 
@@ -1092,6 +1194,7 @@
           $('#c-favs').textContent = [...S.players.values()].filter((p) => p.scout.fav_roles.length).length || '';
         }
         if (S.tab === 'live') loadLive();
+        if (S.tab === 'vars') loadVariants().catch(() => {});
       } catch (err) { console.warn('auto-obnova selhala', err); }
     }
     setInterval(poll, POLL_MS);

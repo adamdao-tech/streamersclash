@@ -617,4 +617,14 @@ INSERT INTO tournament_matches (sc_match_id, starts_at, format, stage, day_label
   /* 25: Queue scouting – the position a player is sold on, from the organizer's price Excel */ `
 ALTER TABLE queue_scout ADD COLUMN draft_role TEXT;
 `,
+
+  /* 26: saved variants of the draft budget (which players, at what price) */ `
+CREATE TABLE draft_variants (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  name       TEXT NOT NULL UNIQUE,
+  data       TEXT NOT NULL,
+  updated_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+`,
 ];

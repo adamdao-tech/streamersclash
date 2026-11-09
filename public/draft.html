@@ -35,7 +35,7 @@
     .tools input[type=search] { max-width: 240px; }
     .tools label { display: inline-flex; gap: 6px; align-items: center; font-size: 0.86rem; color: var(--text-2); }
     .tools label input { width: auto; }
-    .cols { flex: 1; min-height: 0; display: grid; grid-template-columns: repeat(5, minmax(160px, 1fr)); gap: 10px; padding: 0 18px 14px; overflow-x: auto; }
+    .cols { flex: 1; min-height: 0; display: grid; grid-template-columns: repeat(5, minmax(150px, 1fr)) minmax(230px, 270px); gap: 10px; padding: 0 18px 14px; overflow-x: auto; }
     .col { display: flex; flex-direction: column; min-height: 0; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; }
     .col h2 { display: flex; justify-content: space-between; align-items: baseline; margin: 0; padding: 10px 12px; font-size: 1.05rem; border-bottom: 1px solid var(--line); }
     .col h2 small { color: var(--muted); font: 500 0.78rem var(--font); }
@@ -52,6 +52,20 @@
     .p.on .c, .p.on .fav { color: var(--on-gold); }
     .p:disabled { cursor: not-allowed; opacity: .4; }
     .p:disabled:hover { background: transparent; }
+    #vars form { display: flex; gap: 6px; padding: 8px; border-bottom: 1px solid var(--line); }
+    #vars form input { min-height: 34px; padding: 4px 8px; min-width: 0; flex: 1; }
+    .var { display: block; width: 100%; padding: 8px 10px; margin-bottom: 6px; border: 1px solid var(--line); border-radius: 9px; background: var(--bg-2); color: var(--text); font: 500 0.84rem var(--font); text-align: left; cursor: pointer; }
+    .var:hover { border-color: var(--line-2); }
+    .var.cur { border-color: var(--gold); }
+    .var header { display: flex; align-items: baseline; gap: 8px; margin-bottom: 4px; }
+    .var header b { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 0.92rem; }
+    .var header i { font: 700 1.05rem var(--display); color: var(--gold-2); }
+    .var header i.neg { color: #ff7a7e; }
+    .var header span { color: var(--muted); padding: 0 2px; }
+    .var header span:hover { color: #ff7a7e; }
+    .var div { display: flex; gap: 6px; color: var(--text-2); }
+    .var div small { width: 28px; color: var(--muted); font: 700 0.68rem/1.7 var(--display); }
+    .var div em { flex: 1; min-width: 0; font-style: normal; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .none { color: var(--muted); font-size: 0.86rem; padding: 10px; }
     #shield { position: fixed; inset: 0; z-index: 50; background: #000; display: grid; place-items: center; text-align: center; padding: 24px; color: var(--muted); }
     #shield[hidden] { display: none; }
@@ -73,7 +87,14 @@
     <label><input type="checkbox" id="afford"> jen na koho mám</label>
     <label><input type="checkbox" id="favs"> jen oblíbení</label>
   </div>
-  <section class="cols" id="cols"></section>
+  <section class="cols">
+    <div id="cols" style="display: contents"></div>
+    <aside class="col" id="vars">
+      <h2>Varianty <small id="var-count"></small></h2>
+      <form id="var-form"><input id="var-name" maxlength="60" placeholder="Název varianty" autocomplete="off"><button class="btn btn-small btn-primary" id="var-save">Uložit</button></form>
+      <div class="list" id="var-list"></div>
+    </aside>
+  </section>
   <div id="shield" hidden><p id="shield-text"></p></div>
   <div id="watermark" hidden aria-hidden="true"></div>
 
@@ -88,7 +109,7 @@
     const ROLES = [['TOP', 'TOP'], ['JUNGLE', 'JNG'], ['MID', 'MID'], ['ADC', 'ADC'], ['SUPPORT', 'SUP']];
     const SHORT = Object.fromEntries(ROLES);
     const LS_SHARE = 'qs.sharing';
-    const S = { players: new Map(), planRaw: null, stream: {}, q: '', afford: false, favs: false, saving: 0 };
+    const S = { players: new Map(), planRaw: null, variants: [], stream: {}, q: '', afford: false, favs: false, saving: 0 };
     const $ = (s) => document.querySelector(s);
     const fmt = (n) => Number(n).toLocaleString('cs-CZ');
     const plan = () => S.planRaw || { start: 1000, captain_price: 325, picks: [] };
@@ -143,7 +164,69 @@
       }).join('');
       list.querySelectorAll('.list').forEach((l, i) => { l.scrollTop = scroll[i] || 0; });
     }
-    const render = () => { renderTop(); renderCols(); };
+
+    /* ---------- uložené varianty ---------- */
+
+    const samePicks = (a, b) => JSON.stringify([a.start, a.captain_price, a.picks.map((x) => [x.key, x.price])]) === JSON.stringify([b.start, b.captain_price, b.picks.map((x) => [x.key, x.price])]);
+    const variantLeft = (v) => v.start - v.captain_price - v.picks.reduce((sum, x) => sum + priceOf(x), 0);
+
+    function renderVars() {
+      const pl = plan();
+      $('#var-count').textContent = S.variants.length || '';
+      $('#var-save').disabled = !pl.picks.length;
+      $('#var-list').innerHTML = S.variants.map((v) => {
+        const rest = variantLeft(v);
+        return `<div class="var ${samePicks(v, pl) ? 'cur' : ''}" role="button" tabindex="0" data-load="${v.id}" title="Načíst tuhle variantu">
+          <header><b title="${esc(v.name)}">${esc(v.name)}</b><i class="${rest < 0 ? 'neg' : ''}">${fmt(rest)}</i><span data-del="${v.id}" title="Smazat">✕</span></header>
+          ${v.picks.map((x) => { const p = S.players.get(x.key); return `<div><small>${p?.draft_role ? SHORT[p.draft_role] : ''}</small><em>${esc(p?.nickname ?? x.nickname)}</em><span>${fmt(priceOf(x))}</span></div>`; }).join('')}
+        </div>`;
+      }).join('') || '<div class="none">Vyber hráče, pojmenuj variantu a ulož ji.</div>';
+    }
+
+    async function refreshVariants() {
+      const d = await api('/api/queue/draft');
+      S.variants = d.variants || [];
+      renderVars();
+    }
+
+    $('#var-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const pl = plan();
+      if (!pl.picks.length) return;
+      const input = $('#var-name');
+      const name = input.value.trim() || `Varianta ${S.variants.length + 1}`;
+      if (S.variants.some((v) => v.name === name) && !confirm(`Varianta „${name}“ už existuje. Přepsat?`)) return;
+      S.saving++;
+      try { await api('/api/queue/variants', { method: 'POST', body: { name, ...pl } }); input.value = ''; await refreshVariants(); }
+      catch (err) { alert(err.message); }
+      finally { S.saving--; }
+    });
+    function loadVariant(id) {
+      const v = S.variants.find((x) => x.id === id), pl = plan();
+      if (!v) return;
+      const unsaved = pl.picks.length && !S.variants.some((x) => samePicks(x, pl));
+      if (unsaved && !confirm('Aktuální výběr není uložený. Přepsat ho touhle variantou?')) return;
+      save({ start: v.start, captain_price: v.captain_price, picks: v.picks });
+    }
+    $('#var-list').addEventListener('click', async (e) => {
+      const del = e.target.closest('[data-del]');
+      if (del) {
+        const v = S.variants.find((x) => x.id === +del.dataset.del);
+        if (!v || !confirm(`Smazat variantu „${v.name}“?`)) return;
+        S.saving++;
+        try { await api(`/api/queue/variants/${v.id}`, { method: 'DELETE' }); await refreshVariants(); }
+        catch (err) { alert(err.message); }
+        finally { S.saving--; }
+        return;
+      }
+      const card = e.target.closest('[data-load]');
+      if (card) loadVariant(+card.dataset.load);
+    });
+    $('#var-list').addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && e.target.matches('[data-load]')) loadVariant(+e.target.dataset.load);
+    });
+
+    const render = () => { renderTop(); renderCols(); renderVars(); };
 
     async function save(next) {
       const prev = S.planRaw;
@@ -207,6 +290,8 @@
       S.stream = d.stream || {};
       updateShield();
       const players = JSON.stringify(d.players), plan_ = JSON.stringify(d.plan ?? null);
+      const variants = JSON.stringify(d.variants || []);
+      if (variants !== JSON.stringify(S.variants)) { S.variants = d.variants || []; renderVars(); }
       if (players === S.lastPlayers && plan_ === JSON.stringify(S.planRaw ?? null)) return;
       if ($('#top').contains(document.activeElement)) return; // nepřepisuj rozepsanou cenu, vezme se při dalším načtení
       S.lastPlayers = players;

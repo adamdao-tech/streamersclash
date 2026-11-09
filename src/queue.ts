@@ -459,6 +459,22 @@ export async function streamGuard(env: Env, user: User): Promise<StreamGuard> {
   return { live: state!.live, allowed, hidden: state!.live && !allowed, title: state!.title };
 }
 
+/** Start, captain's price and picked players of the essence calculator, validated. */
+function parsePlan(body: Record<string, unknown>) {
+  const amount = (v: unknown, label: string) => {
+    const n = Number(v);
+    if (v === null || v === '' || !Number.isFinite(n) || n < 0 || n > 1e6) throw new HttpError(400, 'invalid', `${label}: zadej kladné číslo.`);
+    return n;
+  };
+  const picks = (Array.isArray(body.picks) ? (body.picks as Record<string, unknown>[]) : []).slice(0, 4).map((x) => ({
+    key: key(String(x.key ?? '')).slice(0, 128),
+    nickname: String(x.nickname ?? '').slice(0, 64),
+    // null = the player's price from the Excel; a number = what he went for in the auction
+    price: x.price === null || x.price === undefined ? null : amount(x.price, 'Cena hráče'),
+  })).filter((x) => x.key);
+  return { start: amount(body.start, 'Start'), captain_price: amount(body.captain_price, 'Cena kapitána'), picks };
+}
+
 /** Routes under /api/queue. Returns null when the path isn't ours. */
 export async function handleQueueApi(
   req: Request, env: Env, path: string, method: string, user: User, readBody: (r: Request) => Promise<Record<string, unknown>>,
@@ -659,15 +675,17 @@ export async function handleQueueApi(
 
   // Data for the essence calculator window (/draft): only the players with a price, polled every few seconds.
   if (path === '/api/queue/draft' && method === 'GET') {
-    if (guard.hidden) return json({ players: [], plan: null, stream: guard });
-    const [players, plan] = await Promise.all([
+    if (guard.hidden) return json({ players: [], plan: null, variants: [], stream: guard });
+    const [players, plan, variants] = await Promise.all([
       db.prepare(
         `SELECT p.key, p.nickname, s.price, s.draft_role, s.fav_roles, s.note
            FROM queue_scout s JOIN queue_players p ON p.key = s.player_key WHERE s.price IS NOT NULL`,
       ).all<Record<string, unknown>>(),
       db.prepare(`SELECT v FROM queue_meta WHERE k = 'draft_plan'`).first<{ v: string }>(),
+      db.prepare('SELECT id, name, data FROM draft_variants ORDER BY updated_at DESC, id DESC').all<{ id: number; name: string; data: string }>(),
     ]);
     return json({
+      variants: variants.results.map((v) => ({ id: v.id, name: v.name, ...JSON.parse(v.data) })),
       players: players.results.map((r) => ({ ...r, fav_roles: JSON.parse(String(r.fav_roles || '[]')) })),
       plan: plan?.v ? JSON.parse(plan.v) : null,
       stream: guard,
@@ -677,24 +695,37 @@ export async function handleQueueApi(
   // The draft budget calculator: blue essence left after the captain and the players picked so far (shared by admins).
   if (path === '/api/queue/plan' && method === 'PUT') {
     if (guard.hidden) throw new HttpError(423, 'live', 'Jsi live na Twitchi – během streamu se scouting upravovat nedá.');
-    const body = await readBody(req);
-    const amount = (v: unknown, label: string) => {
-      const n = Number(v);
-      if (v === null || v === '' || !Number.isFinite(n) || n < 0 || n > 1e6) throw new HttpError(400, 'invalid', `${label}: zadej kladné číslo.`);
-      return n;
-    };
-    const picks = (Array.isArray(body.picks) ? (body.picks as Record<string, unknown>[]) : []).slice(0, 4).map((x) => ({
-      key: key(String(x.key ?? '')).slice(0, 128),
-      nickname: String(x.nickname ?? '').slice(0, 64),
-      // null = the player's price from the Excel; a number = what he went for in the auction
-      price: x.price === null || x.price === undefined ? null : amount(x.price, 'Cena hráče'),
-    })).filter((x) => x.key);
-    const plan = { start: amount(body.start, 'Start'), captain_price: amount(body.captain_price, 'Cena kapitána'), picks };
+    const plan = parsePlan(await readBody(req));
     await db
       .prepare(`INSERT INTO queue_meta (k, v) VALUES ('draft_plan', ?) ON CONFLICT(k) DO UPDATE SET v = excluded.v`)
       .bind(JSON.stringify(plan))
       .run();
     return json({ ok: true, plan });
+  }
+
+  // Saved variants of the calculator: same name = overwrite.
+  if (path === '/api/queue/variants' && method === 'POST') {
+    if (guard.hidden) throw new HttpError(423, 'live', 'Jsi live na Twitchi – během streamu se scouting upravovat nedá.');
+    const body = await readBody(req);
+    const name = String(body.name ?? '').trim().slice(0, 60);
+    if (!name) throw new HttpError(400, 'invalid', 'Zadej název varianty.');
+    const plan = parsePlan(body);
+    if (!plan.picks.length) throw new HttpError(400, 'invalid', 'Varianta nemá žádné hráče.');
+    const count = await db.prepare('SELECT COUNT(*) AS n FROM draft_variants').first<{ n: number }>();
+    if ((count?.n ?? 0) >= 200) throw new HttpError(400, 'invalid', 'Variant je moc, nějaké smaž.');
+    await db
+      .prepare(
+        `INSERT INTO draft_variants (name, data, updated_by, updated_at) VALUES (?, ?, ?, datetime('now'))
+         ON CONFLICT(name) DO UPDATE SET data = excluded.data, updated_by = excluded.updated_by, updated_at = excluded.updated_at`,
+      )
+      .bind(name, JSON.stringify(plan), user.id)
+      .run();
+    return json({ ok: true });
+  }
+  if ((m = path.match(/^\/api\/queue\/variants\/(\d+)$/)) && method === 'DELETE') {
+    if (guard.hidden) throw new HttpError(423, 'live', 'Jsi live na Twitchi – během streamu se scouting upravovat nedá.');
+    await db.prepare('DELETE FROM draft_variants WHERE id = ?').bind(Number(m[1])).run();
+    return json({ ok: true });
   }
 
   // Prices from the organizer's Excel (parsed in the page). Only the price is ever written: notes, favourites

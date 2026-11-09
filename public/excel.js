@@ -209,6 +209,11 @@ export function countPriced(rows, { nameCol, priceCol, start }) {
   return rows.slice(Math.max(start - 1, 0)).filter((r) => String(r[nameCol] ?? '').trim() && parsePrice(r[priceCol]) != null).length;
 }
 
+/** List s kapitány: sloupec se jménem se jmenuje "Kapitán". */
+export function isCaptainSheet(rows, { nameCol, start }) {
+  return start >= 2 && foldName(rows[start - 2]?.[nameCol]).startsWith('kapitan');
+}
+
 export const columnLabel = (i) => {
   let s = '';
   for (let n = i + 1; n > 0; n = Math.floor((n - 1) / 26)) s = String.fromCharCode(65 + ((n - 1) % 26)) + s;

@@ -627,4 +627,8 @@ CREATE TABLE draft_variants (
   updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 `,
+
+  /* 27: Queue scouting – captains from the price Excel (shown separately, can't be bought in the draft) */ `
+ALTER TABLE queue_scout ADD COLUMN is_captain INTEGER NOT NULL DEFAULT 0;
+`,
 ];

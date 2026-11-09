@@ -233,7 +233,7 @@
 
   <script type="module">
     import { api, esc, initPage, timeAgo } from '/app.js';
-    import { columnLabel, countPriced, editDistance, foldName, guessColumns, parseDelimited, parsePrice, parseRole, readTable } from '/excel.js';
+    import { columnLabel, countPriced, editDistance, foldName, guessColumns, isCaptainSheet, parseDelimited, parsePrice, parseRole, readTable } from '/excel.js';
 
     const me = await initPage('scouting');
     if (me.role !== 'admin') location.href = '/';
@@ -428,9 +428,10 @@
       const rows = filtered();
       const rowHtml = (p, i) => `<tr data-key="${esc(p.key)}" class="${isOut(p) ? 'out' : ''}">${COLS.map(([, , fn, cls]) => `<td class="${cls || ''}">${fn(p, i)}</td>`).join('')}</tr>`;
       // po importu s pozicemi je tabulka rozdělená na TOP / JNG / MID / ADC / SUP (a případné hráče bez pozice)
-      const grouped = rows.some((p) => p.scout.draft_role);
-      const groupHtml = () => [...ROLES, ['', 'Bez pozice']].map(([r, l]) => {
-        const list = rows.filter((p) => (p.scout.draft_role || '') === r);
+      const grouped = rows.some((p) => p.scout.draft_role || p.scout.is_captain);
+      const groupOf = (p) => (p.scout.is_captain ? 'CAPTAIN' : p.scout.draft_role || '');
+      const groupHtml = () => [['CAPTAIN', 'Kapitáni'], ...ROLES, ['', 'Bez pozice']].map(([r, l]) => {
+        const list = rows.filter((p) => groupOf(p) === r);
         return list.length ? `<tr class="qs-group"><td colspan="${COLS.length}">${l}<small>${list.length}</small></td></tr>${list.map(rowHtml).join('')}` : '';
       }).join('');
       $('#rows').innerHTML = rows.length
@@ -553,7 +554,7 @@
           <div>
             <h2>${esc(p.nickname)}</h2>
             <div class="d-meta">
-              ${S.pricesImportedAt ? (isOut(p) ? '<span class="badge badge-out">nedostal se</span>' : `<span class="badge badge-in">dostal se${p.scout.draft_role ? ` · ${ROLE_SHORT[p.scout.draft_role]}` : ''} · ${fmtPrice(p.scout.price)}</span>`) : ''}
+              ${S.pricesImportedAt ? (isOut(p) ? '<span class="badge badge-out">nedostal se</span>' : `<span class="badge badge-in">${p.scout.is_captain ? 'kapitán' : 'dostal se'}${p.scout.draft_role ? ` · ${ROLE_SHORT[p.scout.draft_role]}` : ''} · ${fmtPrice(p.scout.price)}</span>`) : ''}
               ${p.rank ? `<span class="badge">#${p.rank} v žebříčku</span>` : ''}
               ${p.last_played ? `<span class="chip" title="Poslední hra v queue">hrál ${esc(new Date(p.last_played).toLocaleString('cs-CZ', { day: 'numeric', month: 'numeric', hour: '2-digit', minute: '2-digit' }))}</span>` : ''}
               ${p.tier ? `<span class="tier tier-${esc(p.tier)}" style="margin:0">${esc(p.tier)}</span>` : ''}
@@ -751,14 +752,19 @@
     }
 
     const impRows = () => {
-      const rows = I.sheets[I.sheet]?.rows || [];
       const folded = buildIndex();
       const out = [];
-      for (let i = Math.max(I.start - 1, 0); i < rows.length; i++) {
-        const name = String(rows[i][I.nameCol] ?? '').trim();
-        if (!name) continue;
-        out.push({ name, price: parsePrice(rows[i][I.priceCol]), role: I.roleCol >= 0 ? parseRole(rows[i][I.roleCol]) : null, m: matchName(name, folded) });
-      }
+      const read = (rows, { nameCol, priceCol, roleCol, start }, captain) => {
+        for (let i = Math.max(start - 1, 0); i < rows.length; i++) {
+          const name = String(rows[i][nameCol] ?? '').trim();
+          if (!name) continue;
+          out.push({ name, captain, price: parsePrice(rows[i][priceCol]), role: roleCol >= 0 ? parseRole(rows[i][roleCol]) : null, m: matchName(name, folded) });
+        }
+      };
+      const rows = I.sheets[I.sheet]?.rows || [];
+      read(rows, I, isCaptainSheet(rows, I));
+      const caps = I.withCaps && I.capSheet >= 0 && I.capSheet !== I.sheet ? I.sheets[I.capSheet].rows : null;
+      if (caps) read(caps, guessColumns(caps), true);
       return out;
     };
     const overOf = (r) => {
@@ -781,7 +787,7 @@
         }
         const prev = items.get(key);
         if (prev) { if (prev.price !== r.price) dups.push(`${r.name} (${fmtPrice(prev.price)} a ${fmtPrice(r.price)})`); continue; }
-        items.set(key, { key, price: r.price, role: r.role, ...(nickname ? { nickname } : {}) });
+        items.set(key, { key, price: r.price, role: r.role, captain: !!r.captain, ...(nickname ? { nickname } : {}) });
       }
       const toClear = [...S.players.values()].filter((p) => p.scout.price != null && !items.has(p.key));
       return { items: [...items.values()], dups, toClear };
@@ -820,6 +826,9 @@
       const priced = sheets.map((s) => countPriced(s.rows, guessColumns(s.rows)));
       I.sheet = priced.indexOf(Math.max(...priced));
       I.over = new Map(); I.cache = new Map(); I.clear = false;
+      // list s kapitány se přidá automaticky vedle hlavního listu
+      I.capSheet = sheets.findIndex((s) => isCaptainSheet(s.rows, guessColumns(s.rows)));
+      I.withCaps = true;
       impGuess();
       impRender();
     }
@@ -848,12 +857,14 @@
           <label class="field"><span class="field-label">Sloupec s pozicí</span><select id="i-role"><option value="-1">žádný</option>${opts(I.roleCol)}</select></label>
           <label class="field"><span class="field-label">Data od řádku</span><input type="number" min="1" id="i-start" value="${I.start}"></label>
           <button type="button" class="btn btn-small btn-ghost" id="i-other">Jiný soubor</button>
+          ${I.capSheet >= 0 && I.capSheet !== I.sheet ? `<label class="check" style="flex-basis:100%;font-size:.88rem"><input type="checkbox" id="i-caps" style="width:auto" ${I.withCaps ? 'checked' : ''}> Přidat i kapitány z listu „${esc(I.sheets[I.capSheet].name)}“</label>` : ''}
         </div>
         <div class="i-sum">
           <span>Spárováno <b>${auto.length}</b></span>
           <span class="${review.length ? 'warn' : ''}">Ke kontrole <b>${review.length}</b></span>
           <span>V excelu bez ceny <b>${noPrice.length}</b></span>
-          ${I.roleCol >= 0 ? `<span>${ROLES.map(([r, l]) => `${l} <b>${rows.filter((x) => x.price != null && x.role === r).length}</b>`).join(' · ')}</span>` : ''}
+          ${I.roleCol >= 0 ? `<span>${ROLES.map(([r, l]) => `${l} <b>${rows.filter((x) => x.price != null && x.role === r && !x.captain).length}</b>`).join(' · ')}</span>` : ''}
+          ${rows.some((x) => x.captain) ? `<span>Kapitáni <b>${rows.filter((x) => x.captain && x.price != null).length}</b></span>` : ''}
         </div>
         ${review.length ? `<h3>Ke kontrole</h3>
           <p class="i-sub" style="margin-bottom:6px">Jméno z excelu nesedí přesně. Oprav hráče; když políčko necháš prázdné nebo hráč neexistuje, přidá se jako nový.</p>
@@ -878,6 +889,7 @@
       if ($('#i-sheet')) $('#i-sheet').onchange = (e) => { I.sheet = +e.target.value; impGuess(); impRender(); };
       $('#i-name').onchange = (e) => { I.nameCol = +e.target.value; impRender(); };
       $('#i-price').onchange = (e) => { I.priceCol = +e.target.value; impRender(); };
+      if ($('#i-caps')) $('#i-caps').onchange = (e) => { I.withCaps = e.target.checked; impRender(); };
       $('#i-role').onchange = (e) => { I.roleCol = +e.target.value; impRender(); };
       $('#i-start').onchange = (e) => { I.start = Math.max(1, +e.target.value || 1); impRender(); };
       $('#i-clear').onchange = (e) => { I.clear = e.target.checked; };
@@ -1051,7 +1063,7 @@
     /* ---------- auto-obnova (10 s) ---------- */
 
     const POLL_MS = 10_000;
-    const sameScout = (a, b) => JSON.stringify([a.fav_roles, a.price, a.note, a.riot_eune || null, a.riot_euw || null, a.draft_role || null]) === JSON.stringify([b.fav_roles, b.price, b.note, b.riot_eune || null, b.riot_euw || null, b.draft_role || null]);
+    const sameScout = (a, b) => JSON.stringify([a.fav_roles, a.price, a.note, a.riot_eune || null, a.riot_euw || null, a.draft_role || null, a.is_captain || 0]) === JSON.stringify([b.fav_roles, b.price, b.note, b.riot_eune || null, b.riot_euw || null, b.draft_role || null, b.is_captain || 0]);
     async function poll() {
       if (document.hidden || S.saving) return;
       try {

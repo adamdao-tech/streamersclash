@@ -476,6 +476,32 @@ function parsePlan(body: Record<string, unknown>) {
   return { start: amount(body.start, 'Start'), captain_price: amount(body.captain_price, 'Cena kapitána'), picks };
 }
 
+/** The hand-clicked pick simulation: start essence, captains' roles and each captain's bought players. */
+function parseBoard(body: Record<string, unknown>) {
+  const roles = QUEUE_ROLES as readonly string[];
+  const str = (v: unknown) => String(v ?? '').trim().toLowerCase().slice(0, 64);
+  const num = (v: unknown) => (v === null || v === undefined || v === '' ? null : Number(v));
+  const start = num(body.start);
+  if (start === null || !Number.isFinite(start) || start < 0 || start > 1e6) throw new HttpError(400, 'invalid', 'Neplatný start.');
+  const capRoles: Record<string, string> = {};
+  for (const [k, r] of Object.entries((body.cap_roles as Record<string, unknown>) || {}).slice(0, 64)) {
+    if (roles.includes(String(r))) capRoles[str(k)] = String(r);
+  }
+  const teams: Record<string, { key: string; price: number | null }[]> = {};
+  const seen = new Set<string>();
+  for (const [cap, list] of Object.entries((body.teams as Record<string, unknown>) || {}).slice(0, 64)) {
+    if (!Array.isArray(list)) continue;
+    teams[str(cap)] = list.slice(0, 5).map((x: Record<string, unknown>) => {
+      const k = str(x?.key), price = num(x?.price);
+      if (!k || seen.has(k)) throw new HttpError(400, 'invalid', 'Hráč může být jen v jednom týmu.');
+      if (price !== null && (!Number.isFinite(price) || price < 0)) throw new HttpError(400, 'invalid', 'Neplatná cena.');
+      seen.add(k);
+      return { key: k, price };
+    });
+  }
+  return { start, cap_roles: capRoles, teams };
+}
+
 /** Routes under /api/queue. Returns null when the path isn't ours. */
 export async function handleQueueApi(
   req: Request, env: Env, path: string, method: string, user: User, readBody: (r: Request) => Promise<Record<string, unknown>>,
@@ -702,18 +728,31 @@ export async function handleQueueApi(
   // Data for the pick simulation (/simulace): every priced player incl. the captains, plus the admin's own calculator plan.
   if (path === '/api/queue/sim' && method === 'GET') {
     if (guard.hidden) return json({ players: [], plan: null, stream: guard });
-    const [players, plan] = await Promise.all([
+    const [players, meta] = await Promise.all([
       db.prepare(
         `SELECT p.key, p.nickname, p.avatar, p.wins, p.losses, s.price, s.draft_role, s.is_captain, s.fav_roles, s.blocked
            FROM queue_scout s JOIN queue_players p ON p.key = s.player_key WHERE s.price IS NOT NULL`,
       ).all<Record<string, unknown>>(),
-      db.prepare(`SELECT v FROM queue_meta WHERE k = ?`).bind(`draft_plan:${user.id}`).first<{ v: string }>(),
+      db.prepare(`SELECT k, v FROM queue_meta WHERE k IN (?, ?)`).bind(`draft_plan:${user.id}`, `sim_board:${user.id}`).all<{ k: string; v: string }>(),
     ]);
+    const get = (k: string) => { const r = meta.results.find((x) => x.k === k); return r ? JSON.parse(r.v) : null; };
     return json({
       players: players.results.map((r) => ({ ...r, fav_roles: JSON.parse(String(r.fav_roles || '[]')) })),
-      plan: plan ? JSON.parse(plan.v) : null,
+      plan: get(`draft_plan:${user.id}`),
+      board: get(`sim_board:${user.id}`),
       stream: guard,
     });
+  }
+
+  // The admin's own hand-clicked pick simulation: which player goes to which captain and for how much.
+  if (path === '/api/queue/sim' && method === 'PUT') {
+    if (guard.hidden) throw new HttpError(423, 'live', 'Jsi live na Twitchi – během streamu se scouting upravovat nedá.');
+    const board = parseBoard(await readBody(req));
+    await db
+      .prepare(`INSERT INTO queue_meta (k, v) VALUES (?, ?) ON CONFLICT(k) DO UPDATE SET v = excluded.v`)
+      .bind(`sim_board:${user.id}`, JSON.stringify(board))
+      .run();
+    return json({ ok: true });
   }
 
   // The draft budget calculator: blue essence left after the captain and the players picked so far (each admin has their own).

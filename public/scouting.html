@@ -103,6 +103,39 @@
     .d-riot .sugs button:hover { border-color: var(--gold); color: var(--gold-2); }
     .opgg { display: inline-block; font: 700 0.7rem var(--display); padding: 2px 7px; border-radius: 5px; background: #5c46e8; color: #fff; margin: 4px 3px 0 0; }
     .opgg:hover { text-decoration: none; filter: brightness(1.15); }
+    /* import cen z excelu */
+    .qs-table tbody tr.out { opacity: .5; }
+    .qs-rec li.out { opacity: .45; }
+    .badge-in { color: var(--green); border-color: currentColor; }
+    .badge-out { color: var(--muted); }
+    #imp { width: min(860px, calc(100vw - 24px)); max-height: calc(100vh - 40px); }
+    #imp .i-body { padding: 22px; }
+    .i-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+    .i-head h2 { margin: 0 0 4px; }
+    .i-sub { color: var(--muted); font-size: 0.88rem; margin: 0 0 16px; }
+    .i-drop { display: block; padding: 26px 16px; text-align: center; border: 1px dashed var(--line-2); border-radius: 12px; background: var(--bg-2); cursor: pointer; }
+    .i-drop:hover, .i-drop.over { border-color: var(--gold); }
+    .i-drop input { display: block; margin: 10px auto 0; width: auto; }
+    #imp textarea { margin-top: 12px; min-height: 76px; }
+    .i-cols { display: flex; gap: 12px; flex-wrap: wrap; align-items: end; margin-bottom: 14px; }
+    .i-cols select { width: auto; max-width: 240px; }
+    .i-cols input { width: 80px; }
+    .i-sum { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 14px; }
+    .i-sum span { padding: 6px 11px; border-radius: 9px; background: var(--bg-2); border: 1px solid var(--line); font-size: 0.86rem; color: var(--text-2); }
+    .i-sum b { color: var(--text); }
+    .i-sum .warn { border-color: var(--gold); }
+    #imp h3 { margin: 14px 0 6px; font-size: 1rem; }
+    .i-rev { width: 100%; border-collapse: collapse; font-size: 0.88rem; }
+    .i-rev td { padding: 5px 8px 5px 0; border-bottom: 1px solid var(--line); vertical-align: middle; }
+    .i-rev input[type=text] { min-height: 32px; padding: 4px 8px; }
+    .i-rev .st { color: var(--muted); font-size: 0.78rem; white-space: nowrap; }
+    #imp details { margin-top: 10px; font-size: 0.86rem; color: var(--text-2); }
+    #imp summary { cursor: pointer; color: var(--muted); }
+    #imp details p { margin: 6px 0 0; line-height: 1.5; }
+    .i-warn { color: var(--gold-2); font-size: 0.86rem; margin: 8px 0 0; }
+    .i-foot { display: flex; gap: 12px; align-items: center; justify-content: flex-end; flex-wrap: wrap; margin-top: 16px; }
+    .i-foot label { margin-right: auto; display: inline-flex; gap: 7px; align-items: center; font-size: 0.86rem; color: var(--text-2); }
+    .i-foot label input { width: auto; }
     @media (max-width: 760px) { .d-scout, .d-riot { grid-template-columns: 1fr; } .d-kpis { margin-left: 0; } .lobbies { grid-template-columns: 1fr; } }
     /* ochrana při streamu */
     #shield { position: fixed; inset: 0; z-index: 50; background: #000; display: grid; place-items: center; text-align: center; padding: 24px; }
@@ -128,6 +161,7 @@
         <span class="qs-sync" id="live-info" title="Stránka se sama obnovuje každých 10 s"><span class="live-dot" style="display:inline-block;vertical-align:middle"></span> <span id="tick">auto 10 s</span></span>
         <button class="btn btn-small btn-ghost" id="history" hidden title="Stáhne z Streamers Queue API celou historii zápasů (jednorázově, pak se doplňuje samo)">Načíst historii z API</button>
         <button class="btn btn-small btn-ghost" id="profiles" title="Projde profily hráčů na Streamers Clash a načte jejich účty (OP.GG, rank)">Načíst účty všem</button>
+        <button class="btn btn-small btn-primary" id="import" title="Nahraje excel s cenovkami. Mění se jen ceny, poznámky a oblíbení zůstávají.">Importovat ceny (excel)</button>
         <button class="btn btn-small" id="sync">Synchronizovat</button>
         <button class="btn btn-small btn-ghost" id="share" title="Zčerná stránku, když sdílíš obrazovku (Discord apod.). Klávesa F9.">Sdílím obrazovku (F9)</button>
       </div>
@@ -146,9 +180,10 @@
         <div class="seg" id="role-filter"></div>
         <select id="show">
           <option value="all">Všichni</option>
+          <option value="price">Dostali se (s cenou)</option>
+          <option value="noprice">Nedostali se (bez ceny)</option>
           <option value="fav">Jen oblíbení</option>
           <option value="note">S poznámkou</option>
-          <option value="price">S cenou</option>
         </select>
         <label class="qs-sync">Min. zápasů <input type="number" id="min" min="0" value="0" style="width:70px"></label>
       </div>
@@ -182,6 +217,8 @@
   </main>
 
   <dialog id="detail"><div class="d-body" id="detail-body"></div></dialog>
+  <dialog id="imp"><div class="i-body" id="imp-body"></div></dialog>
+  <datalist id="imp-nicks"></datalist>
 
   <div id="shield" hidden><div class="box">
     <h2 id="shield-title"></h2>
@@ -192,6 +229,7 @@
 
   <script type="module">
     import { api, esc, initPage, timeAgo } from '/app.js';
+    import { columnLabel, editDistance, foldName, guessColumns, parseDelimited, parsePrice, readTable } from '/excel.js';
 
     const me = await initPage('scouting');
     if (me.role !== 'admin') location.href = '/';
@@ -255,8 +293,12 @@
       S.links = new Map((data.links || []).map((l) => [l.queue_key, l]));
       S.teams = data.teams || [];
       S.syncedAt = data.synced_at; S.matchCount = data.matches.length; S.lastPoll = Date.now();
+      S.pricesImportedAt = data.prices_imported_at ?? null;
       applyStream(data.stream);
-      $('#sync-info').textContent = data.synced_at ? `Synchronizováno ${timeAgo(data.synced_at)} · ${data.matches.length} uložených zápasů` : 'Ještě nesynchronizováno';
+      // po importu cen je výchozí pohled "kdo se dostal"; ostatní zůstávají pod filtrem
+      if (S.pricesImportedAt && !S.stream.hidden && !S.showTouched) { S.show = 'price'; $('#show').value = 'price'; }
+      $('#sync-info').textContent = (data.synced_at ? `Synchronizováno ${timeAgo(data.synced_at)} · ${data.matches.length} uložených zápasů` : 'Ještě nesynchronizováno')
+        + (S.pricesImportedAt ? ` · ceny z excelu ${timeAgo(S.pricesImportedAt)}` : '');
       $('#c-players').textContent = players.size;
       $('#c-favs').textContent = [...players.values()].filter((p) => p.scout.fav_roles.length).length || '';
       render();
@@ -370,7 +412,7 @@
       return [...S.players.values()].filter((p) =>
         (!q || p.nickname.toLowerCase().includes(q)) && p.games >= S.min &&
         (!S.role || p.scout.fav_roles.includes(S.role)) &&
-        (S.show === 'all' || (S.show === 'fav' && p.scout.fav_roles.length) || (S.show === 'note' && p.scout.note) || (S.show === 'price' && p.scout.price != null)),
+        (S.show === 'all' || (S.show === 'fav' && p.scout.fav_roles.length) || (S.show === 'note' && p.scout.note) || (S.show === 'price' && p.scout.price != null) || (S.show === 'noprice' && p.scout.price == null)),
       ).sort((a, b) => {
         const va = sortVal[col](a), vb = sortVal[col](b);
         return (typeof va === 'string' ? va.localeCompare(vb) : va - vb) * dir || b.wins - a.wins;
@@ -382,12 +424,19 @@
       $('#thead').innerHTML = COLS.map(([c, l, , cls]) => `<th data-sort="${c}" class="${cls || ''} ${S.sort.col === c ? `sorted ${S.sort.dir > 0 ? 'asc' : ''}` : ''}">${l}</th>`).join('');
       const rows = filtered();
       $('#rows').innerHTML = rows.length
-        ? rows.map((p, i) => `<tr data-key="${esc(p.key)}">${COLS.map(([, , fn, cls]) => `<td class="${cls || ''}">${fn(p, i)}</td>`).join('')}</tr>`).join('')
+        ? rows.map((p, i) => `<tr data-key="${esc(p.key)}" class="${isOut(p) ? 'out' : ''}">${COLS.map(([, , fn, cls]) => `<td class="${cls || ''}">${fn(p, i)}</td>`).join('')}</tr>`).join('')
         : `<tr><td colspan="${COLS.length}" class="empty">Nikdo neodpovídá filtru</td></tr>`;
-      $('#foot').textContent = `${rows.length} hráčů · W/L a pořadí z oficiálního žebříčku, forma a detail z uložených zápasů.`;
+      const all = S.players.size, priced = [...S.players.values()].filter((p) => p.scout.price != null).length;
+      $('#show').querySelector('[value=all]').textContent = `Všichni (${all})`;
+      $('#show').querySelector('[value=price]').textContent = `Dostali se – s cenou (${priced})`;
+      $('#show').querySelector('[value=noprice]').textContent = `Nedostali se – bez ceny (${all - priced})`;
+      $('#foot').textContent = `${rows.length} hráčů${S.show === 'price' ? ` · dalších ${all - priced} je ve filtru Nedostali se, nic se nemaže` : ''} · W/L a pořadí z oficiálního žebříčku, forma a detail z uložených zápasů.`;
       renderFavs();
       if (S.tab === 'duos') renderDuos();
     }
+
+    /** Po importu cen: hráč bez ceny se do turnaje nedostal (zůstává v databázi, jen je ztlumený). */
+    const isOut = (p) => !!S.pricesImportedAt && p.scout.price == null;
 
     /** Odznak týmu, když je hráč propojený s hráčem v appce. */
     const teamTag = (p) => {
@@ -433,9 +482,9 @@
 
     function renderFavs() {
       $('#favs').innerHTML = ROLES.map(([r, l]) => {
-        const list = [...S.players.values()].filter((p) => p.scout.fav_roles.includes(r)).sort((a, b) => (b.wr ?? 0) - (a.wr ?? 0));
+        const list = [...S.players.values()].filter((p) => p.scout.fav_roles.includes(r)).sort((a, b) => isOut(a) - isOut(b) || (b.wr ?? 0) - (a.wr ?? 0));
         return `<section class="card"><h2>${l} <small>${list.length}</small></h2>
-          ${list.length ? `<ul class="qs-rec">${list.map((p) => `<li data-key="${esc(p.key)}" style="cursor:pointer">
+          ${list.length ? `<ul class="qs-rec">${list.map((p) => `<li data-key="${esc(p.key)}" class="${isOut(p) ? 'out' : ''}" style="cursor:pointer" title="${isOut(p) ? 'Nedostal se (bez ceny)' : ''}">
             <span><span class="qs-pl">${avatar(p)}${esc(p.nickname)}</span> ${opggChips(p)}${p.scout.note ? `<span class="sub">${esc(p.scout.note)}</span>` : ''}</span>
             <span style="text-align:right">${wl(p)}<span class="sub">${pct(p.wr)}${p.scout.price != null ? ` · <span class="price">${fmtPrice(p.scout.price)}</span>` : ''}</span></span></li>`).join('')}</ul>`
             : '<p class="zero" style="font-size:.88rem">Zatím nikdo. Označ hráče v tabulce.</p>'}</section>`;
@@ -494,6 +543,7 @@
           <div>
             <h2>${esc(p.nickname)}</h2>
             <div class="d-meta">
+              ${S.pricesImportedAt ? (isOut(p) ? '<span class="badge badge-out">nedostal se</span>' : `<span class="badge badge-in">dostal se · ${fmtPrice(p.scout.price)}</span>`) : ''}
               ${p.rank ? `<span class="badge">#${p.rank} v žebříčku</span>` : ''}
               ${p.last_played ? `<span class="chip" title="Poslední hra v queue">hrál ${esc(new Date(p.last_played).toLocaleString('cs-CZ', { day: 'numeric', month: 'numeric', hour: '2-digit', minute: '2-digit' }))}</span>` : ''}
               ${p.tier ? `<span class="tier tier-${esc(p.tier)}" style="margin:0">${esc(p.tier)}</span>` : ''}
@@ -592,7 +642,7 @@
       render();
     });
     $('#q').addEventListener('input', (e) => { S.q = e.target.value; render(); });
-    $('#show').addEventListener('change', (e) => { S.show = e.target.value; render(); });
+    $('#show').addEventListener('change', (e) => { S.show = e.target.value; S.showTouched = true; render(); });
     $('#min').addEventListener('input', (e) => { S.min = +e.target.value || 0; render(); });
 
     $('#tabs').addEventListener('click', (e) => {
@@ -643,6 +693,224 @@
       } catch (err) { alert(err.message); btn.textContent = 'Synchronizovat'; }
       finally { setTimeout(() => { btn.disabled = false; btn.textContent = 'Synchronizovat'; }, 2500); }
     });
+
+    /* ---------- import cen z excelu ---------- */
+    // Excel se čte tady v prohlížeči. Na server jdou jen dvojice hráč + cena a mění se jen cena.
+
+    const I = { sheets: [], sheet: 0, nameCol: 0, priceCol: 1, start: 1, over: new Map(), clear: false, cache: new Map() };
+
+    function buildIndex() {
+      const folded = new Map();
+      const add = (name, key) => {
+        const f = foldName(name);
+        if (!f) return;
+        if (!folded.has(f)) folded.set(f, new Set());
+        folded.get(f).add(key);
+      };
+      for (const p of S.players.values()) {
+        add(p.nickname, p.key);
+        for (const a of accountsOf(p)) add(a.riot.split('#')[0], p.key);
+      }
+      for (const l of S.links?.values() || []) add(l.nickname, l.queue_key);
+      return folded;
+    }
+
+    /** Excelové jméno → hráč: auto = jistá shoda, review = návrh ke kontrole, none = nikdo. */
+    function matchName(name, folded) {
+      if (I.cache.has(name)) return I.cache.get(name);
+      const done = (r) => (I.cache.set(name, r), r);
+      if (S.players.has(k(name))) return done({ how: 'auto', key: k(name) });
+      const f = foldName(name.split('#')[0]);
+      if (!f) return done({ how: 'none' });
+      const hit = folded.get(f);
+      if (hit?.size === 1) return done({ how: 'auto', key: [...hit][0] });
+      if (hit?.size > 1) return done({ how: 'review', key: [...hit][0] });
+      let best = null, bestScore = Infinity;
+      for (const [cand, keys] of folded) {
+        const short = Math.min(cand.length, f.length);
+        if (short < 4) continue;
+        let score = Infinity;
+        if (cand.includes(f) || f.includes(cand)) score = Math.abs(cand.length - f.length) / 10 + 0.5;
+        else if (Math.abs(cand.length - f.length) <= 2) {
+          const d = editDistance(cand, f);
+          if (d <= (short >= 6 ? 2 : 1)) score = d;
+        }
+        if (score < bestScore) { bestScore = score; best = [...keys][0]; }
+      }
+      return done(best ? { how: 'review', key: best } : { how: 'none' });
+    }
+
+    const impRows = () => {
+      const rows = I.sheets[I.sheet]?.rows || [];
+      const folded = buildIndex();
+      const out = [];
+      for (let i = Math.max(I.start - 1, 0); i < rows.length; i++) {
+        const name = String(rows[i][I.nameCol] ?? '').trim();
+        if (!name) continue;
+        out.push({ name, price: parsePrice(rows[i][I.priceCol]), m: matchName(name, folded) });
+      }
+      return out;
+    };
+    const overOf = (r) => {
+      if (!I.over.has(r.name)) I.over.set(r.name, { on: true, val: r.m.key ? S.players.get(r.m.key)?.nickname ?? '' : '' });
+      return I.over.get(r.name);
+    };
+
+    /** Co se opravdu uloží: jeden řádek na hráče, první výskyt vyhrává. */
+    function impItems(rows) {
+      const items = new Map(), dups = [];
+      for (const r of rows) {
+        if (r.price == null) continue;
+        let key = r.m.key, nickname = null;
+        if (r.m.how !== 'auto') {
+          const o = overOf(r);
+          if (!o.on) continue;
+          const val = o.val.trim();
+          if (val && S.players.has(k(val))) key = k(val);
+          else { key = k(val || r.name); nickname = val || r.name; }
+        }
+        const prev = items.get(key);
+        if (prev) { if (prev.price !== r.price) dups.push(`${r.name} (${fmtPrice(prev.price)} a ${fmtPrice(r.price)})`); continue; }
+        items.set(key, { key, price: r.price, ...(nickname ? { nickname } : {}) });
+      }
+      const toClear = [...S.players.values()].filter((p) => p.scout.price != null && !items.has(p.key));
+      return { items: [...items.values()], dups, toClear };
+    }
+
+    function impPick(error = '') {
+      I.sheets = [];
+      $('#imp-body').innerHTML = `
+        <div class="i-head"><div><h2>Import cen z excelu</h2></div><button class="btn btn-icon" id="i-close" title="Zavřít">✕</button></div>
+        <p class="i-sub">Kdo má v excelu cenu, ten se dostal. Ostatní hráči ani jejich poznámky a oblíbení se nemažou.</p>
+        <label class="i-drop" id="i-drop">Přetáhni sem excel (.xlsx nebo .csv)<input type="file" id="i-file" accept=".xlsx,.xlsm,.csv,.tsv,.txt"></label>
+        <textarea id="i-paste" placeholder="…nebo tabulku v Excelu zkopíruj a vlož ji sem (Ctrl+V)"></textarea>
+        <p class="form-error" id="i-err">${esc(error)}</p>`;
+      $('#i-close').onclick = () => $('#imp').close();
+      const drop = $('#i-drop');
+      $('#i-file').onchange = (e) => e.target.files[0] && impFile(e.target.files[0]);
+      drop.ondragover = (e) => { e.preventDefault(); drop.classList.add('over'); };
+      drop.ondragleave = () => drop.classList.remove('over');
+      drop.ondrop = (e) => { e.preventDefault(); drop.classList.remove('over'); if (e.dataTransfer.files[0]) impFile(e.dataTransfer.files[0]); };
+      $('#i-paste').onpaste = (e) => {
+        const text = e.clipboardData.getData('text');
+        if (!text.trim()) return;
+        e.preventDefault();
+        impLoaded([{ name: 'Vložená tabulka', rows: parseDelimited(text) }]);
+      };
+    }
+
+    async function impFile(file) {
+      try { impLoaded(await readTable(file)); }
+      catch (err) { impPick(err.message); }
+    }
+
+    function impLoaded(sheets) {
+      // list s nejvíc řádky bývá ten pravý
+      I.sheets = sheets;
+      I.sheet = sheets.reduce((best, s, i) => (s.rows.length > sheets[best].rows.length ? i : best), 0);
+      I.over = new Map(); I.cache = new Map(); I.clear = false;
+      impGuess();
+      impRender();
+    }
+    const impGuess = () => Object.assign(I, guessColumns(I.sheets[I.sheet].rows));
+
+    function impRender() {
+      const sheet = I.sheets[I.sheet];
+      const width = Math.min(60, Math.max(1, ...sheet.rows.map((r) => r.length)));
+      const headRow = sheet.rows[I.start - 2] || sheet.rows[I.start - 1] || [];
+      const opts = (sel) => Array.from({ length: width }, (_, i) => {
+        const h = String(headRow[i] ?? '').slice(0, 24);
+        return `<option value="${i}" ${i === sel ? 'selected' : ''}>${columnLabel(i)}${h ? ` – ${esc(h)}` : ''}</option>`;
+      }).join('');
+      const rows = impRows();
+      const auto = rows.filter((r) => r.price != null && r.m.how === 'auto');
+      const review = rows.filter((r) => r.price != null && r.m.how !== 'auto');
+      const noPrice = rows.filter((r) => r.price == null);
+      $('#imp-nicks').innerHTML = [...S.players.values()].map((p) => `<option value="${esc(p.nickname)}">`).join('');
+      $('#imp-body').innerHTML = `
+        <div class="i-head"><div><h2>Import cen z excelu</h2></div><button class="btn btn-icon" id="i-close" title="Zavřít">✕</button></div>
+        <p class="i-sub">Zkontroluj sloupce a případné neshody. Do uložení se nic nemění.</p>
+        <div class="i-cols">
+          ${I.sheets.length > 1 ? `<label class="field"><span class="field-label">List</span><select id="i-sheet">${I.sheets.map((s, i) => `<option value="${i}" ${i === I.sheet ? 'selected' : ''}>${esc(s.name)}</option>`).join('')}</select></label>` : ''}
+          <label class="field"><span class="field-label">Sloupec s hráčem</span><select id="i-name">${opts(I.nameCol)}</select></label>
+          <label class="field"><span class="field-label">Sloupec s cenou</span><select id="i-price">${opts(I.priceCol)}</select></label>
+          <label class="field"><span class="field-label">Data od řádku</span><input type="number" min="1" id="i-start" value="${I.start}"></label>
+          <button type="button" class="btn btn-small btn-ghost" id="i-other">Jiný soubor</button>
+        </div>
+        <div class="i-sum">
+          <span>Spárováno <b>${auto.length}</b></span>
+          <span class="${review.length ? 'warn' : ''}">Ke kontrole <b>${review.length}</b></span>
+          <span>V excelu bez ceny <b>${noPrice.length}</b></span>
+        </div>
+        ${review.length ? `<h3>Ke kontrole</h3>
+          <p class="i-sub" style="margin-bottom:6px">Jméno z excelu nesedí přesně. Oprav hráče; když políčko necháš prázdné nebo hráč neexistuje, přidá se jako nový.</p>
+          <table class="i-rev"><tbody>${review.map((r, i) => {
+            const o = overOf(r);
+            return `<tr data-i="${i}"><td style="width:24px"><input type="checkbox" class="i-on" ${o.on ? 'checked' : ''} title="Importovat"></td>
+              <td><b>${esc(r.name)}</b></td><td class="num price">${fmtPrice(r.price)}</td>
+              <td><input type="text" class="i-val" list="imp-nicks" value="${esc(o.val)}" placeholder="přidat jako nového"></td><td class="st"></td></tr>`;
+          }).join('')}</tbody></table>` : ''}
+        ${auto.length ? `<details><summary>Spárovaní hráči (${auto.length})</summary><p>${auto.map((r) => `${esc(S.players.get(r.m.key)?.nickname ?? r.name)} <span class="price">${fmtPrice(r.price)}</span>`).join(' · ')}</p></details>` : ''}
+        ${noPrice.length ? `<details><summary>V excelu bez ceny (${noPrice.length}) – neimportují se</summary><p>${noPrice.map((r) => esc(r.name)).join(' · ')}</p></details>` : ''}
+        <p class="i-warn" id="i-dups" hidden></p>
+        <p class="form-error" id="i-err"></p>
+        <div class="i-foot">
+          <label id="i-clear-wrap" hidden><input type="checkbox" id="i-clear" ${I.clear ? 'checked' : ''}> <span id="i-clear-text"></span></label>
+          <button type="button" class="btn btn-ghost" id="i-cancel">Zrušit</button>
+          <button type="button" class="btn btn-primary" id="i-save"></button>
+        </div>`;
+
+      $('#i-close').onclick = $('#i-cancel').onclick = () => $('#imp').close();
+      $('#i-other').onclick = () => impPick();
+      if ($('#i-sheet')) $('#i-sheet').onchange = (e) => { I.sheet = +e.target.value; impGuess(); impRender(); };
+      $('#i-name').onchange = (e) => { I.nameCol = +e.target.value; impRender(); };
+      $('#i-price').onchange = (e) => { I.priceCol = +e.target.value; impRender(); };
+      $('#i-start').onchange = (e) => { I.start = Math.max(1, +e.target.value || 1); impRender(); };
+      $('#i-clear').onchange = (e) => { I.clear = e.target.checked; };
+      document.querySelectorAll('.i-rev tr').forEach((tr) => {
+        const r = review[+tr.dataset.i];
+        tr.querySelector('.i-on').onchange = (e) => { overOf(r).on = e.target.checked; impSummary(rows, review); };
+        tr.querySelector('.i-val').oninput = (e) => { overOf(r).val = e.target.value; impSummary(rows, review); };
+      });
+      $('#i-save').onclick = () => impSave(rows);
+      impSummary(rows, review);
+      const dlg = $('#imp');
+      dlg.scrollTop = 0;
+    }
+
+    /** Přepočet bez překreslení, ať se při psaní neztratí kurzor. */
+    function impSummary(rows, review) {
+      document.querySelectorAll('.i-rev tr').forEach((tr) => {
+        const r = review[+tr.dataset.i], o = overOf(r), val = o.val.trim();
+        tr.querySelector('.st').textContent = !o.on ? 'přeskočí se' : val && S.players.has(k(val)) ? (r.m.how === 'review' ? 'návrh, ověř' : 'spárováno') : 'nový hráč';
+      });
+      const { items, dups, toClear } = impItems(rows);
+      const save = $('#i-save');
+      save.textContent = `Uložit ceny (${items.length})`;
+      save.disabled = !items.length;
+      $('#i-dups').hidden = !dups.length;
+      $('#i-dups').textContent = dups.length ? `V excelu dvakrát s jinou cenou, použije se první: ${dups.join(', ')}` : '';
+      $('#i-clear-wrap').hidden = !toClear.length;
+      $('#i-clear-text').textContent = `Odebrat cenu hráčům, kteří v tomhle excelu nejsou (${toClear.length})`;
+    }
+
+    async function impSave(rows) {
+      const { items } = impItems(rows);
+      const btn = $('#i-save');
+      btn.disabled = true; btn.textContent = 'Ukládám…';
+      S.saving = (S.saving || 0) + 1;
+      try {
+        await api('/api/queue/prices', { method: 'POST', body: { items, clear_missing: I.clear && !$('#i-clear-wrap').hidden } });
+        $('#imp').close();
+        S.showTouched = false;
+        S.saving--; await load(); S.saving++;
+      } catch (err) {
+        $('#i-err').textContent = err.message;
+        btn.disabled = false; btn.textContent = `Uložit ceny (${items.length})`;
+      } finally { S.saving--; }
+    }
+
+    $('#import').addEventListener('click', () => { impPick(); $('#imp').showModal(); });
 
     /* ---------- načtení účtů všem hráčům ---------- */
 
@@ -733,6 +1001,7 @@
       const on = forced || sharing;
       $('#shield').hidden = !on;
       if (on && $('#detail').open) $('#detail').close();
+      if (on && $('#imp').open) $('#imp').close();
       $('#shield-title').textContent = forced ? 'Jsi live na Twitchi' : 'Sdílíš obrazovku';
       $('#shield-text').textContent = forced
         ? 'Během streamu je Queue scouting skrytý a poznámky, ceny ani oblíbení se do prohlížeče vůbec nenačítají. Jakmile stream skončí, stránka se sama zobrazí (do ~1 min).'
@@ -776,7 +1045,7 @@
         applyStream(u.stream);
         if (wasHidden && !u.stream?.hidden) return void (await load()); // stream skončil → načti data zpět
         // nový sync (přibyly zápasy / změnil se žebříček) → načti všechno
-        if (u.synced_at !== S.syncedAt || u.matches !== S.matchCount) return void (await load());
+        if (u.synced_at !== S.syncedAt || u.matches !== S.matchCount || (u.prices_imported_at ?? null) !== S.pricesImportedAt) return void (await load());
         const byKey = new Map(u.scout.map((x) => [x.player_key, x]));
         let changed = false;
         for (const p of S.players.values()) {

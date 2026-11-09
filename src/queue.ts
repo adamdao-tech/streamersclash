@@ -473,7 +473,7 @@ export async function handleQueueApi(
   if (path === '/api/queue/stream' && method === 'GET') return json({ stream: guard });
 
   if (path === '/api/queue' && method === 'GET') {
-    const [players, matches, scout, meta, suggestions, links, teams] = await Promise.all([
+    const [players, matches, scout, meta, suggestions, links, teams, imported] = await Promise.all([
       db.prepare('SELECT * FROM queue_players ORDER BY rank IS NULL, rank, nickname COLLATE NOCASE').all(),
       db.prepare('SELECT * FROM queue_matches ORDER BY number DESC').all(),
       db.prepare(`SELECT s.*, u.display_name AS updated_by_name FROM queue_scout s LEFT JOIN users u ON u.id = s.updated_by`).all(),
@@ -484,6 +484,7 @@ export async function handleQueueApi(
            FROM players p LEFT JOIN teams t ON t.id = p.team_id WHERE p.queue_key IS NOT NULL`,
       ).all(),
       db.prepare('SELECT id, name, tag, is_own_team FROM teams ORDER BY is_own_team DESC, name COLLATE NOCASE').all(),
+      db.prepare(`SELECT v FROM queue_meta WHERE k = 'prices_imported_at'`).first<{ v: string }>(),
     ]);
     const rest = JSON.stringify({
       links: links.results,
@@ -493,6 +494,7 @@ export async function handleQueueApi(
       // live on Twitch without permission → the admins' notes, prices and favourites stay on the server
       scout: guard.hidden ? [] : scout.results.map((r: Record<string, unknown>) => ({ ...r, fav_roles: JSON.parse(String(r.fav_roles || '[]')) })),
       synced_at: meta?.v ?? null,
+      prices_imported_at: imported?.v ?? null,
       stream: guard,
       sq_enabled: sqEnabled(env),
     });
@@ -511,7 +513,7 @@ export async function handleQueueApi(
   if (path === '/api/queue/updates' && method === 'GET') {
     const [scout, meta] = await Promise.all([
       db.prepare(`SELECT s.*, u.display_name AS updated_by_name FROM queue_scout s LEFT JOIN users u ON u.id = s.updated_by`).all(),
-      db.prepare(`SELECT k, v FROM queue_meta WHERE k IN ('synced_at', 'match_count')`).all<{ k: string; v: string }>(),
+      db.prepare(`SELECT k, v FROM queue_meta WHERE k IN ('synced_at', 'match_count', 'prices_imported_at')`).all<{ k: string; v: string }>(),
     ]);
     const m = new Map(meta.results.map((r) => [r.k, r.v]));
     if (!m.has('match_count')) {
@@ -523,6 +525,7 @@ export async function handleQueueApi(
       scout: guard.hidden ? [] : scout.results.map((r: Record<string, unknown>) => ({ ...r, fav_roles: JSON.parse(String(r.fav_roles || '[]')) })),
       synced_at: m.get('synced_at') ?? null,
       matches: Number(m.get('match_count') ?? 0),
+      prices_imported_at: m.get('prices_imported_at') ?? null,
       stream: guard,
     });
   }
@@ -652,6 +655,55 @@ export async function handleQueueApi(
       .run();
     await logActivity(db, { kind: 'user', userId: user.id }, 'queue.scout', 'queue_player', null, { player: playerKey, ...s });
     return json({ ok: true, scout: { ...s, fav_roles: JSON.parse(s.fav_roles) } });
+  }
+
+  // Prices from the organizer's Excel (parsed in the page). Only the price is ever written: notes, favourites
+  // and Riot IDs stay, and players without a price are kept – having a price just means they made the cut.
+  if (path === '/api/queue/prices' && method === 'POST') {
+    if (guard.hidden) throw new HttpError(423, 'live', 'Jsi live na Twitchi – během streamu se scouting upravovat nedá.');
+    const body = await readBody(req);
+    const raw = Array.isArray(body.items) ? (body.items as Record<string, unknown>[]) : [];
+    if (!raw.length) throw new HttpError(400, 'invalid', 'Žádní hráči k uložení.');
+    if (raw.length > 3000) throw new HttpError(400, 'invalid', 'Moc řádků najednou.');
+    const items = raw.map((it) => {
+      const playerKey = key(String(it.key ?? ''));
+      const price = Number(it.price);
+      if (!playerKey || !Number.isFinite(price) || price < 0 || it.price === null || it.price === '') {
+        throw new HttpError(400, 'invalid', `Neplatná cena u hráče ${playerKey || '?'}.`);
+      }
+      return { playerKey, price, nickname: it.nickname ? String(it.nickname).trim().slice(0, 64) : null };
+    });
+
+    const upsert = db.prepare(
+      `INSERT INTO queue_scout (player_key, price, updated_by, updated_at) VALUES (?1, ?2, ?3, datetime('now'))
+       ON CONFLICT(player_key) DO UPDATE SET price = excluded.price, updated_by = excluded.updated_by, updated_at = excluded.updated_at
+       WHERE price IS NOT excluded.price`,
+    );
+    // someone in the Excel who has never been seen in the queue still needs a row to show up in the table
+    const addPlayer = db.prepare('INSERT OR IGNORE INTO queue_players (key, nickname) VALUES (?, ?)');
+    const stmts: D1PreparedStatement[] = [];
+    for (const it of items) {
+      if (it.nickname) stmts.push(addPlayer.bind(it.playerKey, it.nickname));
+      stmts.push(upsert.bind(it.playerKey, it.price, user.id));
+    }
+
+    let cleared = 0;
+    if (body.clear_missing) {
+      const keep = new Set(items.map((it) => it.playerKey));
+      const { results } = await db.prepare('SELECT player_key FROM queue_scout WHERE price IS NOT NULL').all<{ player_key: string }>();
+      const clear = db.prepare(`UPDATE queue_scout SET price = NULL, updated_by = ?, updated_at = datetime('now') WHERE player_key = ?`);
+      for (const r of results) {
+        if (keep.has(r.player_key)) continue;
+        stmts.push(clear.bind(user.id, r.player_key));
+        cleared++;
+      }
+    }
+
+    stmts.push(db.prepare(`INSERT INTO queue_meta (k, v) VALUES ('prices_imported_at', datetime('now')) ON CONFLICT(k) DO UPDATE SET v = excluded.v`));
+    for (let i = 0; i < stmts.length; i += 100) await db.batch(stmts.slice(i, i + 100));
+    const created = items.filter((it) => it.nickname).length;
+    await logActivity(db, { kind: 'user', userId: user.id }, 'queue.prices', null, null, { imported: items.length, created, cleared });
+    return json({ ok: true, imported: items.length, created, cleared });
   }
 
   throw new HttpError(404, 'not_found', 'Unknown endpoint');

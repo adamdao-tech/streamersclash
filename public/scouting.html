@@ -133,24 +133,52 @@
     .v-tools label { display: inline-flex; gap: 6px; align-items: center; font-size: 0.86rem; color: var(--text-2); }
     .v-tools label input { width: auto; }
     .v-tools .v-count { color: var(--muted); font-size: 0.86rem; }
-    .v-found { display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px; }
-    .v-found .f-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; padding: 8px 12px; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; }
-    .v-found .f-row b { min-width: 140px; }
+    .v-found { display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px; }
+    .v-found .f-row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; padding: 8px 10px 8px 14px; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; }
+    .v-found .f-row.st-us { border-color: rgba(47,191,113,.6); background: rgba(47,191,113,.08); }
+    .v-found .f-row.st-other { border-color: rgba(229,56,59,.6); background: rgba(229,56,59,.08); }
+    .v-found .f-row b { font-size: 1rem; }
     .v-found .f-row small { color: var(--muted); }
     .v-found .f-row .sp { flex: 1; }
-    .pk-btn { font: 600 0.78rem var(--font); padding: 4px 10px; border-radius: 999px; border: 1px solid var(--line-2); background: var(--bg-2); color: var(--text-2); cursor: pointer; }
-    .pk-btn:hover { border-color: var(--gold); }
-    .pk-btn.other.on { background: #e5383b; border-color: transparent; color: #fff; }
-    .pk-btn.us.on { background: var(--green); border-color: transparent; color: #06140c; }
-    .v-picked { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; margin-bottom: 14px; font-size: 0.84rem; color: var(--muted); }
-    .pk-chip { display: inline-flex; gap: 6px; align-items: center; padding: 3px 4px 3px 10px; border-radius: 999px; font-weight: 600; font-size: 0.8rem; }
-    .pk-chip.other { background: rgba(229,56,59,.18); color: #ff9a9d; border: 1px solid rgba(229,56,59,.5); }
-    .pk-chip.us { background: rgba(47,191,113,.16); color: #6fe0a3; border: 1px solid rgba(47,191,113,.5); }
-    .pk-chip button { border: 0; background: none; color: inherit; cursor: pointer; padding: 0 5px; font-size: 0.9rem; }
+    .pk-seg { display: inline-flex; border: 1px solid var(--line-2); border-radius: 9px; overflow: hidden; }
+    .pk-seg button { padding: 7px 14px; border: 0; border-left: 1px solid var(--line-2); background: var(--bg-2); color: var(--text-2); font: 600 0.84rem var(--font); cursor: pointer; }
+    .pk-seg button:first-child { border-left: 0; }
+    .pk-seg button:hover { color: var(--text); background: var(--panel-3); }
+    .pk-seg button.on.free { background: var(--panel-3); color: var(--text); }
+    .pk-seg button.on.us { background: var(--green); color: #06140c; }
+    .pk-seg button.on.other { background: #e5383b; color: #fff; }
+    .pk-board { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 16px; }
+    .pk-col { border-radius: 12px; border: 1px solid var(--line); background: var(--panel); overflow: hidden; }
+    .pk-col header { display: flex; align-items: center; gap: 10px; padding: 9px 14px; font: 700 1rem var(--display); letter-spacing: .03em; }
+    .pk-col header .cnt { margin-left: auto; min-width: 28px; height: 28px; display: inline-grid; place-items: center; border-radius: 8px; font: 700 1rem var(--display); }
+    .pk-col.us { border-color: rgba(47,191,113,.55); }
+    .pk-col.us header { background: rgba(47,191,113,.16); color: #6fe0a3; }
+    .pk-col.us header .cnt { background: var(--green); color: #06140c; }
+    .pk-col.other { border-color: rgba(229,56,59,.55); }
+    .pk-col.other header { background: rgba(229,56,59,.16); color: #ff9a9d; }
+    .pk-col.other header .cnt { background: #e5383b; color: #fff; }
+    .pk-col .body { display: flex; flex-wrap: wrap; gap: 6px; padding: 10px 12px; min-height: 52px; align-content: flex-start; }
+    .pk-col .empty-c { color: var(--muted); font-size: 0.84rem; align-self: center; }
+    .pk-card { display: inline-flex; align-items: center; gap: 8px; padding: 5px 4px 5px 6px; border-radius: 9px; background: var(--bg-2); border: 1px solid var(--line); font-size: 0.88rem; }
+    .pk-card .r { font: 700 0.68rem var(--display); letter-spacing: .04em; padding: 2px 6px; border-radius: 5px; }
+    .pk-col.us .pk-card .r { background: rgba(47,191,113,.2); color: #6fe0a3; }
+    .pk-col.other .pk-card .r { background: rgba(229,56,59,.2); color: #ff9a9d; }
+    .pk-card b { font-weight: 600; }
+    .pk-card .c { color: var(--muted); font-variant-numeric: tabular-nums; font-size: 0.8rem; }
+    .pk-card button { border: 0; background: none; color: var(--muted); cursor: pointer; padding: 0 6px; font-size: 1rem; line-height: 1; }
+    .pk-card button:hover { color: var(--text); }
+    .pk-foot { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin: -6px 0 16px; font-size: 0.82rem; color: var(--muted); }
+    .pk-clear { border: 0; background: none; color: var(--muted); cursor: pointer; font: 500 0.82rem var(--font); text-decoration: underline; }
+    .pk-clear:hover { color: #ff9a9d; }
+    .v-badge { flex: none; font: 700 0.7rem var(--display); letter-spacing: .05em; padding: 3px 8px; border-radius: 6px; white-space: nowrap; }
+    .v-badge.ok { background: rgba(47,191,113,.18); color: #6fe0a3; border: 1px solid rgba(47,191,113,.5); }
+    .v-badge.no { background: rgba(229,56,59,.18); color: #ff9a9d; border: 1px solid rgba(229,56,59,.5); }
+    @media (max-width: 760px) { .pk-board { grid-template-columns: 1fr; } }
     .v-card.gone { opacity: .45; }
     .v-card.gone .v-why { color: #ff9a9d; font-size: 0.8rem; white-space: nowrap; }
     .v-names .pk-other { color: #ff7a7e; text-decoration: line-through; }
-    .v-names .pk-us { color: #6fe0a3; }
+    .v-names .pk-us { color: #6fe0a3; font-weight: 700; }
+    .v-names .pk-us::before { content: '✔ '; }
     .v-names mark, .qs-table mark, .v-found mark { background: rgba(232,184,74,.3); color: inherit; border-radius: 3px; padding: 0 2px; }
     .v-prio { display: inline-grid; place-items: center; min-width: 22px; height: 22px; border-radius: 6px; background: var(--gold); color: var(--on-gold); font: 700 0.8rem var(--display); }
     .v-ord { display: inline-flex; gap: 2px; margin-left: 6px; }
@@ -272,7 +300,7 @@
         <span class="v-count" id="v-count"></span>
       </div>
       <div class="v-found" id="v-found"></div>
-      <div class="v-picked" id="v-picked"></div>
+      <div id="v-picked"></div>
       <div id="vars"></div>
     </section>
 
@@ -639,17 +667,23 @@
       const found = q.length >= 2 ? [...S.players.values()].filter((p) => p.nickname.toLowerCase().includes(q) && (p.scout.price != null || pk[p.key])).slice(0, 8) : [];
       $('#v-found').innerHTML = found.map((p) => {
         const inVars = variants.filter((v) => v.picks.some((x) => x.key === p.key)).length, st = pk[p.key];
-        return `<div class="f-row">${nope(p)}<b>${hl(p.nickname)}</b><small>${p.scout.draft_role ? ROLE_SHORT[p.scout.draft_role] : '?'} · ${p.scout.price != null ? fmtPrice(p.scout.price) : 'bez ceny'} · ve ${inVars} variantách</small>
+        return `<div class="f-row ${st ? `st-${st}` : ''}">${nope(p)}<b>${hl(p.nickname)}</b><small>${p.scout.draft_role ? ROLE_SHORT[p.scout.draft_role] : '?'} · ${p.scout.price != null ? fmtPrice(p.scout.price) : 'bez ceny'} · ve ${inVars} variantách</small>
           <span class="sp"></span>
-          <button type="button" class="pk-btn other ${st === 'other' ? 'on' : ''}" data-pick="${esc(p.key)}" data-st="other">Vzal ho jiný tým</button>
-          <button type="button" class="pk-btn us ${st === 'us' ? 'on' : ''}" data-pick="${esc(p.key)}" data-st="us">Máme ho my</button>
-          ${st ? `<button type="button" class="pk-btn" data-pick="${esc(p.key)}" data-st="">Zrušit</button>` : ''}</div>`;
+          <span class="pk-seg" role="group" aria-label="Stav hráče">
+            <button type="button" class="free ${!st ? 'on' : ''}" data-pick="${esc(p.key)}" data-st="">Volný</button>
+            <button type="button" class="us ${st === 'us' ? 'on' : ''}" data-pick="${esc(p.key)}" data-st="us">✔ Máme my</button>
+            <button type="button" class="other ${st === 'other' ? 'on' : ''}" data-pick="${esc(p.key)}" data-st="other">✕ Vzal jiný tým</button>
+          </span></div>`;
       }).join('') + (q.length >= 2 && !found.length ? '<p class="zero" style="margin:0">Žádný hráč s cenou tohle jméno nemá.</p>' : '');
       const pkList = Object.entries(pk);
-      $('#v-picked').innerHTML = pkList.length
-        ? `Picknutí:${pkList.map(([k, st]) => `<span class="pk-chip ${st}" title="${st === 'us' ? 'Máme ho my' : 'Vzal ho jiný tým'}">${st === 'us' ? '✔' : '✕'} ${esc(pkName(k))}<button type="button" data-pick="${esc(k)}" data-st="" title="Zrušit">×</button></span>`).join('')}
-           <button type="button" class="pk-btn" id="pk-clear">Vymazat všechny picky</button>`
-        : '<span>Zatím nikdo není picknutý. Vyhledej hráče a označ, jestli ho vzal jiný tým, nebo ho máme my.</span>';
+      const col = (st, title, hint) => {
+        const l = pkList.filter(([, x]) => x === st).map(([k]) => ({ k, p: S.players.get(k) }))
+          .sort((a, b) => ROLE_ORDER.indexOf(a.p?.scout.draft_role) - ROLE_ORDER.indexOf(b.p?.scout.draft_role));
+        return `<section class="pk-col ${st}"><header>${st === 'us' ? '✔' : '✕'} ${title}<span class="cnt">${l.length}</span></header>
+          <div class="body">${l.map(({ k, p }) => `<span class="pk-card"><span class="r">${p?.scout.draft_role ? ROLE_SHORT[p.scout.draft_role] : '?'}</span><b>${esc(pkName(k))}</b>${p?.scout.price != null ? `<span class="c">${fmtPrice(p.scout.price)}</span>` : ''}<button type="button" data-pick="${esc(k)}" data-st="" title="Vrátit mezi volné">×</button></span>`).join('') || `<span class="empty-c">${hint}</span>`}</div></section>`;
+      };
+      $('#v-picked').innerHTML = `<div class="pk-board">${col('us', 'Máme my', 'Zatím nikoho. Vyhledej hráče a dej „Máme my“.')}${col('other', 'Vzali jiní', 'Zatím nikoho. Vyhledej hráče a dej „Vzal jiný tým“.')}</div>
+        ${pkList.length ? `<div class="pk-foot"><span>Picky vidí a mění všichni admini.</span><button type="button" class="pk-clear" id="pk-clear">Vymazat všechny picky</button></div>` : ''}`;
 
       if (!variants.length) { box.innerHTML = '<p class="empty">Zatím žádná varianta. Ulož ji v okně Výpočet essence.</p>'; $('#v-count').textContent = ''; return; }
       const only = $('#v-only').checked;
@@ -672,6 +706,7 @@
           <button type="button" class="v-head" data-var="${v.id}" aria-expanded="${open}">
             <b class="v-name">${esc(v.name)}</b>
             <span class="v-names">${names}</span>
+            ${pkList.length ? (st.ok ? '<span class="v-badge ok">✔ POŘÁD MOŽNÁ</span>' : `<span class="v-badge no" title="${why}">✕ UŽ NEJDE</span>`) : ''}
             ${why ? `<span class="v-why">${why}</span>` : ''}
             <span class="v-left ${rest < 0 ? 'neg' : ''}">zbývá<b>${fmtPrice(rest)}</b></span>
             <span class="v-arrow">▸</span>

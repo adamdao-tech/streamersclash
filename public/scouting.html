@@ -173,6 +173,19 @@
     .v-badge { flex: none; font: 700 0.7rem var(--display); letter-spacing: .05em; padding: 3px 8px; border-radius: 6px; white-space: nowrap; }
     .v-badge.ok { background: rgba(47,191,113,.18); color: #6fe0a3; border: 1px solid rgba(47,191,113,.5); }
     .v-badge.no { background: rgba(229,56,59,.18); color: #ff9a9d; border: 1px solid rgba(229,56,59,.5); }
+    .pk-add { position: relative; padding: 0 12px 12px; }
+    .pk-add input { width: 100%; min-height: 38px; }
+    .pk-col.us .pk-add input:focus { border-color: var(--green); box-shadow: 0 0 0 3px rgba(47,191,113,.2); }
+    .pk-col.other .pk-add input:focus { border-color: #e5383b; box-shadow: 0 0 0 3px rgba(229,56,59,.2); }
+    .pk-sug { position: absolute; left: 12px; right: 12px; top: 100%; margin-top: -8px; z-index: 20; background: var(--panel-2); border: 1px solid var(--line-2); border-radius: 10px; box-shadow: 0 12px 30px rgba(0,0,0,.45); max-height: 300px; overflow-y: auto; padding: 4px; }
+    .pk-sug:empty { display: none; }
+    .pk-sug button { display: flex; width: 100%; gap: 8px; align-items: center; padding: 7px 9px; border: 0; border-radius: 7px; background: none; color: var(--text); font: 500 0.9rem var(--font); text-align: left; cursor: pointer; }
+    .pk-sug button:hover, .pk-sug button.sel { background: var(--panel-3); }
+    .pk-sug .r { font: 700 0.68rem var(--display); color: var(--muted); width: 30px; }
+    .pk-sug .n { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .pk-sug .c { color: var(--gold-2); font-weight: 700; font-variant-numeric: tabular-nums; }
+    .pk-sug .was { font-size: 0.72rem; color: var(--muted); }
+    .pk-sug .none { padding: 8px 10px; color: var(--muted); font-size: 0.86rem; }
     @media (max-width: 760px) { .pk-board { grid-template-columns: 1fr; } }
     .v-card.gone { opacity: .45; }
     .v-card.gone .v-why { color: #ff9a9d; font-size: 0.8rem; white-space: nowrap; }
@@ -680,10 +693,19 @@
         const l = pkList.filter(([, x]) => x === st).map(([k]) => ({ k, p: S.players.get(k) }))
           .sort((a, b) => ROLE_ORDER.indexOf(a.p?.scout.draft_role) - ROLE_ORDER.indexOf(b.p?.scout.draft_role));
         return `<section class="pk-col ${st}"><header>${st === 'us' ? '✔' : '✕'} ${title}<span class="cnt">${l.length}</span></header>
+          <div class="pk-add"><input type="search" class="pk-in" data-st="${st}" placeholder="+ přidat hráče do „${title}“…" autocomplete="off"><div class="pk-sug"></div></div>
           <div class="body">${l.map(({ k, p }) => `<span class="pk-card"><span class="r">${p?.scout.draft_role ? ROLE_SHORT[p.scout.draft_role] : '?'}</span><b>${esc(pkName(k))}</b>${p?.scout.price != null ? `<span class="c">${fmtPrice(p.scout.price)}</span>` : ''}<button type="button" data-pick="${esc(k)}" data-st="" title="Vrátit mezi volné">×</button></span>`).join('') || `<span class="empty-c">${hint}</span>`}</div></section>`;
       };
-      $('#v-picked').innerHTML = `<div class="pk-board">${col('us', 'Máme my', 'Zatím nikoho. Vyhledej hráče a dej „Máme my“.')}${col('other', 'Vzali jiní', 'Zatím nikoho. Vyhledej hráče a dej „Vzal jiný tým“.')}</div>
+      // rozepsané jméno a fokus v poli „+ přidat hráče“ přežijí automatické obnovení
+      const keep = [...document.querySelectorAll('.pk-in')].map((x) => ({ st: x.dataset.st, v: x.value, f: x === document.activeElement }));
+      $('#v-picked').innerHTML = `<div class="pk-board">${col('us', 'Máme my', 'Zatím nikoho.')}${col('other', 'Vzali jiní', 'Zatím nikoho.')}</div>
         ${pkList.length ? `<div class="pk-foot"><span>Picky vidí a mění všichni admini.</span><button type="button" class="pk-clear" id="pk-clear">Vymazat všechny picky</button></div>` : ''}`;
+      for (const k of keep) {
+        const x = document.querySelector(`.pk-in[data-st="${k.st}"]`);
+        if (!x) continue;
+        x.value = k.v;
+        if (k.f && k.v) { x.focus(); pkSuggest(x); }
+      }
 
       if (!variants.length) { box.innerHTML = '<p class="empty">Zatím žádná varianta. Ulož ji v okně Výpočet essence.</p>'; $('#v-count').textContent = ''; return; }
       const only = $('#v-only').checked;
@@ -719,10 +741,50 @@
         : `<p class="empty">${q ? 'Žádná varianta s tímhle hráčem' : 'Žádná varianta už není možná'}${only && shown.length ? ' – vypni „jen varianty, které jsou pořád možné“ a uvidíš i ty ostatní' : ''}.</p>`;
     }
 
-    async function setPicked(key, state) {
-      try { const r = await api('/api/queue/picked', { method: 'PUT', body: { key, state: state || null } }); S.picked = r.picked; renderVariants(); }
-      catch (err) { alert(err.message); }
+    async function setPicked(key, state, refocus) {
+      if (refocus) document.querySelectorAll('.pk-in').forEach((x) => { x.value = ''; x.nextElementSibling.innerHTML = ''; });
+      try {
+        const r = await api('/api/queue/picked', { method: 'PUT', body: { key, state: state || null } });
+        S.picked = r.picked; renderVariants();
+        if (refocus) document.querySelector(`.pk-in[data-st="${refocus}"]`)?.focus();
+      } catch (err) { alert(err.message); }
     }
+    // výběr hráče přímo v panelu „Máme my“ / „Vzali jiní“
+    function pkSuggest(inp) {
+      const box = inp.nextElementSibling, q = inp.value.trim().toLowerCase(), st = inp.dataset.st, pk = S.picked || {};
+      if (!q) { box.innerHTML = ''; return; }
+      const list = [...S.players.values()]
+        .filter((p) => !p.scout.is_captain && pk[p.key] !== st && p.nickname.toLowerCase().includes(q))
+        .sort((a, b) => (b.scout.price != null) - (a.scout.price != null) || a.nickname.toLowerCase().indexOf(q) - b.nickname.toLowerCase().indexOf(q) || (b.scout.price ?? 0) - (a.scout.price ?? 0))
+        .slice(0, 10);
+      box.innerHTML = list.map((p, i) => `<button type="button" class="${i === 0 ? 'sel' : ''}" data-add="${esc(p.key)}" data-st="${st}">
+          <span class="r">${p.scout.draft_role ? ROLE_SHORT[p.scout.draft_role] : '?'}</span>${nope(p)}<span class="n">${hl2(p.nickname, q)}</span>
+          ${pk[p.key] ? `<span class="was">${pk[p.key] === 'us' ? 'teď: máme my' : 'teď: vzal jiný'}</span>` : ''}<span class="c">${p.scout.price != null ? fmtPrice(p.scout.price) : '–'}</span></button>`).join('')
+        || '<div class="none">Nikdo takový</div>';
+    }
+    const hl2 = (name, q) => { const i = name.toLowerCase().indexOf(q); return i < 0 ? esc(name) : `${esc(name.slice(0, i))}<mark>${esc(name.slice(i, i + q.length))}</mark>${esc(name.slice(i + q.length))}`; };
+    $('#v-picked').addEventListener('input', (e) => { if (e.target.matches('.pk-in')) pkSuggest(e.target); });
+    $('#v-picked').addEventListener('keydown', (e) => {
+      const inp = e.target.closest('.pk-in'); if (!inp) return;
+      const btns = [...inp.nextElementSibling.querySelectorAll('button[data-add]')];
+      let i = btns.findIndex((b) => b.classList.contains('sel'));
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+        e.preventDefault();
+        if (!btns.length) return;
+        btns[i]?.classList.remove('sel');
+        i = (i + (e.key === 'ArrowDown' ? 1 : -1) + btns.length) % btns.length;
+        btns[i].classList.add('sel'); btns[i].scrollIntoView({ block: 'nearest' });
+      } else if (e.key === 'Enter') {
+        e.preventDefault();
+        const b = btns[i] || btns[0];
+        if (b) setPicked(b.dataset.add, b.dataset.st, b.dataset.st);
+      } else if (e.key === 'Escape') { inp.value = ''; pkSuggest(inp); }
+    });
+    $('#v-picked').addEventListener('mousedown', (e) => {
+      const b = e.target.closest('button[data-add]');
+      if (b) { e.preventDefault(); setPicked(b.dataset.add, b.dataset.st, b.dataset.st); }
+    });
+    document.addEventListener('click', (e) => { if (!e.target.closest('.pk-add')) document.querySelectorAll('.pk-sug').forEach((x) => (x.innerHTML = '')); });
     $('#v-q').addEventListener('input', () => renderVariants());
     $('#v-only').addEventListener('change', () => renderVariants());
 

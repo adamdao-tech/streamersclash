@@ -709,7 +709,7 @@ export async function handleQueueApi(
            FROM queue_scout s JOIN queue_players p ON p.key = s.player_key WHERE s.price IS NOT NULL AND s.is_captain = 0`,
       ).all<Record<string, unknown>>(),
       // everyone clicks in their own selection; the old shared one is only a starting point for the superadmin
-      db.prepare(`SELECT k, v FROM queue_meta WHERE k IN (?, 'draft_plan')`).bind(`draft_plan:${user.id}`).all<{ k: string; v: string }>(),
+      db.prepare(`SELECT k, v FROM queue_meta WHERE k IN (?, 'draft_plan', 'draft_picked')`).bind(`draft_plan:${user.id}`).all<{ k: string; v: string }>(),
       db.prepare(
         `SELECT v.id, v.user_id, v.name, v.data, COALESCE(u.display_name, u.twitch_login, 'Neznámý') AS author
            FROM draft_variants v LEFT JOIN users u ON u.id = v.user_id ORDER BY v.updated_at DESC, v.id DESC`,
@@ -721,6 +721,7 @@ export async function handleQueueApi(
       variants: variants.results.map((v) => ({ id: v.id, name: v.name, author: v.author, mine: v.user_id === user.id, ...JSON.parse(v.data) })),
       players: players.results.map((r) => ({ ...r, fav_roles: JSON.parse(String(r.fav_roles || '[]')) })),
       plan: start ? JSON.parse(start.v) : null,
+      picked: JSON.parse(plan.results.find((r) => r.k === 'draft_picked')?.v || '{}'),
       stream: guard,
     });
   }
@@ -774,6 +775,14 @@ export async function handleQueueApi(
     if (!name) throw new HttpError(400, 'invalid', 'Zadej název varianty.');
     const plan = parsePlan(body);
     if (!plan.picks.length) throw new HttpError(400, 'invalid', 'Varianta nemá žádné hráče.');
+    // stejná sestava (stejní hráči, bez ohledu na pořadí a ceny) se nesmí uložit dvakrát – u nikoho
+    const setKey = (picks: { key: string }[]) => picks.map((x) => x.key).sort().join('|');
+    const mine = setKey(plan.picks);
+    const all = await db.prepare(
+      `SELECT v.user_id, v.name, v.data, COALESCE(u.display_name, u.twitch_login, 'Neznámý') AS author FROM draft_variants v LEFT JOIN users u ON u.id = v.user_id`,
+    ).all<{ user_id: number | null; name: string; data: string; author: string }>();
+    const dup = all.results.find((v) => !(v.user_id === user.id && v.name === name) && setKey(JSON.parse(v.data).picks || []) === mine);
+    if (dup) throw new HttpError(409, 'duplicate', `Tihle hráči už jsou uložení ve variantě „${dup.name}“ (${dup.user_id === user.id ? 'tvoje' : dup.author}).`);
     const count = await db.prepare('SELECT COUNT(*) AS n FROM draft_variants WHERE user_id = ?').bind(user.id).first<{ n: number }>();
     if ((count?.n ?? 0) >= 200) throw new HttpError(400, 'invalid', 'Variant je moc, nějaké smaž.');
     await db
@@ -785,6 +794,40 @@ export async function handleQueueApi(
       .run();
     return json({ ok: true });
   }
+  // Priority of the players inside a variant: the order of picks = 1., 2., 3. … (only the author or a superadmin).
+  if ((m = path.match(/^\/api\/queue\/variants\/(\d+)\/order$/)) && method === 'PUT') {
+    if (guard.hidden) throw new HttpError(423, 'live', 'Jsi live na Twitchi – během streamu se scouting upravovat nedá.');
+    const row = await db.prepare('SELECT user_id, data FROM draft_variants WHERE id = ?').bind(Number(m[1])).first<{ user_id: number | null; data: string }>();
+    if (!row) throw new HttpError(404, 'not_found', 'Varianta neexistuje.');
+    if (row.user_id !== user.id && !isSuperadmin(env, user)) throw new HttpError(403, 'forbidden', 'Pořadí můžeš měnit jen u svých variant.');
+    const data = JSON.parse(row.data) as { picks: { key: string }[] };
+    const body = await readBody(req);
+    const keys = (Array.isArray(body.keys) ? (body.keys as unknown[]) : []).map((k) => key(String(k)));
+    const byKey = new Map(data.picks.map((x) => [x.key, x]));
+    if (keys.length !== data.picks.length || keys.some((k) => !byKey.has(k)) || new Set(keys).size !== keys.length) throw new HttpError(400, 'invalid', 'Pořadí musí obsahovat stejné hráče.');
+    data.picks = keys.map((k) => byKey.get(k)!);
+    await db.prepare(`UPDATE draft_variants SET data = ?, updated_at = datetime('now') WHERE id = ?`).bind(JSON.stringify(data), Number(m[1])).run();
+    return json({ ok: true });
+  }
+
+  // Players already picked in the real draft (shared by all admins): "us" = we got him, "other" = another team took him.
+  if (path === '/api/queue/picked' && method === 'PUT') {
+    if (guard.hidden) throw new HttpError(423, 'live', 'Jsi live na Twitchi – během streamu se scouting upravovat nedá.');
+    const body = await readBody(req);
+    const row = await db.prepare(`SELECT v FROM queue_meta WHERE k = 'draft_picked'`).first<{ v: string }>();
+    let picked: Record<string, string> = row ? JSON.parse(row.v) : {};
+    if (body.clear) picked = {};
+    else {
+      const k = key(String(body.key ?? '')).slice(0, 128);
+      if (!k) throw new HttpError(400, 'invalid', 'Chybí hráč.');
+      if (body.state === 'us' || body.state === 'other') picked[k] = body.state;
+      else delete picked[k];
+    }
+    await db.prepare(`INSERT INTO queue_meta (k, v) VALUES ('draft_picked', ?) ON CONFLICT(k) DO UPDATE SET v = excluded.v`).bind(JSON.stringify(picked)).run();
+    await logActivity(db, { kind: 'user', userId: user.id }, 'queue.picked', null, null, { player: body.key ?? null, state: body.state ?? null, clear: !!body.clear });
+    return json({ ok: true, picked });
+  }
+
   if ((m = path.match(/^\/api\/queue\/variants\/(\d+)$/)) && method === 'DELETE') {
     if (guard.hidden) throw new HttpError(423, 'live', 'Jsi live na Twitchi – během streamu se scouting upravovat nedá.');
     const res = await db.prepare('DELETE FROM draft_variants WHERE id = ? AND (user_id = ? OR ?)').bind(Number(m[1]), user.id, isSuperadmin(env, user) ? 1 : 0).run();

@@ -128,6 +128,38 @@
     .v-card .qs-table-wrap { border-top: 1px solid var(--line); border-radius: 0; }
     .v-cap { font: 700 0.66rem var(--display); color: var(--on-gold); background: var(--gold); border-radius: 4px; padding: 0 5px; margin-left: 6px; }
     .v-bid { color: var(--muted); font-size: 0.76rem; font-weight: 500; margin-left: 5px; }
+    .v-tools { display: flex; gap: 10px 14px; align-items: center; flex-wrap: wrap; margin-bottom: 12px; }
+    .v-tools input[type=search] { max-width: 280px; }
+    .v-tools label { display: inline-flex; gap: 6px; align-items: center; font-size: 0.86rem; color: var(--text-2); }
+    .v-tools label input { width: auto; }
+    .v-tools .v-count { color: var(--muted); font-size: 0.86rem; }
+    .v-found { display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px; }
+    .v-found .f-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; padding: 8px 12px; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; }
+    .v-found .f-row b { min-width: 140px; }
+    .v-found .f-row small { color: var(--muted); }
+    .v-found .f-row .sp { flex: 1; }
+    .pk-btn { font: 600 0.78rem var(--font); padding: 4px 10px; border-radius: 999px; border: 1px solid var(--line-2); background: var(--bg-2); color: var(--text-2); cursor: pointer; }
+    .pk-btn:hover { border-color: var(--gold); }
+    .pk-btn.other.on { background: #e5383b; border-color: transparent; color: #fff; }
+    .pk-btn.us.on { background: var(--green); border-color: transparent; color: #06140c; }
+    .v-picked { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; margin-bottom: 14px; font-size: 0.84rem; color: var(--muted); }
+    .pk-chip { display: inline-flex; gap: 6px; align-items: center; padding: 3px 4px 3px 10px; border-radius: 999px; font-weight: 600; font-size: 0.8rem; }
+    .pk-chip.other { background: rgba(229,56,59,.18); color: #ff9a9d; border: 1px solid rgba(229,56,59,.5); }
+    .pk-chip.us { background: rgba(47,191,113,.16); color: #6fe0a3; border: 1px solid rgba(47,191,113,.5); }
+    .pk-chip button { border: 0; background: none; color: inherit; cursor: pointer; padding: 0 5px; font-size: 0.9rem; }
+    .v-card.gone { opacity: .45; }
+    .v-card.gone .v-why { color: #ff9a9d; font-size: 0.8rem; white-space: nowrap; }
+    .v-names .pk-other { color: #ff7a7e; text-decoration: line-through; }
+    .v-names .pk-us { color: #6fe0a3; }
+    .v-names mark, .qs-table mark, .v-found mark { background: rgba(232,184,74,.3); color: inherit; border-radius: 3px; padding: 0 2px; }
+    .v-prio { display: inline-grid; place-items: center; min-width: 22px; height: 22px; border-radius: 6px; background: var(--gold); color: var(--on-gold); font: 700 0.8rem var(--display); }
+    .v-ord { display: inline-flex; gap: 2px; margin-left: 6px; }
+    .v-ord button { border: 1px solid var(--line); background: var(--bg-2); color: var(--text-2); border-radius: 5px; width: 22px; height: 22px; padding: 0; cursor: pointer; font-size: 0.7rem; }
+    .v-ord button:hover:not(:disabled) { border-color: var(--gold); color: var(--gold-2); }
+    .v-ord button:disabled { opacity: .3; cursor: default; }
+    tr.pk-other-row { background: rgba(229,56,59,.08); }
+    tr.pk-other-row .qs-pl { text-decoration: line-through; color: #ff9a9d; }
+    tr.pk-us-row { background: rgba(47,191,113,.08); }
     /* import cen z excelu */
     .qs-table tbody tr.out { opacity: .5; }
     .qs-rec li.out { opacity: .45; }
@@ -234,6 +266,13 @@
     </section>
 
     <section class="tab-panel" data-panel="vars" hidden>
+      <div class="v-tools">
+        <input type="search" id="v-q" placeholder="Hledat hráče ve variantách…" autocomplete="off">
+        <label><input type="checkbox" id="v-only" checked> jen varianty, které jsou pořád možné</label>
+        <span class="v-count" id="v-count"></span>
+      </div>
+      <div class="v-found" id="v-found"></div>
+      <div class="v-picked" id="v-picked"></div>
       <div id="vars"></div>
     </section>
 
@@ -344,10 +383,10 @@
 
     /** Uložené varianty z výpočtu essence (okno /draft). */
     async function loadVariants() {
-      const { variants = [] } = await api('/api/queue/draft');
-      const raw = JSON.stringify(variants);
+      const { variants = [], picked = {} } = await api('/api/queue/draft');
+      const raw = JSON.stringify([variants, picked]);
       if (raw === S.variantsRaw) return;
-      S.variantsRaw = raw; S.variants = variants;
+      S.variantsRaw = raw; S.variants = variants; S.picked = picked;
       $('#c-vars').textContent = variants.length || '';
       renderVariants();
     }
@@ -548,20 +587,23 @@
       const captain = [...S.players.values()].find((p) => p.scout.is_captain && foldName(p.nickname) === 'sgoob') || S.players.get('sgoob');
       const rows = [
         { p: captain, name: captain?.nickname ?? 'SGooB', role: captain?.scout.draft_role || 'JUNGLE', price: v.captain_price, captain: true },
-        ...v.picks.map((x) => {
+        ...v.picks.map((x, i) => {
           const p = S.players.get(x.key), base = p?.scout.price ?? null;
-          return { p, name: p?.nickname ?? x.nickname, role: p?.scout.draft_role ?? '', price: x.price ?? base ?? 0, base: x.price != null && x.price !== base ? base : null };
+          return { key: x.key, prio: i + 1, p, name: p?.nickname ?? x.nickname, role: p?.scout.draft_role ?? '', price: x.price ?? base ?? 0, base: x.price != null && x.price !== base ? base : null };
         }),
       ];
-      const at = (r) => { const i = ROLE_ORDER.indexOf(r.role); return i < 0 ? 9 : i; };
-      return rows.sort((a, b) => at(a) - at(b));
+      // kapitán první, pak hráči podle priority (1., 2., 3. …)
+      return rows.sort((a, b) => (a.captain ? -1 : b.captain ? 1 : a.prio - b.prio));
     }
 
     function variantTable(v) {
-      return `<div class="qs-table-wrap"><table class="table qs-table"><thead><tr><th>Pozice</th><th>Hráč</th><th class="num">Cena</th><th class="num">Zápasy</th><th class="num">W</th><th class="num">L</th><th class="num">Winrate</th><th>Forma</th><th>LoL rank</th><th>OP.GG</th><th>Poznámka</th></tr></thead><tbody>
+      const edit = v.mine || me.is_superadmin, n = v.picks.length;
+      return `<div class="qs-table-wrap"><table class="table qs-table"><thead><tr><th title="Koho chceme nejdřív">Priorita</th><th>Pozice</th><th>Hráč</th><th class="num">Cena</th><th class="num">Zápasy</th><th class="num">W</th><th class="num">L</th><th class="num">Winrate</th><th>Forma</th><th>LoL rank</th><th>OP.GG</th><th>Poznámka</th></tr></thead><tbody>
         ${variantRows(v).map((r) => {
           const p = r.p, acc = p && bestAccount(p);
-          return `<tr ${p ? `class="v-row ${p.scout.blocked ? 'blocked' : ''}" data-key="${esc(p.key)}"` : ''}>
+          const st = r.key && S.picked?.[r.key];
+          return `<tr ${p ? `class="v-row ${p.scout.blocked ? 'blocked' : ''} ${st ? `pk-${st}-row` : ''}" data-key="${esc(p.key)}"` : ''}>
+            <td>${r.captain ? dash : `<span class="v-prio">${r.prio}</span>${edit ? `<span class="v-ord"><button type="button" data-ord="${v.id}" data-k="${esc(r.key)}" data-d="-1" ${r.prio === 1 ? 'disabled' : ''} title="Výš">▲</button><button type="button" data-ord="${v.id}" data-k="${esc(r.key)}" data-d="1" ${r.prio === n ? 'disabled' : ''} title="Níž">▼</button></span>` : ''}${st ? ` <small style="color:${st === 'us' ? '#6fe0a3' : '#ff9a9d'}">${st === 'us' ? 'máme' : 'vzal jiný'}</small>` : ''}`}</td>
             <td>${r.role ? ROLE_SHORT[r.role] : dash}</td>
             <td><span class="qs-pl">${p ? nope(p) + avatar(p) : ''}${esc(r.name)}</span>${r.captain ? '<span class="v-cap">KAPITÁN</span>' : ''}</td>
             <td class="num"><span class="price">${fmtPrice(r.price)}</span>${r.base != null ? `<span class="v-bid" title="Cena z excelu">z ${fmtPrice(r.base)}</span>` : ''}</td>
@@ -578,28 +620,76 @@
       </tbody></table></div>`;
     }
 
+    /** Varianta je pořád možná, když v ní není nikdo, koho vzal jiný tým, a má všechny, které už máme. */
+    function variantState(v) {
+      const pk = S.picked || {}, keys = new Set(v.picks.map((x) => x.key));
+      const lost = v.picks.filter((x) => pk[x.key] === 'other');
+      const missingUs = Object.entries(pk).filter(([k, st]) => st === 'us' && !keys.has(k)).map(([k]) => k);
+      return { ok: !lost.length && !missingUs.length, lost, missingUs };
+    }
+    const vq = () => ($('#v-q')?.value || '').trim().toLowerCase();
+    const hl = (name) => { const q = vq(); if (!q) return esc(name); const i = name.toLowerCase().indexOf(q); return i < 0 ? esc(name) : `${esc(name.slice(0, i))}<mark>${esc(name.slice(i, i + q.length))}</mark>${esc(name.slice(i + q.length))}`; };
+    const pkName = (k) => S.players.get(k)?.nickname ?? k;
+
     function renderVariants() {
       const box = $('#vars');
       const variants = S.variants || [];
-      if (!variants.length) { box.innerHTML = '<p class="empty">Zatím žádná varianta. Ulož ji v okně Výpočet essence.</p>'; return; }
-      const groups = new Map([['Moje', variants.filter((v) => v.mine)]]);
-      for (const v of variants) if (!v.mine) groups.set(v.author, [...(groups.get(v.author) || []), v]);
+      const q = vq(), pk = S.picked || {};
+      // nalezení hráči: ukážou se i s tlačítky pro „picknutý“
+      const found = q.length >= 2 ? [...S.players.values()].filter((p) => p.nickname.toLowerCase().includes(q) && (p.scout.price != null || pk[p.key])).slice(0, 8) : [];
+      $('#v-found').innerHTML = found.map((p) => {
+        const inVars = variants.filter((v) => v.picks.some((x) => x.key === p.key)).length, st = pk[p.key];
+        return `<div class="f-row">${nope(p)}<b>${hl(p.nickname)}</b><small>${p.scout.draft_role ? ROLE_SHORT[p.scout.draft_role] : '?'} · ${p.scout.price != null ? fmtPrice(p.scout.price) : 'bez ceny'} · ve ${inVars} variantách</small>
+          <span class="sp"></span>
+          <button type="button" class="pk-btn other ${st === 'other' ? 'on' : ''}" data-pick="${esc(p.key)}" data-st="other">Vzal ho jiný tým</button>
+          <button type="button" class="pk-btn us ${st === 'us' ? 'on' : ''}" data-pick="${esc(p.key)}" data-st="us">Máme ho my</button>
+          ${st ? `<button type="button" class="pk-btn" data-pick="${esc(p.key)}" data-st="">Zrušit</button>` : ''}</div>`;
+      }).join('') + (q.length >= 2 && !found.length ? '<p class="zero" style="margin:0">Žádný hráč s cenou tohle jméno nemá.</p>' : '');
+      const pkList = Object.entries(pk);
+      $('#v-picked').innerHTML = pkList.length
+        ? `Picknutí:${pkList.map(([k, st]) => `<span class="pk-chip ${st}" title="${st === 'us' ? 'Máme ho my' : 'Vzal ho jiný tým'}">${st === 'us' ? '✔' : '✕'} ${esc(pkName(k))}<button type="button" data-pick="${esc(k)}" data-st="" title="Zrušit">×</button></span>`).join('')}
+           <button type="button" class="pk-btn" id="pk-clear">Vymazat všechny picky</button>`
+        : '<span>Zatím nikdo není picknutý. Vyhledej hráče a označ, jestli ho vzal jiný tým, nebo ho máme my.</span>';
+
+      if (!variants.length) { box.innerHTML = '<p class="empty">Zatím žádná varianta. Ulož ji v okně Výpočet essence.</p>'; $('#v-count').textContent = ''; return; }
+      const only = $('#v-only').checked;
+      const shown = variants.filter((v) => (!q || v.picks.some((x) => pkName(x.key).toLowerCase().includes(q))));
+      const possible = shown.filter((v) => variantState(v).ok);
+      $('#v-count').textContent = `${possible.length} z ${shown.length} variant je pořád možných${q ? ' (s hledaným hráčem)' : ''}`;
+      const list = only ? possible : [...possible, ...shown.filter((v) => !variantState(v).ok)];
+      const groups = new Map([['Moje', list.filter((v) => v.mine)]]);
+      for (const v of list) if (!v.mine) groups.set(v.author, [...(groups.get(v.author) || []), v]);
       const card = (v) => {
-        const rows = variantRows(v);
+        const rows = variantRows(v), st = variantState(v);
         const rest = v.start - rows.reduce((sum, r) => sum + r.price, 0);
         const open = S.varOpen.has(v.id);
-        return `<article class="card v-card ${open ? 'open' : ''}">
+        const names = rows.filter((r) => !r.captain).map((r) => {
+          const s2 = pk[r.key];
+          return `<span class="${s2 ? `pk-${s2}` : ''}">${r.prio}. ${hl(r.name)}</span>`;
+        }).join(' · ');
+        const why = st.ok ? '' : [st.lost.length ? `vzali: ${st.lost.map((x) => esc(pkName(x.key))).join(', ')}` : '', st.missingUs.length ? `chybí náš ${st.missingUs.map((k) => esc(pkName(k))).join(', ')}` : ''].filter(Boolean).join(' · ');
+        return `<article class="card v-card ${open ? 'open' : ''} ${st.ok ? '' : 'gone'}">
           <button type="button" class="v-head" data-var="${v.id}" aria-expanded="${open}">
             <b class="v-name">${esc(v.name)}</b>
-            <span class="v-names">${rows.filter((r) => !r.captain).map((r) => esc(r.name)).join(' · ')}</span>
+            <span class="v-names">${names}</span>
+            ${why ? `<span class="v-why">${why}</span>` : ''}
             <span class="v-left ${rest < 0 ? 'neg' : ''}">zbývá<b>${fmtPrice(rest)}</b></span>
             <span class="v-arrow">▸</span>
           </button>
           ${open ? variantTable(v) : ''}
         </article>`;
       };
-      box.innerHTML = [...groups].filter(([, list]) => list.length).map(([who, list]) => `<h3 class="v-who">${esc(who)}</h3>${list.map(card).join('')}`).join('');
+      box.innerHTML = list.length
+        ? [...groups].filter(([, l]) => l.length).map(([who, l]) => `<h3 class="v-who">${esc(who)}</h3>${l.map(card).join('')}`).join('')
+        : `<p class="empty">${q ? 'Žádná varianta s tímhle hráčem' : 'Žádná varianta už není možná'}${only && shown.length ? ' – vypni „jen varianty, které jsou pořád možné“ a uvidíš i ty ostatní' : ''}.</p>`;
     }
+
+    async function setPicked(key, state) {
+      try { const r = await api('/api/queue/picked', { method: 'PUT', body: { key, state: state || null } }); S.picked = r.picked; renderVariants(); }
+      catch (err) { alert(err.message); }
+    }
+    $('#v-q').addEventListener('input', () => renderVariants());
+    $('#v-only').addEventListener('change', () => renderVariants());
 
     /* ---------- oblíbení podle pozic ---------- */
 
@@ -784,6 +874,27 @@
         const c = th.dataset.sort;
         S.sort = { col: c, dir: S.sort.col === c ? -S.sort.dir : (['rank', 'nickname'].includes(c) ? 1 : -1) };
         return render();
+      }
+      const pkBtn = e.target.closest('[data-pick]');
+      if (pkBtn) { e.preventDefault(); return setPicked(pkBtn.dataset.pick, pkBtn.dataset.st); }
+      if (e.target.id === 'pk-clear') {
+        if (!confirm('Vymazat všechny picknuté hráče? Uvidí to všichni admini.')) return;
+        try { const r = await api('/api/queue/picked', { method: 'PUT', body: { clear: true } }); S.picked = r.picked; renderVariants(); } catch (err) { alert(err.message); }
+        return;
+      }
+      const ord = e.target.closest('[data-ord]');
+      if (ord) {
+        e.preventDefault(); e.stopPropagation();
+        const v = S.variants.find((x) => x.id === +ord.dataset.ord);
+        const keys = v.picks.map((x) => x.key), i = keys.indexOf(ord.dataset.k), j = i + Number(ord.dataset.d);
+        if (i < 0 || j < 0 || j >= keys.length) return;
+        [keys[i], keys[j]] = [keys[j], keys[i]];
+        const prev = v.picks;
+        v.picks = keys.map((k) => prev.find((x) => x.key === k));
+        renderVariants();
+        try { await api(`/api/queue/variants/${v.id}/order`, { method: 'PUT', body: { keys } }); S.variantsRaw = null; }
+        catch (err) { v.picks = prev; renderVariants(); alert(err.message); }
+        return;
       }
       const varHead = e.target.closest('[data-var]');
       if (varHead) {

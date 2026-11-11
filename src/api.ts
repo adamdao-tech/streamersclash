@@ -364,6 +364,44 @@ async function route(req: Request, env: Env, url: URL, user: User): Promise<Resp
     }
   }
 
+  // --- availability: who of our team has time when (Harmonogram → Kdo má čas) ----
+  if (path === '/api/availability') {
+    const DAY = /^\d{4}-\d{2}-\d{2}$/;
+    if (method === 'GET') {
+      const from = url.searchParams.get('from') ?? '', to = url.searchParams.get('to') ?? '';
+      if (!DAY.test(from) || !DAY.test(to)) throw new HttpError(400, 'invalid', 'Chybí rozsah dnů.');
+      const { results } = await db
+        .prepare(
+          `SELECT a.row_key, a.day, a.slots, a.updated_at, u.display_name AS updated_by_name
+             FROM availability a LEFT JOIN users u ON u.id = a.updated_by WHERE a.day BETWEEN ? AND ?`,
+        )
+        .bind(from, to)
+        .all();
+      return json({ availability: results });
+    }
+    if (method === 'PUT') {
+      const body = await readBody(req);
+      const items = Array.isArray(body.items) ? body.items.slice(0, 200) : [];
+      const stmts = [];
+      for (const it of items as Record<string, unknown>[]) {
+        const rowKey = String(it?.row_key ?? ''), day = String(it?.day ?? ''), slots = String(it?.slots ?? '');
+        if (!/^(TOP|JUNGLE|MID|ADC|SUPPORT|COACH|p:\d{1,9})$/.test(rowKey) || !DAY.test(day) || !/^[01]{48}$/.test(slots)) {
+          throw new HttpError(400, 'invalid', 'Neplatná dostupnost.');
+        }
+        stmts.push(
+          slots.includes('1')
+            ? db.prepare(
+                `INSERT INTO availability (row_key, day, slots, updated_by, updated_at) VALUES (?, ?, ?, ?, datetime('now'))
+                 ON CONFLICT(row_key, day) DO UPDATE SET slots = excluded.slots, updated_by = excluded.updated_by, updated_at = excluded.updated_at`,
+              ).bind(rowKey, day, slots, user.id)
+            : db.prepare('DELETE FROM availability WHERE row_key = ? AND day = ?').bind(rowKey, day),
+        );
+      }
+      if (stmts.length) await db.batch(stmts);
+      return json({ ok: true });
+    }
+  }
+
   // --- tournament (all teams: match days + play-off bracket) --------------------
   if (path === '/api/tournament') {
     if (method === 'GET') return json({ matches: await listTournament(env), slots: SLOTS });

@@ -130,7 +130,7 @@
     const me = await initPage('teams');
     const teamId = new URLSearchParams(location.search).get('id');
     let team, players = [], allDrafts = [], icons = new Map(), live = {}, editingPlayer = null;
-    let queue = new Map(), pools = [];
+    let queue = new Map(), pools = [], hiddenGames = 0;
     let typeFilter = '';
     let champRole = '';
     let champSort = 'g';
@@ -354,7 +354,7 @@
       el.innerHTML = `
         <thead><tr>
           <th>Role</th><th>Hráč</th><th class="num">Hry</th><th class="num">V–P</th><th class="num">WR</th>
-          <th class="num">KDA</th><th class="num">Ø K / D / A</th><th>Nejhranější championi</th><th>Streamers Queue</th><th></th>
+          <th class="num">KDA</th><th class="num">Ø K / D / A</th><th>Nejhranější championi</th><th></th>
         </tr></thead>
         <tbody>${sorted.map((p) => {
           const s = playerStats(p, list);
@@ -371,7 +371,6 @@
             <td class="num strong">${s.kn ? kdaRatio(s.k, s.d, s.a) : '–'}</td>
             <td class="num muted">${s.kn ? `${num(s.k / s.kn)} / ${num(s.d / s.kn)} / ${num(s.a / s.kn)}` : '–'}</td>
             <td><div class="gpools">${champs || '<span class="muted">zatím žádné hry</span>'}${more}</div></td>
-            <td>${queueCell(p)}</td>
             <td class="num nowrap">
               <button class="btn btn-small btn-ghost" data-edit="${p.id}">Upravit</button>
               <button class="btn btn-small btn-ghost btn-danger" data-delete="${p.id}" aria-label="Smazat hráče ${esc(p.nickname)}">✕</button>
@@ -383,7 +382,7 @@
     function renderRecent(list) {
       const el = document.getElementById('recent');
       if (!list.length) {
-        el.innerHTML = '<tr><td class="muted">Zatím žádné hry. Čtečka je doplní z VODek hráčů, nebo je přidá Claude přes konektor.</td></tr>';
+        el.innerHTML = `<tr><td class="muted">Zatím žádné týmové hry. Čtečka je doplní z VODek hráčů – ukládá jen hry, kde hrají aspoň 4 hráči ze soupisky.${hiddenGames ? ` (${hiddenGames} ${hiddenGames === 1 ? 'hra bez týmu je skrytá' : 'her bez týmu je skrytých'})` : ''}</td></tr>`;
         return;
       }
       el.innerHTML = `
@@ -476,7 +475,17 @@
       document.body.style.setProperty('--accent', team.accent_color || '#e8b84a');
       let ds;
       [{ drafts: ds }, icons] = await Promise.all([api(`/api/drafts?team_id=${teamId}&limit=100`), loadChampions()]);
-      allDrafts = ds;
+      // jen týmové hry: aspoň 4 hráči ze soupisky na jedné straně (5, nebo 4 se subem) – žádné soloQ / Streamers Queue
+      const need = Math.min(4, players.length);
+      allDrafts = ds.filter((d) => {
+        const ids = teamIds();
+        return ['ALLY', 'ENEMY'].some((side) => {
+          const found = new Set(d.actions.filter((a) => a.action === 'PICK' && a.side === side && ids.has(a.player_id)).map((a) => a.player_id));
+          if (side === 'ALLY' && ids.has(d.pov_player_id)) found.add(d.pov_player_id);
+          return need > 0 && found.size >= need;
+        });
+      });
+      hiddenGames = ds.length - allDrafts.length;
       if (typeFilter && !allDrafts.some((d) => typeOf(d) === typeFilter)) typeFilter = '';
       renderHero();
       renderNotes();

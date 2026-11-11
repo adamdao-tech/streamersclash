@@ -4,7 +4,7 @@ import {
   formatPrague, isUpcoming, KIND_LABELS, listSchedule, matchResult, opponentLabel, requireOpponent, scheduleFields, type ScheduledMatch,
 } from './schedule';
 import { isSuperadmin, logActivity, type User } from './db';
-import { listDrafts, playerGames, relinkDraftPlayers, saveDraft, summarizeGames, validateDraft, type DraftInput } from './drafts';
+import { listDrafts, playerGames, relinkDraftPlayers, saveDraft, summarizeGames, teamGameCheck, validateDraft, type DraftInput } from './drafts';
 import { assertBodySize, HttpError, json } from './http';
 import { userFromBearer } from './oauth';
 import { syncTwitchVods } from './vods';
@@ -24,6 +24,8 @@ and drafts read from those VODs. Drafts are seen from one player's stream (POV):
 (left column of the client), "enemy" = the opponents (right column).
 Draft review workflow: list_drafts_for_review → get_draft_frame (look at the image) → save_draft with the
 correct champions, or discard_draft_frame if it isn't a finished draft (dodge, lobby, unreadable).
+Only team games are kept: at least 4 of the ally names must be players of the streamer's team (5, or 4 when a sub plays).
+Solo queue / Streamers Queue games with random teammates are discarded (save_draft refuses them with not_team_game).
 Coaching: get_coaching shows rune pages and coaching notes per player and folder; write notes with add_coaching_note.
 Schedule: get_schedule lists our tournament matches, scrims and other events; the next opponent's opponent_team_id is the team to scout.
 Tournament: get_tournament lists every match of the whole tournament (all teams: group match days and the play-off bracket); assign teams and results with update_tournament_match.
@@ -279,6 +281,7 @@ const TOOLS: Tool[] = [
         game_type: { type: 'string', description: 'e.g. Custom, Normal Draft, Ranked Solo/Duo' },
         duration_s: { type: 'integer' },
         notes: { type: 'string' },
+        not_team_game_ok: { type: 'boolean', description: 'Save even if fewer than 4 ally players are on the streamer\'s team. Only when the user confirmed it is a team game.' },
       },
       required: ['ally', 'enemy'],
     },
@@ -303,6 +306,12 @@ const TOOLS: Tool[] = [
         } catch {}
       }
       const draft = await validateDraft(env, { ...(a as unknown as DraftInput), vod_id: vodId, ts_s: ts });
+      if (!a.not_team_game_ok) {
+        const tg = await teamGameCheck(env, draft);
+        if (!tg.ok) {
+          throw new HttpError(422, 'not_team_game', `Not a team game: only ${tg.matched} of the required ${tg.need} players of ${tg.team ?? 'the team'} are on the streamer's side (${tg.names.join(', ') || '–'}). Discard the frame with discard_draft_frame (reason "není týmová hra"), unless the ally names were misread – then fix player_name and retry, or pass not_team_game_ok: true if the user confirmed it is a team game.`);
+        }
+      }
       const matchId = await saveDraft(env, draft, { kind: 'claude', userId: user.id });
       if (frameId) {
         await env.DB.prepare(`UPDATE draft_frames SET status = 'accepted', match_id = ? WHERE id = ?`).bind(matchId, frameId).run();

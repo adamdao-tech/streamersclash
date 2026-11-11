@@ -1,5 +1,5 @@
 import type { Env } from './index';
-import { applyPostgame, saveDraft, validateDraft, type DraftInput } from './drafts';
+import { applyPostgame, saveDraft, teamGameCheck, validateDraft, type DraftInput } from './drafts';
 import { logActivity } from './db';
 import { assertBodySize, HttpError, json, sha256Hex } from './http';
 
@@ -218,6 +218,14 @@ async function route(req: Request, env: Env, url: URL): Promise<Response> {
     if (body.auto && body.reading) {
       try {
         const draft = await validateDraft(env, { ...body.reading, vod_id: vodId, ts_s: Math.round(body.ts_s) });
+        // Only games of the streamer's team (at least 4 of its players on his side) are saved – no solo queue / Streamers Queue.
+        const tg = await teamGameCheck(env, draft);
+        if (!tg.ok) {
+          const note = `Není týmová hra: ze soupisky ${tg.team ?? 'týmu'} jen ${tg.matched} z ${tg.need} (${tg.names.join(', ') || '–'})`;
+          await db.prepare(`UPDATE draft_frames SET status = 'discarded', note = ? WHERE id = ?`).bind(note.slice(0, 500), frameId).run();
+          await logActivity(db, { kind: 'sync' }, 'frame.not_team', 'frame', frameId, { vod_id: vodId, matched: tg.matched, need: tg.need });
+          return json({ ok: true, frame_id: frameId, match_id: null, review: false, skipped: 'not_team_game', reason: note }, 201);
+        }
         matchId = await saveDraft(env, draft, { kind: 'sync' });
         await db
           .prepare(`UPDATE draft_frames SET status = 'accepted', match_id = ? WHERE id = ?`)

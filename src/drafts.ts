@@ -107,6 +107,41 @@ export async function validateDraft(env: Env, input: DraftInput): Promise<DraftI
   return out;
 }
 
+/** How many of the team's players must be on the streamer's side for a VOD game to count as a team game. */
+export const TEAM_GAME_MIN = 4;
+
+/**
+ * Is a game read from a VOD a game of the streamer's team? At least 4 of the ally names (the streamer's side) must be
+ * players of the streamer's team – 5 when everyone plays, 4 when a sub stands in. Solo queue / Streamers Queue games
+ * with random teammates don't pass. The streamer himself always counts (his own name is sometimes misread).
+ */
+export async function teamGameCheck(env: Env, draft: Pick<DraftInput, 'vod_id' | 'ally'>): Promise<{ ok: boolean; matched: number; need: number; team: string | null; names: string[] }> {
+  const none = { ok: true, matched: 0, need: 0, team: null, names: [] as string[] };
+  if (!draft.vod_id) return none;
+  const db = env.DB;
+  const vod = await db
+    .prepare(
+      `SELECT p.id AS player_id, p.team_id, t.name AS team_name FROM vods v
+         JOIN players p ON p.id = v.player_id LEFT JOIN teams t ON t.id = p.team_id WHERE v.id = ?`,
+    )
+    .bind(draft.vod_id)
+    .first<{ player_id: number; team_id: number | null; team_name: string | null }>();
+  if (!vod?.team_id) return none; // streamer without a team – nothing to compare with
+  const { results } = await db
+    .prepare('SELECT id, nickname, riot_game_name FROM players WHERE team_id = ?')
+    .bind(vod.team_id)
+    .all<{ id: number; nickname: string; riot_game_name: string | null }>();
+  const roster: PlayerNames[] = results.map((p) => ({ id: p.id, keys: [p.nickname, p.riot_game_name].filter((n): n is string => !!n).map(nameKey) }));
+  const need = Math.min(TEAM_GAME_MIN, roster.length);
+  const found = new Set<number>([vod.player_id]);
+  for (const s of draft.ally ?? []) {
+    const pid = s.player_name ? matchPlayer(roster, s.player_name) : null;
+    if (pid) found.add(pid);
+  }
+  const names = results.filter((p) => found.has(p.id)).map((p) => p.nickname);
+  return { ok: found.size >= need, matched: found.size, need, team: vod.team_name, names };
+}
+
 /** Stores a validated draft as a match with draft actions. Returns the match id. */
 export async function saveDraft(
   env: Env,

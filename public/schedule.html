@@ -9,31 +9,22 @@
   <link rel="preload" href="/fonts/rajdhani-700.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="/app.css">
   <style>
-    /* časová osa hracích dnů */
-    .tl { margin: 0 0 18px; }
-    .tl-head { display: flex; align-items: baseline; gap: 10px 16px; flex-wrap: wrap; margin-bottom: 10px; }
-    .tl-head h3 { margin: 0; font-size: 1rem; }
-    .tl-next { font-size: 0.92rem; color: var(--text-2); }
-    .tl-next b { color: var(--gold-2); }
-    .tl-strip { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 6px; }
-    .tl-gap { flex: none; align-self: center; width: 18px; height: 2px; background: var(--line-2); border-radius: 1px; }
-    .tl-gap.wk { width: 34px; background: repeating-linear-gradient(90deg, var(--line-2) 0 4px, transparent 4px 8px); }
-    .tl-day { flex: none; width: 108px; display: flex; flex-direction: column; align-items: stretch; border-radius: 12px; overflow: hidden; border: 1px solid var(--line); background: var(--panel); color: var(--text); text-align: center; cursor: pointer; font: inherit; padding: 0; }
-    .tl-day:hover { border-color: var(--line-2); background: var(--panel-2); }
-    .tl-day .wd { padding: 4px 0; font: 700 0.72rem var(--display); letter-spacing: .08em; text-transform: uppercase; background: var(--panel-3); color: var(--text-2); }
-    .tl-day.po .wd { background: rgba(91,110,232,.28); color: #c5cbff; }
-    .tl-day.fin .wd { background: rgba(232,184,74,.3); color: var(--gold-2); }
-    .tl-day .num { font: 700 2rem/1 var(--display); padding: 8px 0 0; }
-    .tl-day .mon { font-size: 0.74rem; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
-    .tl-day .lb { font-size: 0.74rem; font-weight: 600; color: var(--text-2); padding: 6px 4px 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .tl-day .tm { font-size: 0.7rem; color: var(--muted); padding: 0 4px 7px; font-variant-numeric: tabular-nums; }
-    .tl-day.ours { border-color: var(--gold); box-shadow: 0 0 0 1px var(--gold) inset; }
-    .tl-day.ours .lb::after { content: ' ★'; color: var(--gold-2); }
-    .tl-day.done { opacity: .5; }
+    /* hrací dny jako kompaktní štítky s datem */
+    .tl { margin: 0 0 18px; padding: 12px 14px; border-radius: 12px; background: var(--panel); border: 1px solid var(--line); }
+    .tl-head { display: flex; align-items: baseline; gap: 4px 14px; flex-wrap: wrap; margin-bottom: 10px; font-size: 0.9rem; color: var(--text-2); }
+    .tl-head b { color: var(--gold-2); }
+    .tl-head .us b { color: var(--gold-2); }
+    .tl-strip { display: flex; flex-wrap: wrap; gap: 6px; }
+    .tl-day { display: inline-flex; align-items: center; gap: 7px; padding: 4px 10px 4px 4px; border-radius: 9px; border: 1px solid var(--line); background: var(--bg-2); color: var(--text-2); cursor: pointer; font: 500 0.82rem var(--font); white-space: nowrap; }
+    .tl-day:hover { border-color: var(--line-2); color: var(--text); }
+    .tl-day .dt { display: inline-flex; align-items: baseline; gap: 4px; padding: 3px 7px; border-radius: 6px; background: var(--panel-3); color: var(--text); font: 700 0.84rem var(--display); font-variant-numeric: tabular-nums; }
+    .tl-day .dt small { font: 600 0.68rem var(--font); color: var(--muted); text-transform: uppercase; }
+    .tl-day.po .dt { background: rgba(91,110,232,.3); }
+    .tl-day.fin .dt { background: rgba(232,184,74,.32); }
+    .tl-day.ours::after { content: '★'; color: var(--gold-2); }
+    .tl-day.done { opacity: .45; }
+    .tl-day.next { border-color: #2fbf71; box-shadow: 0 0 0 1px #2fbf71 inset; color: var(--text); }
     .tl-day.today { border-color: #e5383b; box-shadow: 0 0 0 1px #e5383b inset; }
-    .tl-day.next:not(.today) { border-color: #2fbf71; box-shadow: 0 0 0 1px #2fbf71 inset; }
-    .tl-legend { display: flex; gap: 6px 14px; flex-wrap: wrap; font-size: 0.76rem; color: var(--muted); margin-top: 4px; }
-    .tl-legend i { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 5px; vertical-align: -1px; }
     /* hrací den: kalendářní dlaždice */
     .tday .group-head { align-items: center; }
     .tday-tile { flex: none; width: 58px; border-radius: 10px; overflow: hidden; border: 1px solid var(--line-2); text-align: center; background: var(--panel); }
@@ -53,7 +44,17 @@
     .bk-round b { color: var(--text-2); }
     .bk-head small { color: var(--text-2); font-weight: 700; }
     .bk-final .bk-round { margin-bottom: 8px; }
-    .bk-final .bk-final-col { height: calc(100% - 68px); }
+    .bk-final .bk-final-col.has-date { height: calc(100% - 68px); }
+    /* užší okno: horní pavouk, dolní pavouk a finále pod sebou, bez posouvání do strany */
+    @media (max-width: 1150px) {
+      .bk { min-width: 0; grid-template-columns: minmax(0, 1fr); grid-template-rows: none; }
+      .bk-upper, .bk-lower, .bk-final { grid-column: 1; grid-row: auto; }
+      .bk-box { overflow-x: auto; }
+      .bk-lower .bk-cols, .bk-lower .bk-dates { min-width: 640px; }
+      .bk-final .bk-final-col, .bk-final .bk-final-col.has-date { height: auto; flex-direction: row; }
+      .bk-final .bk-final-col > * { flex: 1; }
+      .bk-card .bk-team { padding-top: 5px; padding-bottom: 5px; }
+    }
     .bk-empty .bk-head small { color: var(--muted); font-weight: 500; font-style: italic; }
 
     /* Kdo má čas */
@@ -850,28 +851,18 @@
       if (!all.length) return '';
       const today = dayKey(new Date());
       const next = all.find((d) => dayKey(d.date) >= today);
-      let prev = null;
-      const tiles = all.map((d) => {
-        let gap = '';
-        if (prev) {
-          const n = Math.round((new Date(d.date).setHours(0, 0, 0, 0) - new Date(prev.date).setHours(0, 0, 0, 0)) / 864e5);
-          gap = `<span class="tl-gap ${n > 2 ? 'wk' : ''}" title="${n - 1 > 0 ? `${n - 1} ${n - 1 === 1 ? 'den' : n - 1 < 5 ? 'dny' : 'dní'} pauza` : ''}"></span>`;
-        }
-        prev = d;
+      const pills = all.map((d) => {
         const times = d.ms.map((m) => new Date(m.starts_at));
         const short = d.final ? 'Finále' : d.label.replace('hrací den', 'HD').replace('den play-off', 'den PO') || 'Hrací den';
         const cls = [d.stage === 'playoff' ? 'po' : '', d.final ? 'fin' : '', d.ms.some(isOurs) ? 'ours' : '', d.ms.every(played) ? 'done' : '', dayKey(d.date) === today ? 'today' : '', d === next ? 'next' : ''].join(' ');
-        return `${gap}<button type="button" class="tl-day ${cls}" data-jump="${esc(d.key)}" title="${esc(d.label)} · ${d.date.toLocaleDateString('cs-CZ', { weekday: 'long', day: 'numeric', month: 'long' })} · ${d.ms.length} zápasů">
-          <span class="wd">${WD[d.date.getDay()]}</span><span class="num">${d.date.getDate()}</span><span class="mon">${MON[d.date.getMonth()]}</span>
-          <span class="lb">${esc(short)}</span><span class="tm">${hhmm(times[0])}${times.length > 1 ? `–${hhmm(times[times.length - 1])}` : ''} · ${d.ms.length}×</span></button>`;
+        return `<button type="button" class="tl-day ${cls}" data-jump="${esc(d.key)}" title="${esc(d.label)} · ${hhmm(times[0])}–${hhmm(times[times.length - 1])} · ${d.ms.length} zápasů">
+          <span class="dt"><small>${WD[d.date.getDay()]}</small>${d.date.getDate()}. ${d.date.getMonth() + 1}.</span>${esc(short)}</button>`;
       }).join('');
       const ourNext = all.flatMap((d) => d.ms).find((m) => isOurs(m) && new Date(m.starts_at) >= new Date(new Date().setHours(0, 0, 0, 0)));
       return `<section class="tl">
-        <div class="tl-head"><h3>${stageFilter === 'playoff' ? 'Play-off dny' : 'Hrací dny'}</h3>
-          ${next ? `<span class="tl-next">Další: <b>${esc(next.final ? 'Finálový den' : next.label || 'Hrací den')}</b> · ${next.date.toLocaleDateString('cs-CZ', { weekday: 'long', day: 'numeric', month: 'numeric' })} · <b>${relDays(next.date)}</b></span>` : '<span class="tl-next">Všechny hrací dny už proběhly.</span>'}
-          ${ourNext ? `<span class="tl-next">Náš zápas: <b>${new Date(ourNext.starts_at).toLocaleDateString('cs-CZ', { weekday: 'short', day: 'numeric', month: 'numeric' })} ${hhmm(new Date(ourNext.starts_at))}</b> (${relDays(new Date(ourNext.starts_at))})</span>` : ''}</div>
-        <div class="tl-strip">${tiles}</div>
-        <div class="tl-legend"><span><i style="background:var(--panel-3)"></i>skupiny</span><span><i style="background:#5b6ee8"></i>play-off</span><span><i style="background:var(--gold)"></i>finále</span><span><i style="border:2px solid #2fbf71"></i>další na řadě</span><span>★ hrajeme my</span></div>
+        <div class="tl-head">${next ? `<span>Další: <b>${esc(next.final ? 'Finálový den' : next.label || 'Hrací den')}</b> · ${next.date.toLocaleDateString('cs-CZ', { weekday: 'long', day: 'numeric', month: 'numeric' })} · <b>${relDays(next.date)}</b></span>` : '<span>Všechny hrací dny už proběhly.</span>'}
+          ${ourNext ? `<span class="us">Náš zápas: <b>${new Date(ourNext.starts_at).toLocaleDateString('cs-CZ', { weekday: 'short', day: 'numeric', month: 'numeric' })} ${hhmm(new Date(ourNext.starts_at))}</b> · ${relDays(new Date(ourNext.starts_at))}</span>` : ''}</div>
+        <div class="tl-strip">${pills}</div>
       </section>`;
     }
     document.addEventListener('click', (e) => {
@@ -923,7 +914,7 @@
       const m = tMatches.find((x) => x.bracket_slot === slot);
       if (!m) {
         return `<button type="button" class="bk-card bk-empty${gold ? ' gold' : ''}" data-slot="${slot}">
-          <div class="bk-head"><span>${esc(shortSlot(slot))}</span><small>klikni a vyber zápas</small></div>
+          <div class="bk-head"><span>${esc(shortSlot(slot))}</span></div>
           <div class="bk-team"><span class="bk-q">?</span><span>TBD</span><b>–</b></div>
           <div class="bk-team"><span class="bk-q">?</span><span>TBD</span><b>–</b></div>
         </button>`;
@@ -942,17 +933,18 @@
     /** Datum kola pavouka: z přiřazených zápasů v tom sloupci. */
     function roundDate(col) {
       const ds = col.map((s) => tMatches.find((x) => x.bracket_slot === s)).filter(Boolean).map((m) => new Date(m.starts_at)).sort((a, b) => a - b);
-      if (!ds.length) return '<div class="bk-round">datum zatím nepřiřazené</div>';
+      if (!ds.length) return '<div></div>';
       const days = [...new Set(ds.map((d) => d.toLocaleDateString('cs-CZ', { weekday: 'short', day: 'numeric', month: 'numeric' })))];
       return `<div class="bk-round"><b>${days.join(' / ')}</b> · ${relDays(ds[0])}</div>`;
     }
-    const bkCols = (cols) => `<div class="bk-dates">${cols.map(roundDate).join('')}</div><div class="bk-cols">${cols.map((col) => `<div class="bk-col">${col.map((s) => bkCard(s)).join('')}</div>`).join('')}</div>`;
+    const anyDate = (cols) => cols.flat().some((s) => tMatches.some((x) => x.bracket_slot === s));
+    const bkCols = (cols) => `${anyDate(cols) ? `<div class="bk-dates">${cols.map(roundDate).join('')}</div>` : ''}<div class="bk-cols">${cols.map((col) => `<div class="bk-col">${col.map((s) => bkCard(s)).join('')}</div>`).join('')}</div>`;
     function renderBracket() {
       document.getElementById('bk-timeline').innerHTML = timelineHtml('playoff');
       document.getElementById('bracket').innerHTML = `
         <section class="bk-box bk-upper"><h3><i></i>Horní pavouk</h3>${bkCols(BK.upper)}</section>
         <section class="bk-box bk-lower"><h3><i></i>Dolní pavouk</h3>${bkCols(BK.lower)}</section>
-        <section class="bk-box bk-final"><h3><i></i>Finále</h3>${roundDate(['GF', 'F2'])}<div class="bk-final-col">${bkCard('GF', true)}${bkCard('F2')}</div></section>`;
+        <section class="bk-box bk-final"><h3><i></i>Finále</h3>${anyDate([['GF', 'F2']]) ? roundDate(['GF', 'F2']) : ''}<div class="bk-final-col ${anyDate([['GF', 'F2']]) ? 'has-date' : ''}">${bkCard('GF', true)}${bkCard('F2')}</div></section>`;
     }
 
     function renderTab() {

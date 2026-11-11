@@ -444,11 +444,16 @@ dialog h2 { margin-bottom: 16px; }
 @media (max-width: 860px) {
   .layout { grid-template-columns: 1fr; }
 }
-@media (max-width: 640px) {
-  .topbar { padding: 10px 16px; gap: 12px; flex-wrap: wrap; }
+/* užší okno: menu na druhý řádek, ať stránka nejezdí do strany */
+@media (max-width: 1000px) {
+  .topbar { gap: 12px; flex-wrap: wrap; }
   .nav { order: 3; flex: 1 1 100%; overflow-x: auto; scrollbar-width: none; }
-  .nav a { flex: none; padding: 6px 10px; }
+  .nav a { flex: none; padding: 6px 10px; white-space: nowrap; }
+  .me { margin-left: auto; }
   .me span { display: none; }
+}
+@media (max-width: 640px) {
+  .topbar { padding: 10px 16px; }
   main { padding: 24px 16px 48px; }
   .form-grid { grid-template-columns: 1fr; }
   .roster { grid-template-columns: 1fr; }

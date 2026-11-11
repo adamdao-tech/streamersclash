@@ -8,6 +8,42 @@
   <link rel="preload" href="/fonts/inter-var.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="preload" href="/fonts/rajdhani-700.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="/app.css">
+  <style>
+    /* champion pool: širší stránka a hustší tier list, ať se toho vejde víc */
+    body.coach-wide main { max-width: 1680px; }
+    body.coach-wide .coach { grid-template-columns: 210px minmax(0, 1fr); }
+    .pool-top { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; font-size: 0.84rem; }
+    .seg-sm { padding: 3px; } .seg-sm button { min-height: 30px; padding: 4px 12px; font-size: 0.82rem; }
+    .pool-layout { grid-template-columns: minmax(0, 1fr) 330px; gap: 12px; }
+    .tierlist { gap: 6px; }
+    .tier-row { grid-template-columns: 62px minmax(0, 1fr); border-radius: 8px; }
+    .tier-label { padding: 4px; position: relative; }
+    .tier-label b { font-size: 1.3rem; }
+    .tier-label small { font-size: 0.64rem; }
+    .tier-label i { position: absolute; top: 3px; right: 5px; font: 700 0.66rem var(--font); font-style: normal; opacity: .6; }
+    .tier-row[data-tier="L"] .tier-label b { font-size: 0.95rem; }
+    .tier-drop { gap: 2px; padding: 4px; min-height: 66px; }
+    .pool-layout .pc { width: 60px; padding: 3px 1px; gap: 2px; }
+    .pool-layout .pc-name { font-size: 0.64rem; max-width: 58px; }
+    .pool-layout .pc-stat { font-size: 0.6rem; }
+    .pool-layout .pc-note { top: 0; right: 3px; }
+    /* jen ikonky */
+    .pool-layout .pc.pc-ico { width: auto; padding: 2px; }
+    .pool-layout.compact .tier-drop { min-height: 50px; }
+    .pc-g { position: absolute; left: 1px; bottom: 1px; min-width: 15px; height: 15px; padding: 0 3px; border-radius: 4px; background: rgba(8,10,16,.85); color: var(--text-2); font: 700 0.6rem/15px var(--font); text-align: center; }
+    .pc-g.good { color: var(--green); } .pc-g.bad { color: #ff8f93; }
+    .pool-bank-list { gap: 1px; padding: 6px; }
+    .pool-layout .pc-bank { width: 56px; }
+    .pool-layout .pc-bank .ri { width: 36px; height: 36px; }
+    .pool-layout .pc-bank .pc-name { max-width: 54px; font-size: 0.62rem; }
+    .pool-layout.compact .pc-bank { width: auto; }
+    .pool-team { grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 10px; }
+    .pool-col { padding: 8px; gap: 6px; }
+    .pool-mini { gap: 6px; }
+    .pool-mini-list { gap: 2px; }
+    .pool-mini .tier-tag { min-width: 34px; }
+    @media (max-width: 900px) { .pool-layout { grid-template-columns: 1fr; } }
+  </style>
 </head>
 <body>
   <main>
@@ -707,9 +743,15 @@
     }
     function poolChip(pid, e, small = false) {
       const st = statOf(pid, e.champion);
+      if (!small && poolCompact) {
+        return `<div class="pc pc-ico" draggable="true" data-pool-champ="${esc(e.champion)}" data-pool-player="${pid}"
+                  title="${esc(e.champion)}${st ? ` · ${st.games}× ${st.winrate ?? ''}${st.winrate === null ? '' : ' %'}` : ''}${e.note ? ` – ${esc(e.note)}` : ''}">
+          ${icon(champIcons.get(e.champion), e.champion, 'ri-lg ri-sq')}${st ? `<span class="pc-g ${st.winrate === null ? '' : st.winrate >= 55 ? 'good' : st.winrate < 45 ? 'bad' : ''}">${st.games}</span>` : ''}${e.note ? '<span class="pc-note" aria-label="Má poznámku">✎</span>' : ''}
+        </div>`;
+      }
       return `<div class="pc ${small ? 'pc-sm' : ''}" ${small ? '' : 'draggable="true"'} data-pool-champ="${esc(e.champion)}" data-pool-player="${pid}"
                 title="${esc(e.champion)}${e.note ? ` – ${esc(e.note)}` : ''}">
-        ${icon(champIcons.get(e.champion), e.champion, small ? 'ri-md ri-sq' : 'ri-xl ri-sq')}
+        ${icon(champIcons.get(e.champion), e.champion, small ? 'ri-md ri-sq' : 'ri-lg ri-sq')}
         ${small ? '' : `<span class="pc-name">${esc(e.champion)}</span>${statBadge(st)}${e.note ? '<span class="pc-note" aria-label="Má poznámku">✎</span>' : ''}`}
       </div>`;
     }
@@ -740,19 +782,26 @@
       const played = (data.pool_stats?.[pid] || []).filter((st) => !inPool.has(st.champion));
       const playedSet = new Set(played.map((st) => st.champion));
       const others = [...champIcons.keys()].filter((n) => !inPool.has(n) && !playedSet.has(n)).sort((a, b) => a.localeCompare(b));
-      const bankChip = (name, st) => `<div class="pc pc-bank ${st ? 'pc-played' : ''}" draggable="true" data-bank-champ="${esc(name)}" data-search="${esc(name.toLowerCase().replace(/[^a-z0-9]/g, ''))}"
+      const bankChip = (name, st) => `<div class="pc pc-bank ${poolCompact ? 'pc-ico' : ''} ${st ? 'pc-played' : ''}" draggable="true" data-bank-champ="${esc(name)}" data-search="${esc(name.toLowerCase().replace(/[^a-z0-9]/g, ''))}"
           title="${esc(name)} – přetáhni do tieru, nebo klikni a přidá se do ${esc(TIERS.find(([t]) => t === poolClickTier)[1])}">
-          ${icon(champIcons.get(name), name, 'ri-lg ri-sq')}<span class="pc-name">${esc(name)}</span>${st ? statBadge(st) : ''}</div>`;
+          ${icon(champIcons.get(name), name, 'ri-lg ri-sq')}${poolCompact ? '' : `<span class="pc-name">${esc(name)}</span>${st ? statBadge(st) : ''}`}</div>`;
       el.innerHTML = `
         <p class="form-error" id="pool-error" style="margin:0 0 8px"></p>
-        <div class="pool-layout">
+        <div class="pool-top">
+          <span class="muted">${list.length} championů v poolu · přetahuj ze seznamu vpravo, klikem v tieru otevřeš poznámku</span>
+          <div class="seg seg-sm" id="pool-view" role="tablist" aria-label="Zobrazení">
+            <button type="button" data-pool-view="0" class="${poolCompact ? '' : 'active'}">S názvy</button>
+            <button type="button" data-pool-view="1" class="${poolCompact ? 'active' : ''}">Jen ikonky</button>
+          </div>
+        </div>
+        <div class="pool-layout ${poolCompact ? 'compact' : ''}">
           <div class="tierlist">
             ${TIERS.map(([t, label, hint]) => `
               <div class="tier-row" data-tier="${t}">
-                <div class="tier-label tier-${t}"><b>${label}</b><small>${hint}</small></div>
+                <div class="tier-label tier-${t}" title="${hint}"><b>${label}</b><small>${hint}</small><i>${list.filter((e) => e.tier === t).length || ''}</i></div>
                 <div class="tier-drop" data-drop-tier="${t}">${list.filter((e) => e.tier === t).map((e) => poolChip(pid, e)).join('') || '<span class="tier-empty">Přetáhni sem championa</span>'}</div>
               </div>`).join('')}
-            <p class="muted" style="font-size:.82rem;margin:6px 0 0">Championy přetahuj ze seznamu vpravo do tierů a mezi nimi. Zpátky do seznamu je vrátíš přetažením – tím je z poolu odebereš. Kliknutím na championa v tieru otevřeš poznámku. Čísla jsou počet her a winrate z nahraných draftů.</p>
+            <p class="muted" style="font-size:.78rem;margin:4px 0 0">Zpátky do seznamu vpravo přetáhni = odebrat z poolu. Čísla = počet her a winrate z nahraných draftů.</p>
           </div>
           <aside class="pool-bank" data-drop-bank>
             <div class="pool-bank-head">
@@ -773,6 +822,7 @@
     }
 
     let poolSearch = '';
+    let poolCompact = store.get('coach.pool.compact') === '1';
     let poolClickTier = 'B';
     const normSearch = (q) => q.toLowerCase().replace(/[^a-z0-9]/g, '');
     function filterBank() {
@@ -817,6 +867,8 @@
     poolTab.addEventListener('click', (e) => {
       const go = e.target.closest('[data-goto-player]');
       if (go) { sel = { player: Number(go.dataset.gotoPlayer), folder: null }; render(); return; }
+      const pv = e.target.closest('[data-pool-view]');
+      if (pv) { poolCompact = pv.dataset.poolView === '1'; store.set('coach.pool.compact', poolCompact ? '1' : '0'); renderPool(); return; }
       const ct = e.target.closest('[data-click-tier]');
       if (ct) {
         poolClickTier = ct.dataset.clickTier;
@@ -997,6 +1049,7 @@
       validateSel();
       store.set('coach.sel', JSON.stringify(sel));
       store.set('coach.tab', tab);
+      document.body.classList.toggle('coach-wide', tab === 'pool');
       renderTree();
       document.getElementById('place-title').innerHTML = placeName();
       document.getElementById('add-folder').hidden = !!sel.folder;

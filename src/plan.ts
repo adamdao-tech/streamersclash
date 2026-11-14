@@ -73,7 +73,7 @@ async function tabFields(b: Body, partial: boolean): Promise<Row> {
   const row: Row = {};
   if (!partial || 'name' in b) {
     const name = str(b.name, 'Název', 60);
-    if (!name) throw new HttpError(400, 'invalid', 'Zadej název záložky.');
+    if (!name) throw new HttpError(400, 'invalid', 'Zadej název oblasti.');
     row.name = name;
   }
   if ('goal' in b) row.goal = str(b.goal, 'Cíl', 2000);
@@ -137,7 +137,7 @@ export async function updateTab(env: Env, tabId: number, b: Body): Promise<void>
 export async function createItem(env: Env, b: Body, kind: 'user' | 'claude' = 'user'): Promise<number> {
   const tabId = id(b.tab_id, 'tab_id');
   const tab = await env.DB.prepare('SELECT 1 FROM coach_plan_tabs WHERE id = ?').bind(tabId).first();
-  if (!tab) throw new HttpError(404, 'not_found', 'Záložka neexistuje.');
+  if (!tab) throw new HttpError(404, 'not_found', 'Oblast neexistuje.');
   const row = await itemFields(env.DB, b, false);
   const max = await env.DB
     .prepare('SELECT COALESCE(MAX(sort), 0) AS s FROM coach_plan_items WHERE tab_id = ?')
@@ -151,7 +151,7 @@ export async function updateItem(env: Env, itemId: number, b: Body): Promise<voi
   if ('tab_id' in b) {
     const tabId = id(b.tab_id, 'tab_id');
     if (!(await env.DB.prepare('SELECT 1 FROM coach_plan_tabs WHERE id = ?').bind(tabId).first())) {
-      throw new HttpError(404, 'not_found', 'Záložka neexistuje.');
+      throw new HttpError(404, 'not_found', 'Oblast neexistuje.');
     }
     row.tab_id = tabId;
   }

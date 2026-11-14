@@ -9,82 +9,138 @@
   <link rel="preload" href="/fonts/rajdhani-700.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="/app.css">
   <style>
-    .plan-summary { display: grid; grid-template-columns: minmax(220px, 300px) 1fr; gap: 14px; margin-bottom: 22px; }
-    .plan-summary .card h3 { margin: 0 0 10px; font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); font-weight: 600; }
-    .big-num { font: 700 2.3rem/1 var(--display); }
-    .big-num small { font-size: 1rem; color: var(--muted); margin-left: 4px; }
-    .bar { height: 8px; border-radius: 99px; background: var(--bg-2); border: 1px solid var(--line); overflow: hidden; margin-top: 10px; }
+    main { max-width: 1320px; }
+    .plan { display: grid; grid-template-columns: 264px minmax(0, 1fr); gap: 22px; align-items: start; }
+
+    /* --- left: areas as tabs --- */
+    .side { position: sticky; top: 84px; display: flex; flex-direction: column; gap: 4px; }
+    .side-label { font-size: .7rem; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); font-weight: 700; margin: 14px 10px 6px; }
+    .side-label:first-child { margin-top: 0; }
+    .area-tab { display: grid; grid-template-columns: 1fr auto; gap: 2px 10px; align-items: center; width: 100%; text-align: left; padding: 10px 12px; border-radius: 10px; border: 1px solid transparent; background: none; color: var(--text-2); font: inherit; cursor: pointer; }
+    .area-tab:hover { background: var(--panel); color: var(--text); }
+    .area-tab.active { background: var(--panel-2); border-color: var(--line-2); color: var(--text); box-shadow: inset 3px 0 0 var(--gold); }
+    .area-tab b { font-weight: 600; font-size: .95rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .area-tab .n { font-size: .78rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+    .area-tab .n.ok { color: var(--green); font-weight: 700; }
+    .area-tab .mini { grid-column: 1 / -1; height: 4px; border-radius: 99px; background: var(--bg-2); overflow: hidden; margin-top: 6px; }
+    .area-tab .mini i { display: block; height: 100%; background: var(--green); border-radius: inherit; }
+    .area-tab.overview b { display: flex; align-items: center; gap: 8px; }
+    .area-tab.archived { opacity: .6; font-style: italic; }
+    .side .btn { justify-content: flex-start; margin-top: 6px; }
+
+    /* --- shared --- */
+    .bar { height: 8px; border-radius: 99px; background: var(--bg-2); border: 1px solid var(--line); overflow: hidden; }
     .bar > i { display: block; height: 100%; background: linear-gradient(90deg, var(--gold), var(--green)); border-radius: inherit; transition: width .3s; }
-    .focus-list { display: flex; flex-wrap: wrap; gap: 8px; }
-    .focus-chip { display: inline-flex; align-items: center; gap: 6px; padding: 6px 11px; border-radius: 999px; background: #3a2e10; border: 1px solid rgba(232,184,74,.45); color: var(--gold-2); font-size: 0.86rem; cursor: pointer; }
-    .focus-chip small { color: var(--muted); }
-    .focus-chip:hover { border-color: var(--gold); }
+    .kicker { font-size: .7rem; text-transform: uppercase; letter-spacing: .08em; color: var(--gold-2); font-weight: 700; }
 
-    .plan-tabs { display: flex; align-items: center; gap: 4px; border-bottom: 1px solid var(--line); margin-bottom: 18px; overflow-x: auto; }
-    .plan-tabs button.tab { background: none; border: 0; color: var(--muted); font: 600 0.95rem var(--font); padding: 9px 14px; cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1px; white-space: nowrap; }
-    .plan-tabs button.tab:hover { color: var(--text); }
-    .plan-tabs button.tab.active { color: var(--text); border-bottom-color: var(--gold); }
-    .plan-tabs button.tab.archived { font-style: italic; opacity: .75; }
-    .plan-tabs .count { color: var(--muted); font-weight: 500; margin-left: 5px; font-size: .82rem; }
-    .plan-tabs .count.all-done { color: var(--green); }
-    .plan-tabs .add-tab { margin-left: 6px; white-space: nowrap; }
+    /* --- overview --- */
+    .stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-bottom: 18px; }
+    .stat { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; }
+    .stat span { display: block; font-size: .74rem; text-transform: uppercase; letter-spacing: .07em; color: var(--muted); font-weight: 600; }
+    .stat b { display: block; font: 700 2rem/1.1 var(--display); margin-top: 4px; }
+    .stat b small { font-size: .95rem; color: var(--muted); margin-left: 3px; }
+    .stat.warn b { color: #ff9a9d; }
+    .stat.gold b { color: var(--gold-2); }
+    .ov-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(290px, 1fr)); gap: 14px; }
+    .ov-card { display: flex; flex-direction: column; gap: 10px; background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 16px; cursor: pointer; transition: border-color .15s, transform .15s; }
+    .ov-card:hover { border-color: var(--line-2); transform: translateY(-1px); }
+    .ov-card h3 { margin: 0; font-size: 1.25rem; display: flex; justify-content: space-between; gap: 10px; align-items: baseline; }
+    .ov-card h3 small { font: 600 .82rem var(--font); color: var(--muted); white-space: nowrap; }
+    .ov-card h3 small.ok { color: var(--green); }
+    .ov-goal { margin: 0; color: var(--text-2); font-size: .9rem; line-height: 1.45; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+    .ov-goal.none { color: var(--muted); font-style: italic; }
+    .ov-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 5px; font-size: .88rem; }
+    .ov-list li { display: flex; gap: 8px; align-items: baseline; color: var(--text-2); }
+    .ov-list li::before { content: '○'; color: var(--muted); flex: none; }
+    .ov-list li.f::before { content: '★'; color: var(--gold); }
+    .ov-list li span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .ov-more { font-size: .8rem; color: var(--muted); }
 
-    .tab-head { display: flex; gap: 16px; align-items: flex-start; justify-content: space-between; flex-wrap: wrap; }
-    .tab-head h2 { margin: 0; font-size: 1.6rem; }
-    .goal { margin: 10px 0 0; white-space: pre-wrap; color: var(--text-2); line-height: 1.5; }
-    .goal.empty-goal { color: var(--muted); font-style: italic; cursor: pointer; }
-    .goal-label { display: inline-block; font-size: .72rem; text-transform: uppercase; letter-spacing: .07em; color: var(--gold-2); font-weight: 700; margin-right: 6px; }
-    .tab-meta { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; margin-top: 10px; color: var(--muted); font-size: .85rem; }
-    .tab-tools { display: flex; gap: 6px; flex-wrap: wrap; }
-    .tab-progress { margin-top: 14px; display: flex; align-items: center; gap: 12px; }
-    .tab-progress .bar { flex: 1; margin: 0; }
-    .tab-progress span { font-size: .85rem; color: var(--muted); white-space: nowrap; }
+    /* --- area detail --- */
+    .area-head { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 18px 20px; }
+    .area-top { display: flex; justify-content: space-between; gap: 14px; align-items: flex-start; flex-wrap: wrap; }
+    .area-top h2 { margin: 0; font-size: 1.8rem; line-height: 1.1; }
+    .area-meta { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-top: 6px; font-size: .85rem; color: var(--muted); }
+    .area-tools { display: flex; gap: 6px; align-items: center; }
+    .goal-box { margin-top: 14px; padding: 12px 14px; border-radius: 10px; background: #1c1808; border: 1px solid rgba(232,184,74,.28); }
+    .goal-box p { margin: 4px 0 0; white-space: pre-wrap; line-height: 1.5; color: var(--text); }
+    .goal-box.none { background: var(--bg-2); border-style: dashed; border-color: var(--line-2); cursor: pointer; }
+    .goal-box.none p { color: var(--muted); }
+    .area-progress { display: flex; align-items: center; gap: 12px; margin-top: 14px; }
+    .area-progress .bar { flex: 1; }
+    .area-progress span { font-size: .85rem; color: var(--muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
 
-    .add-item { display: grid; grid-template-columns: 1fr 170px 130px 150px auto; gap: 8px; margin: 18px 0 12px; }
-    .filters { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 10px; font-size: .88rem; color: var(--muted); }
-    .filters select { width: auto; min-height: 32px; padding: 4px 8px; }
+    .menu { position: relative; }
+    .menu summary { list-style: none; }
+    .menu summary::-webkit-details-marker { display: none; }
+    .menu-pop { position: absolute; right: 0; top: calc(100% + 6px); z-index: 20; min-width: 190px; background: var(--panel-2); border: 1px solid var(--line-2); border-radius: 10px; padding: 6px; box-shadow: 0 14px 40px rgba(0,0,0,.45); display: flex; flex-direction: column; }
+    .menu-pop button { background: none; border: 0; color: var(--text-2); text-align: left; padding: 8px 10px; border-radius: 7px; font: inherit; font-size: .9rem; cursor: pointer; }
+    .menu-pop button:hover:not(:disabled) { background: var(--panel-3); color: var(--text); }
+    .menu-pop button:disabled { opacity: .4; cursor: default; }
+    .menu-pop button.danger { color: #ff9a9d; }
+    .menu-pop hr { border: 0; border-top: 1px solid var(--line); margin: 4px 0; }
 
-    .items { display: flex; flex-direction: column; gap: 8px; }
-    .item { display: grid; grid-template-columns: auto auto 1fr auto; gap: 12px; align-items: flex-start; padding: 12px 14px; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; }
-    .item.focus { border-color: rgba(232,184,74,.6); box-shadow: inset 3px 0 0 var(--gold); }
+    .subtabs { display: flex; align-items: center; gap: 4px; border-bottom: 1px solid var(--line); margin: 20px 0 14px; flex-wrap: wrap; }
+    .subtabs button { background: none; border: 0; color: var(--muted); font: 600 .95rem var(--font); padding: 10px 14px; cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1px; display: inline-flex; align-items: center; gap: 7px; }
+    .subtabs button:hover { color: var(--text); }
+    .subtabs button.active { color: var(--text); border-bottom-color: var(--gold); }
+    .subtabs button[data-view=done].active { border-bottom-color: var(--green); }
+    .subtabs .pill { font-size: .75rem; min-width: 22px; padding: 1px 7px; border-radius: 99px; background: var(--bg-2); border: 1px solid var(--line); color: var(--text-2); text-align: center; }
+    .subtabs button.active .pill { background: var(--gold); color: var(--on-gold); border-color: transparent; }
+    .subtabs button[data-view=done].active .pill { background: var(--green); color: #06210f; }
+    .subtabs .spacer { flex: 1; }
+    .subtabs select { width: auto; min-height: 32px; padding: 4px 8px; font-size: .85rem; margin-bottom: 6px; }
+
+    .add-item { display: grid; grid-template-columns: minmax(0, 1fr) 160px 120px 150px auto; gap: 8px; margin-bottom: 12px; }
+
+    .items { display: flex; flex-direction: column; border: 1px solid var(--line); border-radius: 12px; overflow: hidden; background: var(--panel); }
+    .item { display: grid; grid-template-columns: auto auto minmax(0, 1fr) auto auto; gap: 12px; align-items: center; padding: 11px 14px; border-top: 1px solid var(--line); }
+    .item:first-child { border-top: 0; }
+    .item:hover { background: #151e31; }
+    .item.focus { background: #191a12; box-shadow: inset 3px 0 0 var(--gold); }
     .item.flash { animation: flash 1.2s ease; }
-    @keyframes flash { 0%, 40% { background: #2b2410; } 100% { background: var(--panel); } }
-    .check { width: 24px; height: 24px; border-radius: 7px; border: 2px solid var(--line-2); background: var(--bg-2); cursor: pointer; display: grid; place-items: center; padding: 0; margin-top: 1px; color: transparent; }
-    .check:hover { border-color: var(--green); }
-    .check svg { width: 15px; height: 15px; }
+    @keyframes flash { 0%, 40% { background: #2b2410; } 100% { background: transparent; } }
+    .check { width: 22px; height: 22px; border-radius: 6px; border: 2px solid var(--line-2); background: var(--bg-2); cursor: pointer; display: grid; place-items: center; padding: 0; color: transparent; }
+    .check:hover { border-color: var(--green); color: rgba(47,191,113,.5); }
+    .check svg { width: 14px; height: 14px; }
     .item.done .check { background: var(--green); border-color: var(--green); color: #06210f; }
-    .star { background: none; border: 0; padding: 0; cursor: pointer; color: var(--line-2); font-size: 1.2rem; line-height: 1; margin-top: 2px; }
+    .star { background: none; border: 0; padding: 0; width: 20px; cursor: pointer; color: var(--line-2); font-size: 1.15rem; line-height: 1; }
     .star:hover, .star.on { color: var(--gold); }
+    .item-main { min-width: 0; }
     .item-title { font-weight: 600; line-height: 1.35; overflow-wrap: anywhere; }
-    .item-details { color: var(--muted); font-size: .88rem; margin-top: 4px; white-space: pre-wrap; line-height: 1.45; overflow-wrap: anywhere; }
-    .item-tags { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
-    .tag { font-size: .74rem; padding: 2px 8px; border-radius: 999px; background: var(--bg-2); border: 1px solid var(--line); color: var(--text-2); }
+    .item-details { color: var(--muted); font-size: .86rem; margin-top: 3px; line-height: 1.4; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; white-space: pre-wrap; }
+    .done-note { margin-top: 4px; font-size: .86rem; color: #9fe3bd; white-space: pre-wrap; }
+    .item-tags { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+    .tag { font-size: .74rem; padding: 2px 8px; border-radius: 999px; background: var(--bg-2); border: 1px solid var(--line); color: var(--text-2); white-space: nowrap; }
+    .tag.who { color: #7dbbff; border-color: rgba(125,187,255,.3); }
     .tag.p1 { color: #ff9a9d; border-color: rgba(229,72,77,.5); }
-    .tag.p3 { color: var(--muted); }
-    .tag.late { color: #ff9a9d; border-color: rgba(229,72,77,.5); }
+    .tag.late { color: #ff9a9d; border-color: rgba(229,72,77,.5); background: #2a1215; }
     .tag.ai { color: #c6a6ff; }
-    .item-actions { display: flex; gap: 2px; opacity: .55; }
+    .tag.ok { color: #9fe3bd; }
+    .item-actions { display: flex; gap: 0; opacity: 0; transition: opacity .1s; }
     .item:hover .item-actions, .item:focus-within .item-actions { opacity: 1; }
     .item-actions button { background: none; border: 0; color: var(--muted); cursor: pointer; padding: 4px 6px; border-radius: 6px; font-size: .9rem; }
     .item-actions button:hover { color: var(--text); background: var(--bg-2); }
     .item-actions button:disabled { visibility: hidden; }
     .item.done .item-title { color: var(--text-2); }
-    .done-note { margin-top: 6px; font-size: .88rem; color: #9fe3bd; white-space: pre-wrap; }
-
-    details.learned { margin-top: 22px; }
-    details.learned summary { cursor: pointer; font-weight: 700; color: var(--green); list-style: none; display: flex; align-items: center; gap: 8px; padding: 6px 0; }
-    details.learned summary::-webkit-details-marker { display: none; }
-    details.learned summary::before { content: '▸'; transition: transform .15s; }
-    details.learned[open] summary::before { transform: rotate(90deg); }
-    details.learned .items { margin-top: 8px; }
+    .list-empty { padding: 28px 16px; text-align: center; color: var(--muted); }
 
     .starter { max-width: 640px; }
     .starter ul { margin: 10px 0 16px; padding-left: 20px; color: var(--text-2); line-height: 1.7; }
 
-    @media (max-width: 860px) {
-      .plan-summary { grid-template-columns: 1fr; }
+    @media (max-width: 920px) {
+      .plan { grid-template-columns: 1fr; }
+      .side { position: static; flex-direction: row; overflow-x: auto; gap: 6px; padding-bottom: 6px; }
+      .side-label { display: none; }
+      .area-tab { width: auto; min-width: 150px; flex: none; }
+      .side .btn { margin-top: 0; flex: none; }
       .add-item { grid-template-columns: 1fr 1fr; }
       .add-item input[name=title] { grid-column: 1 / -1; }
+      .item { grid-template-columns: auto auto minmax(0, 1fr) auto; gap: 6px 10px; }
+      .item-actions { opacity: 1; grid-column: 4; grid-row: 1; }
+      .item-tags { grid-column: 3 / -1; grid-row: 2; justify-content: flex-start; }
+      .item-tags:empty { display: none; }
+      .stats { grid-template-columns: 1fr 1fr 1fr; }
     }
   </style>
 </head>
@@ -103,7 +159,7 @@
   <dialog id="tab-dialog" class="ev-dialog">
     <form>
       <div class="dlg-head">
-        <div><h2 id="tab-dlg-title">Nová záložka</h2><p>Záložka = jedna oblast koučování (draft, makro, lajny…) s jasným cílem.</p></div>
+        <div><h2 id="tab-dlg-title">Nová oblast</h2><p>Oblast koučování (draft, makro, lajny…) s jasným cílem.</p></div>
         <button type="button" class="btn btn-icon btn-ghost" data-cancel aria-label="Zavřít">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
         </button>
@@ -136,7 +192,7 @@
           <label class="field grow"><span class="field-label">Termín</span><input name="due_date" type="date"></label>
         </div>
         <div class="field-row">
-          <label class="field grow"><span class="field-label">Záložka</span><select name="tab_id" data-tabs></select></label>
+          <label class="field grow"><span class="field-label">Oblast</span><select name="tab_id" data-tabs></select></label>
           <label class="field grow" style="flex-direction:row;align-items:center;gap:8px;margin-top:26px"><input type="checkbox" name="focus"> <span>★ Teď trénujeme</span></label>
         </div>
         <label class="field" data-done-only><span class="field-label">Co si z toho tým odnesl</span><textarea name="done_note" maxlength="2000"></textarea></label>
@@ -163,13 +219,13 @@
     </form>
   </dialog>
 
+
   <script type="module">
     import { api, esc, initPage, formDialog, ROLE_LABELS } from '/app.js';
 
     const me = await initPage('plan');
     if (!me.is_superadmin) location.href = '/';
 
-    const PRIO = { 1: 'vysoká priorita', 2: '', 3: 'nízká priorita' };
     const STARTER = [
       ['Cíle sezóny', 'Kam chceme tým dostat do play-off – 2–3 konkrétní, měřitelné věci.'],
       ['Draft', 'Jasná identita draftu: comfort picky, prio bany a plán, jak chceme hrát každou hru.'],
@@ -181,137 +237,174 @@
     const CHECK = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>';
 
     let data = { tabs: [], items: [], players: [] };
-    let active = null;            // active tab id
+    let active = 0;               // 0 = Přehled, otherwise a tab id
+    let view = 'open';            // inside an area: open | focus | done
     let showArchived = false;
     let playerFilter = '';        // '' = everyone, 'team' = whole team, or player id
-    let learnedOpen = false;
     let flashId = null;
 
     const store = {
       get(k) { try { return localStorage.getItem(k); } catch { return null; } },
       set(k, v) { try { localStorage.setItem(k, v); } catch {} },
     };
-    active = Number(location.hash.slice(1)) || Number(store.get('plan.tab')) || null;
+    {
+      const h = location.hash.slice(1);
+      active = h === 'prehled' ? 0 : Number(h) || Number(store.get('plan.tab')) || 0;
+      view = store.get('plan.view') || 'open';
+    }
 
     const root = document.getElementById('root');
     const today = new Date().toISOString().slice(0, 10);
     const fmtDate = (d) => d ? new Date(d + 'T12:00:00').toLocaleDateString('cs-CZ', { day: 'numeric', month: 'numeric' }) : '';
     const fmtDone = (d) => d ? new Date(d.replace(' ', 'T') + 'Z').toLocaleDateString('cs-CZ', { day: 'numeric', month: 'numeric', year: 'numeric' }) : '';
     const playerLabel = (p) => `${p.nickname}${p.role ? ` (${ROLE_LABELS[p.role] ?? p.role})` : ''}`;
+    const itemsOf = (id) => data.items.filter((i) => i.tab_id === id);
+    const isLate = (i) => !i.done_at && i.due_date && i.due_date < today;
+    const matches = (i) => !playerFilter || (playerFilter === 'team' ? !i.player_id : String(i.player_id) === playerFilter);
+    const visibleTabs = () => data.tabs.filter((t) => showArchived || !t.archived);
 
     async function load() {
       data = await api('/api/plan');
-      const visible = data.tabs.filter((t) => showArchived || !t.archived);
-      if (!data.tabs.some((t) => t.id === active)) active = visible[0]?.id ?? null;
-      const cur = data.tabs.find((t) => t.id === active);
-      if (cur?.archived) showArchived = true;
+      if (active && !data.tabs.some((t) => t.id === active)) active = 0;
+      if (data.tabs.find((t) => t.id === active)?.archived) showArchived = true;
       render();
     }
 
-    function selectTab(id) {
+    function selectTab(id, v) {
       active = id;
+      if (v) view = v;
       store.set('plan.tab', String(id));
-      history.replaceState(null, '', `#${id}`);
+      store.set('plan.view', view);
+      history.replaceState(null, '', id ? `#${id}` : '#prehled');
       render();
+      window.scrollTo({ top: 0, behavior: 'smooth' });
     }
 
     function render() {
       if (!data.tabs.length) return renderStarter();
-      const itemsOf = (t) => data.items.filter((i) => i.tab_id === t.id);
-      const allLive = data.items.filter((i) => !data.tabs.find((t) => t.id === i.tab_id)?.archived);
-      const done = allLive.filter((i) => i.done_at).length;
-      const pct = allLive.length ? Math.round((done / allLive.length) * 100) : 0;
-      const focus = allLive.filter((i) => i.focus && !i.done_at);
-      const tabs = data.tabs.filter((t) => showArchived || !t.archived);
+      const live = data.items.filter((i) => !data.tabs.find((t) => t.id === i.tab_id)?.archived);
       const archivedCount = data.tabs.filter((t) => t.archived).length;
-
       root.innerHTML = `
-        <div class="plan-summary">
-          <div class="card">
-            <h3>Celkem naučeno</h3>
-            <div class="big-num">${done}<small>/ ${allLive.length}</small></div>
-            <div class="bar"><i style="width:${pct}%"></i></div>
-          </div>
-          <div class="card">
-            <h3>★ Teď trénujeme</h3>
-            ${focus.length
-              ? `<div class="focus-list">${focus.map((i) => `<span class="focus-chip" data-goto="${i.id}">${esc(i.title)} <small>· ${esc(data.tabs.find((t) => t.id === i.tab_id)?.name ?? '')}</small></span>`).join('')}</div>`
-              : '<p class="muted" style="margin:0">Nic. Hvězdičkou u bodu označ, na co se tým zrovna soustředí – uvidíš to tady napříč záložkami.</p>'}
-          </div>
-        </div>
-
-        <div class="plan-tabs" role="tablist">
-          ${tabs.map((t) => {
-            const its = itemsOf(t), open = its.filter((i) => !i.done_at).length;
-            return `<button class="tab ${t.id === active ? 'active' : ''} ${t.archived ? 'archived' : ''}" data-tab="${t.id}" role="tab">${esc(t.name)}<span class="count ${its.length && !open ? 'all-done' : ''}">${its.length ? (open ? open : '✓') : ''}</span></button>`;
-          }).join('')}
-          <button class="btn btn-small btn-ghost add-tab" data-new-tab>+ Záložka</button>
-          ${archivedCount ? `<button class="btn btn-small btn-ghost add-tab" data-toggle-archived>${showArchived ? 'Skrýt archiv' : `Archiv (${archivedCount})`}</button>` : ''}
-        </div>
-
-        <div id="panel"></div>`;
-      renderPanel();
+        <div class="plan">
+          <nav class="side" aria-label="Oblasti">
+            <div class="side-label">Plán</div>
+            ${sideTab({ id: 0, name: 'Přehled' }, live, true)}
+            <div class="side-label">Oblasti</div>
+            ${visibleTabs().map((t) => sideTab(t, itemsOf(t.id))).join('')}
+            <button class="btn btn-small btn-ghost" data-new-tab>+ Nová oblast</button>
+            ${archivedCount ? `<button class="btn btn-small btn-ghost" data-toggle-archived>${showArchived ? 'Skrýt archiv' : `Archiv (${archivedCount})`}</button>` : ''}
+          </nav>
+          <section id="panel"></section>
+        </div>`;
+      if (active) renderArea(); else renderOverview(live);
     }
 
-    function renderPanel() {
+    function sideTab(t, its, overview = false) {
+      const done = its.filter((i) => i.done_at).length;
+      const pct = its.length ? Math.round((done / its.length) * 100) : 0;
+      const n = its.length ? (done === its.length ? '✓ hotovo' : `${done}/${its.length}`) : '';
+      return `<button class="area-tab ${overview ? 'overview' : ''} ${t.id === active ? 'active' : ''} ${t.archived ? 'archived' : ''}" data-tab="${t.id}">
+        <b>${overview ? '▦ ' : ''}${esc(t.name)}</b><span class="n ${its.length && done === its.length ? 'ok' : ''}">${n}</span>
+        ${its.length ? `<span class="mini"><i style="width:${pct}%"></i></span>` : ''}
+      </button>`;
+    }
+
+    function renderOverview(live) {
+      const panel = document.getElementById('panel');
+      const done = live.filter((i) => i.done_at).length;
+      const focus = live.filter((i) => i.focus && !i.done_at).length;
+      const late = live.filter(isLate).length;
+      panel.innerHTML = `
+        <div class="stats">
+          <div class="stat"><span>Naučeno</span><b>${done}<small>/ ${live.length}</small></b></div>
+          <div class="stat gold"><span>★ Teď trénujeme</span><b>${focus}</b></div>
+          <div class="stat ${late ? 'warn' : ''}"><span>Po termínu</span><b>${late}</b></div>
+        </div>
+        <div class="ov-grid">
+          ${visibleTabs().map((t) => {
+            const its = itemsOf(t.id), d = its.filter((i) => i.done_at).length;
+            const open = its.filter((i) => !i.done_at).sort((a, b) => b.focus - a.focus);
+            const pct = its.length ? Math.round((d / its.length) * 100) : 0;
+            return `<article class="ov-card" data-tab="${t.id}">
+              <h3>${esc(t.name)}<small class="${its.length && d === its.length ? 'ok' : ''}">${its.length ? `${d}/${its.length}` : 'prázdné'}</small></h3>
+              ${t.goal ? `<p class="ov-goal">${esc(t.goal)}</p>` : '<p class="ov-goal none">Bez cíle</p>'}
+              <div class="bar"><i style="width:${pct}%"></i></div>
+              ${open.length ? `<ul class="ov-list">${open.slice(0, 4).map((i) => `<li class="${i.focus ? 'f' : ''}"><span>${esc(i.title)}</span></li>`).join('')}</ul>
+                ${open.length > 4 ? `<span class="ov-more">+ ${open.length - 4} dalších</span>` : ''}` : `<span class="ov-more">${its.length ? 'Vše naučeno 🎉' : 'Zatím žádné body'}</span>`}
+            </article>`;
+          }).join('')}
+        </div>`;
+    }
+
+    function renderArea() {
       const panel = document.getElementById('panel');
       const t = data.tabs.find((x) => x.id === active);
-      if (!t) { panel.innerHTML = '<p class="muted">Vyber záložku.</p>'; return; }
-      const tabs = data.tabs.filter((x) => showArchived || !x.archived);
-      const idx = tabs.findIndex((x) => x.id === t.id);
-      const all = data.items.filter((i) => i.tab_id === t.id);
-      const match = (i) => !playerFilter || (playerFilter === 'team' ? !i.player_id : String(i.player_id) === playerFilter);
-      const open = all.filter((i) => !i.done_at && match(i));
-      const learned = all.filter((i) => i.done_at && match(i)).sort((a, b) => (b.done_at > a.done_at ? 1 : -1));
-      const doneAll = all.filter((i) => i.done_at).length;
-      const pct = all.length ? Math.round((doneAll / all.length) * 100) : 0;
-      const late = t.deadline && t.deadline < today && doneAll < all.length;
+      const tabs = visibleTabs(), idx = tabs.findIndex((x) => x.id === t.id);
+      const all = itemsOf(t.id);
+      const open = all.filter((i) => !i.done_at);
+      const focus = open.filter((i) => i.focus);
+      const learned = all.filter((i) => i.done_at).sort((a, b) => (b.done_at > a.done_at ? 1 : -1));
+      const pct = all.length ? Math.round((learned.length / all.length) * 100) : 0;
+      const late = t.deadline && t.deadline < today && open.length;
+      if (view === 'focus' && !focus.length && open.length) view = 'open';
+      const list = (view === 'done' ? learned : view === 'focus' ? focus : open).filter(matches);
 
       panel.innerHTML = `
-        <div class="card">
-          <div class="tab-head">
-            <div style="flex:1;min-width:240px">
-              <h2>${esc(t.name)}${t.archived ? ' <span class="badge">archiv</span>' : ''}</h2>
-              ${t.goal ? `<p class="goal"><span class="goal-label">Cíl</span>${esc(t.goal)}</p>` : '<p class="goal empty-goal" data-edit-tab>+ Napiš cíl téhle oblasti – co má tým na konci umět.</p>'}
-              <div class="tab-meta">${t.deadline ? `<span class="${late ? 'tag late' : ''}">Termín: ${fmtDate(t.deadline)}</span>` : ''}</div>
+        <div class="area-head">
+          <div class="area-top">
+            <div>
+              <h2>${esc(t.name)}</h2>
+              <div class="area-meta">
+                ${t.archived ? '<span class="tag">archiv</span>' : ''}
+                ${t.deadline ? `<span class="tag ${late ? 'late' : ''}">Termín ${fmtDate(t.deadline)}</span>` : ''}
+              </div>
             </div>
-            <div class="tab-tools">
-              <button class="btn btn-small btn-ghost" data-move-tab="-1" ${idx <= 0 ? 'disabled' : ''} title="Posunout doleva">←</button>
-              <button class="btn btn-small btn-ghost" data-move-tab="1" ${idx >= tabs.length - 1 ? 'disabled' : ''} title="Posunout doprava">→</button>
+            <div class="area-tools">
               <button class="btn btn-small" data-edit-tab>Upravit</button>
-              <button class="btn btn-small btn-ghost" data-archive-tab>${t.archived ? 'Obnovit' : 'Archivovat'}</button>
-              <button class="btn btn-small btn-ghost btn-danger" data-delete-tab>Smazat</button>
+              <details class="menu">
+                <summary class="btn btn-small btn-ghost" aria-label="Další">⋯</summary>
+                <div class="menu-pop">
+                  <button data-move-tab="-1" ${idx <= 0 ? 'disabled' : ''}>↑ Posunout výš</button>
+                  <button data-move-tab="1" ${idx >= tabs.length - 1 ? 'disabled' : ''}>↓ Posunout níž</button>
+                  <hr>
+                  <button data-archive-tab>${t.archived ? 'Obnovit z archivu' : 'Archivovat'}</button>
+                  <button class="danger" data-delete-tab>Smazat oblast</button>
+                </div>
+              </details>
             </div>
           </div>
-          <div class="tab-progress"><div class="bar"><i style="width:${pct}%"></i></div><span>${doneAll} / ${all.length} naučeno</span></div>
+          ${t.goal
+            ? `<div class="goal-box"><span class="kicker">Cíl</span><p>${esc(t.goal)}</p></div>`
+            : '<div class="goal-box none" data-edit-tab><span class="kicker">Cíl</span><p>+ Napiš, co má tým v téhle oblasti na konci umět.</p></div>'}
+          <div class="area-progress"><div class="bar"><i style="width:${pct}%"></i></div><span>${learned.length} / ${all.length} naučeno</span></div>
         </div>
 
+        <div class="subtabs" role="tablist">
+          <button data-view="open" class="${view === 'open' ? 'active' : ''}">K naučení <span class="pill">${open.length}</span></button>
+          <button data-view="focus" class="${view === 'focus' ? 'active' : ''}">★ Teď trénujeme <span class="pill">${focus.length}</span></button>
+          <button data-view="done" class="${view === 'done' ? 'active' : ''}">✓ Naučeno <span class="pill">${learned.length}</span></button>
+          <span class="spacer"></span>
+          ${data.players.length ? `<select id="filter" aria-label="Pro koho">
+            <option value="">Všichni</option>
+            <option value="team" ${playerFilter === 'team' ? 'selected' : ''}>Celý tým</option>
+            ${data.players.map((p) => `<option value="${p.id}" ${String(p.id) === playerFilter ? 'selected' : ''}>${esc(playerLabel(p))}</option>`).join('')}
+          </select>` : ''}
+        </div>
+
+        ${view === 'done' ? '' : `
         <form class="add-item" id="add-item">
-          <input name="title" maxlength="200" placeholder="Co se má tým naučit… (Enter přidá)" required autocomplete="off">
+          <input name="title" maxlength="200" placeholder="${view === 'focus' ? 'Nový bod rovnou do tréninku…' : 'Co se má tým naučit…'} (Enter přidá)" required autocomplete="off">
           <select name="player_id">${playerOptions('')}</select>
           <select name="priority"><option value="2">Normální</option><option value="1">Vysoká</option><option value="3">Nízká</option></select>
           <input name="due_date" type="date" title="Termín (nepovinné)">
           <button class="btn btn-primary" type="submit">Přidat</button>
         </form>
-        <p class="form-error" id="add-error" style="margin:-4px 0 8px"></p>
+        <p class="form-error" id="add-error" style="margin:-6px 0 8px"></p>`}
 
-        ${data.players.length ? `<div class="filters">Zobrazit:
-          <select id="filter">
-            <option value="">Všechny body</option>
-            <option value="team" ${playerFilter === 'team' ? 'selected' : ''}>Jen celý tým</option>
-            ${data.players.map((p) => `<option value="${p.id}" ${String(p.id) === playerFilter ? 'selected' : ''}>${esc(playerLabel(p))}</option>`).join('')}
-          </select></div>` : ''}
+        <div class="items">
+          ${list.length ? list.map((i, n) => itemHtml(i, n, list.length)).join('') : `<div class="list-empty">${emptyText(all, open, view)}</div>`}
+        </div>`;
 
-        <div class="items" id="open-items">
-          ${open.length ? open.map((i, n) => itemHtml(i, n, open.length)).join('') : `<div class="empty">${all.length && !playerFilter ? 'Všechno v téhle záložce je naučené 🎉' : 'Žádné otevřené body.'}</div>`}
-        </div>
-
-        ${learned.length ? `<details class="learned" ${learnedOpen ? 'open' : ''}>
-          <summary>✓ Naučeno (${learned.length}) – k tomuhle se už nevracíš</summary>
-          <div class="items">${learned.map((i) => itemHtml(i)).join('')}</div>
-        </details>` : ''}`;
-
-      panel.querySelector('details.learned')?.addEventListener('toggle', (e) => { learnedOpen = e.target.open; });
       if (flashId) {
         const el = panel.querySelector(`[data-item="${flashId}"]`);
         if (el) { el.classList.add('flash'); el.scrollIntoView({ block: 'center', behavior: 'smooth' }); }
@@ -320,28 +413,36 @@
       bindAddForm();
     }
 
+    function emptyText(all, open, v) {
+      if (playerFilter) return 'Pro tenhle výběr tu nic není.';
+      if (v === 'done') return 'Zatím nic naučeného. Odškrtni bod, až ho tým zvládne.';
+      if (v === 'focus') return 'Nic se netrénuje. Hvězdičkou ☆ u bodu ho pošleš sem.';
+      return all.length ? 'Všechno v téhle oblasti je naučené 🎉' : 'Zatím žádné body – napiš první nahoře.';
+    }
+
     function itemHtml(i, n = 0, count = 0) {
       const done = !!i.done_at;
-      const late = !done && i.due_date && i.due_date < today;
+      const canMove = view === 'open' && !playerFilter;
       const tags = [
-        i.player_id ? `<span class="tag">${esc(i.player_name)}${i.player_role ? ` · ${ROLE_LABELS[i.player_role] ?? i.player_role}` : ''}</span>` : '<span class="tag">celý tým</span>',
-        !done && PRIO[i.priority] ? `<span class="tag p${i.priority}">${PRIO[i.priority]}</span>` : '',
-        !done && i.due_date ? `<span class="tag ${late ? 'late' : ''}">do ${fmtDate(i.due_date)}</span>` : '',
-        done ? `<span class="tag">naučeno ${fmtDone(i.done_at)}</span>` : '',
-        i.created_by_kind === 'claude' ? '<span class="tag ai">od Clauda</span>' : '',
+        i.player_id ? `<span class="tag who">${esc(i.player_name)}${i.player_role ? ` · ${ROLE_LABELS[i.player_role] ?? i.player_role}` : ''}</span>` : '',
+        !done && i.priority === 1 ? '<span class="tag p1">vysoká</span>' : '',
+        !done && i.priority === 3 ? '<span class="tag">nízká</span>' : '',
+        !done && i.due_date ? `<span class="tag ${isLate(i) ? 'late' : ''}">do ${fmtDate(i.due_date)}</span>` : '',
+        done ? `<span class="tag ok">${fmtDone(i.done_at)}</span>` : '',
+        i.created_by_kind === 'claude' ? '<span class="tag ai">Claude</span>' : '',
       ].join('');
       return `
         <div class="item ${done ? 'done' : ''} ${i.focus && !done ? 'focus' : ''}" data-item="${i.id}">
-          <button class="check" data-check="${i.id}" title="${done ? 'Vrátit mezi otevřené' : 'Odškrtnout – naučeno'}" aria-label="${done ? 'Vrátit' : 'Odškrtnout'}">${CHECK}</button>
-          ${done ? '<span></span>' : `<button class="star ${i.focus ? 'on' : ''}" data-star="${i.id}" title="Teď trénujeme">${i.focus ? '★' : '☆'}</button>`}
-          <div>
+          <button class="check" data-check="${i.id}" title="${done ? 'Vrátit mezi K naučení' : 'Odškrtnout – naučeno'}" aria-label="${done ? 'Vrátit' : 'Odškrtnout'}">${CHECK}</button>
+          ${done ? '<span style="width:20px"></span>' : `<button class="star ${i.focus ? 'on' : ''}" data-star="${i.id}" title="${i.focus ? 'Přestat trénovat' : 'Teď trénujeme'}">${i.focus ? '★' : '☆'}</button>`}
+          <div class="item-main">
             <div class="item-title">${esc(i.title)}</div>
             ${i.details ? `<div class="item-details">${esc(i.details)}</div>` : ''}
             ${done && i.done_note ? `<div class="done-note">→ ${esc(i.done_note)}</div>` : ''}
-            <div class="item-tags">${tags}</div>
           </div>
+          <div class="item-tags">${tags}</div>
           <div class="item-actions">
-            ${done ? '' : `<button data-move="${i.id}" data-dir="-1" ${n === 0 ? 'disabled' : ''} title="Výš">↑</button><button data-move="${i.id}" data-dir="1" ${n >= count - 1 ? 'disabled' : ''} title="Níž">↓</button>`}
+            ${canMove ? `<button data-move="${i.id}" data-dir="-1" ${n === 0 ? 'disabled' : ''} title="Výš">↑</button><button data-move="${i.id}" data-dir="1" ${n >= count - 1 ? 'disabled' : ''} title="Níž">↓</button>` : ''}
             <button data-edit="${i.id}" title="Upravit">✎</button>
           </div>
         </div>`;
@@ -355,13 +456,12 @@
       root.innerHTML = `
         <div class="card starter">
           <h2>Začni plánem</h2>
-          <p class="muted">Rozděl koučování do záložek. Každá má cíl a body, které po naučení odškrtneš (a připíšeš, co si z toho tým odnesl). Můžu ti založit tyhle:</p>
+          <p class="muted">Rozděl koučování do oblastí. Každá má cíl a body, které po naučení odškrtneš (a připíšeš, co si z toho tým odnesl). Můžu ti založit tyhle:</p>
           <ul>${STARTER.map(([n, g]) => `<li><b>${esc(n)}</b> – <span class="muted">${esc(g)}</span></li>`).join('')}</ul>
           <div style="display:flex;gap:10px;flex-wrap:wrap">
-            <button class="btn btn-primary" data-starter>Založit tyhle záložky</button>
-            <button class="btn" data-new-tab>Vlastní záložka</button>
+            <button class="btn btn-primary" data-starter>Založit tyhle oblasti</button>
+            <button class="btn" data-new-tab>Vlastní oblast</button>
           </div>
-          <p class="form-error" id="starter-error"></p>
         </div>`;
     }
 
@@ -379,6 +479,7 @@
             tab_id: active, title: form.title.value, player_id: form.player_id.value || null,
             priority: Number(form.priority.value), due_date: form.due_date.value || null,
           } });
+          if (view === 'focus') await api(`/api/plan/items/${id}`, { method: 'PATCH', body: { focus: true } });
           const keepPlayer = form.player_id.value;
           flashId = id;
           await load();
@@ -402,7 +503,7 @@
     });
     function openTabDialog(t) {
       editingTab = t?.id ?? null;
-      document.getElementById('tab-dlg-title').textContent = t ? 'Upravit záložku' : 'Nová záložka';
+      document.getElementById('tab-dlg-title').textContent = t ? 'Upravit oblast' : 'Nová oblast';
       tabDlg.open(t ? { name: t.name, goal: t.goal ?? '', deadline: t.deadline ?? '' } : {});
     }
 
@@ -449,38 +550,45 @@
       if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); doneDlgEl.querySelector('form').requestSubmit(); }
     });
 
+
     // --- events ------------------------------------------------------------
     root.addEventListener('change', (e) => {
-      if (e.target.id === 'filter') { playerFilter = e.target.value; renderPanel(); }
+      if (e.target.id === 'filter') { playerFilter = e.target.value; renderArea(); }
+    });
+
+    // close the ⋯ menu when clicking elsewhere
+    document.addEventListener('click', (e) => {
+      document.querySelectorAll('details.menu[open]').forEach((d) => { if (!d.contains(e.target)) d.open = false; });
     });
 
     root.addEventListener('click', async (e) => {
-      const el = e.target.closest('button, [data-goto], [data-edit-tab]');
+      const el = e.target.closest('button, [data-tab], [data-edit-tab]');
       if (!el) return;
       const t = data.tabs.find((x) => x.id === active);
       try {
-        if (el.dataset.tab) return selectTab(Number(el.dataset.tab));
+        if (el.dataset.tab !== undefined) return selectTab(Number(el.dataset.tab), el.classList.contains('ov-card') ? 'open' : undefined);
+        if (el.dataset.view) { view = el.dataset.view; store.set('plan.view', view); return renderArea(); }
         if ('newTab' in el.dataset) return openTabDialog(null);
         if ('toggleArchived' in el.dataset) {
           showArchived = !showArchived;
-          if (!showArchived && t?.archived) active = data.tabs.find((x) => !x.archived)?.id ?? null;
+          if (!showArchived && t?.archived) active = 0;
           return render();
         }
         if ('editTab' in el.dataset) return openTabDialog(t);
         if ('archiveTab' in el.dataset) {
           await api(`/api/plan/tabs/${t.id}`, { method: 'PATCH', body: { archived: !t.archived } });
-          if (!t.archived) active = data.tabs.find((x) => !x.archived && x.id !== t.id)?.id ?? null;
+          if (!t.archived) active = 0;
           return load();
         }
         if ('deleteTab' in el.dataset) {
-          const n = data.items.filter((i) => i.tab_id === t.id).length;
-          if (!confirm(`Smazat záložku „${t.name}“${n ? ` i s ${n} body` : ''}? Tohle nejde vrátit – jestli ji jen nechceš vidět, dej Archivovat.`)) return;
+          const n = itemsOf(t.id).length;
+          if (!confirm(`Smazat oblast „${t.name}“${n ? ` i s ${n} body` : ''}? Tohle nejde vrátit – jestli ji jen nechceš vidět, dej Archivovat.`)) return;
           await api(`/api/plan/tabs/${t.id}`, { method: 'DELETE' });
-          active = null;
+          active = 0;
           return load();
         }
         if (el.dataset.moveTab) {
-          const tabs = data.tabs.filter((x) => showArchived || !x.archived).map((x) => x.id);
+          const tabs = visibleTabs().map((x) => x.id);
           const i = tabs.indexOf(t.id), j = i + Number(el.dataset.moveTab);
           if (j < 0 || j >= tabs.length) return;
           [tabs[i], tabs[j]] = [tabs[j], tabs[i]];
@@ -491,15 +599,8 @@
         if ('starter' in el.dataset) {
           el.disabled = true;
           for (const [name, goal] of STARTER) await api('/api/plan/tabs', { method: 'POST', body: { name, goal } });
-          active = null;
+          active = 0;
           return load();
-        }
-        if (el.dataset.goto) {
-          const item = data.items.find((i) => i.id === Number(el.dataset.goto));
-          if (!item) return;
-          flashId = item.id;
-          playerFilter = '';
-          return selectTab(item.tab_id);
         }
         if (el.dataset.check) {
           const item = data.items.find((i) => i.id === Number(el.dataset.check));
@@ -519,19 +620,11 @@
           return load();
         }
         if (el.dataset.move) {
-          // Reorder within all open items of the tab (the filter only hides some of them).
-          const open = data.items.filter((i) => i.tab_id === active && !i.done_at).map((i) => i.id);
-          const id = Number(el.dataset.move), dir = Number(el.dataset.dir);
-          const match = (iid) => {
-            const i = data.items.find((x) => x.id === iid);
-            return !playerFilter || (playerFilter === 'team' ? !i.player_id : String(i.player_id) === playerFilter);
-          };
-          const from = open.indexOf(id);
-          let to = from + dir;
-          while (to >= 0 && to < open.length && !match(open[to])) to += dir;
+          const open = itemsOf(active).filter((i) => !i.done_at).map((i) => i.id);
+          const id = Number(el.dataset.move), from = open.indexOf(id), to = from + Number(el.dataset.dir);
           if (to < 0 || to >= open.length) return;
           [open[from], open[to]] = [open[to], open[from]];
-          const doneIds = data.items.filter((i) => i.tab_id === active && i.done_at).map((i) => i.id);
+          const doneIds = itemsOf(active).filter((i) => i.done_at).map((i) => i.id);
           await api(`/api/plan/tabs/${active}/order`, { method: 'PUT', body: { ids: [...open, ...doneIds] } });
           return load();
         }
@@ -542,8 +635,9 @@
     });
 
     window.addEventListener('hashchange', () => {
-      const id = Number(location.hash.slice(1));
-      if (id && id !== active && data.tabs.some((t) => t.id === id)) selectTab(id);
+      const h = location.hash.slice(1);
+      const id = h === 'prehled' ? 0 : Number(h);
+      if (id !== active && (id === 0 || data.tabs.some((t) => t.id === id))) selectTab(id);
     });
 
     await load();

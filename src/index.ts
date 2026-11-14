@@ -1,6 +1,6 @@
 import { handleApi } from './api';
 import { getSessionUser, handleAuth, safeNext } from './auth';
-import { ensureSchema } from './db';
+import { ensureSchema, isSuperadmin } from './db';
 import { json, redirect } from './http';
 import { handleMcp } from './mcp';
 import { handleOAuth, isOAuthPath } from './oauth';
@@ -23,6 +23,9 @@ export interface Env {
 
 /** Paths reachable without logging in. */
 const PUBLIC_PATHS = new Set(['/login', '/login.html']);
+
+/** Pages only superadmins may open. */
+const SUPERADMIN_PAGES = new Set(['/plan', '/plan.html']);
 
 /** Static files every page needs, login page included: served straight from assets, no DB or session lookup. */
 const STATIC_PATHS = new Set(['/app.css', '/favicon.svg', '/map-rift.webp']);
@@ -113,6 +116,9 @@ async function route(req: Request, env: Env, url: URL): Promise<Response> {
     if (user && (url.pathname === '/login' || url.pathname === '/login.html')) {
       return redirect(safeNext(url.searchParams.get('next')));
     }
+
+    // Plán koučování is the coach's private page: not even admins get the HTML.
+    if (user && SUPERADMIN_PAGES.has(url.pathname) && !isSuperadmin(env, user)) return redirect('/');
 
     const res = await env.ASSETS.fetch(req);
     // Pages behind login must not be cached by the browser or shared caches.

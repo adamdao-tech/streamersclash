@@ -12,6 +12,7 @@ import {
 } from './coaching';
 import { getRuneData } from './runes';
 import { handleQueueApi } from './queue';
+import { handlePlanApi } from './plan';
 
 const ROLES = ['TOP', 'JUNGLE', 'MID', 'ADC', 'SUPPORT', 'SUB'] as const;
 const REGIONS = ['EUNE', 'EUW'] as const;
@@ -536,6 +537,10 @@ async function route(req: Request, env: Env, url: URL, user: User): Promise<Resp
   // --- Streamers Queue scouting (admin only) -------------------------------
   const queue = await handleQueueApi(req, env, path, method, user, readBody);
   if (queue) return queue;
+
+  // --- Plán koučování (superadmin only) -------------------------------------
+  const plan = await handlePlanApi(req, env, path, method, user, readBody);
+  if (plan) return plan;
 
   // --- activity ----------------------------------------------------------
   if (path === '/api/activity' && method === 'GET') {

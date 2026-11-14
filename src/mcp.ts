@@ -10,6 +10,7 @@ import { userFromBearer } from './oauth';
 import { syncTwitchVods } from './vods';
 import { createFolder, getShotImage, loadCoaching, saveNote, savePool, saveRunePage, TIER_LABELS } from './coaching';
 import { describeRunePage, getRuneData } from './runes';
+import { createItem, createTab, loadPlan, PRIORITY_LABELS, requireSuperadmin, updateItem, updateTab } from './plan';
 import { compactTournament, freeSlot, listTournament, SLOTS, tournamentFields, tournamentLabel } from './tournament';
 
 // Remote MCP server (Streamable HTTP transport, JSON responses only).
@@ -28,6 +29,7 @@ Only team games are kept: at least 4 of the ally names must be players of the st
 Solo queue / Streamers Queue games with random teammates are discarded (save_draft refuses them with not_team_game).
 Coaching: get_coaching shows rune pages and coaching notes per player and folder; write notes with add_coaching_note.
 Schedule: get_schedule lists our tournament matches, scrims and other events; the next opponent's opponent_team_id is the team to scout.
+Coaching plan (superadmin only): get_coach_plan shows the coach's strategic plan – tabs with a goal and items to tick off when learned; add_coach_plan_items, update_coach_plan_item, save_coach_plan_tab change it. Items already done were learned – don't suggest them again.
 Tournament: get_tournament lists every match of the whole tournament (all teams: group match days and the play-off bracket); assign teams and results with update_tournament_match.
 Reply to the user in Czech.`;
 
@@ -748,6 +750,120 @@ const TOOLS: Tool[] = [
       const { id, ...rest } = a;
       const pageId = await saveRunePage(env, { kind: 'claude', userId: user.id }, rest, id ? int(id, 'id') : undefined);
       return text({ ok: true, rune_page_id: pageId });
+    },
+  },
+  {
+    name: 'get_coach_plan',
+    description:
+      "The coach's private strategic coaching plan (superadmin/Dao only): tabs (areas like Draft, Macro) each with a goal and deadline, and items the team should learn. done = already learned (with what the team took from it) – never suggest those again. focus = what the team trains right now.",
+    inputSchema: { type: 'object', properties: { include_archived: { type: 'boolean' } } },
+    annotations: { readOnlyHint: true },
+    async run(a, { env, user }) {
+      requireSuperadmin(env, user);
+      const { tabs, items, players } = await loadPlan(env);
+      type T = { id: number; name: string; goal: string | null; deadline: string | null; archived: number };
+      type I = Json & { tab_id: number; done_at: string | null; priority: number; focus: number };
+      return text({
+        players,
+        tabs: (tabs as T[])
+          .filter((t) => a.include_archived || !t.archived)
+          .map((t) => {
+            const its = (items as I[]).filter((i) => i.tab_id === t.id);
+            const row = (i: I) => ({
+              id: i.id, title: i.title, details: i.details, for: i.player_name ?? 'whole team',
+              priority: PRIORITY_LABELS[i.priority], focus: !!i.focus, due_date: i.due_date,
+              ...(i.done_at ? { done_at: i.done_at, learned_note: i.done_note } : {}),
+            });
+            return {
+              id: t.id, name: t.name, goal: t.goal, deadline: t.deadline, archived: !!t.archived,
+              progress: `${its.filter((i) => i.done_at).length}/${its.length}`,
+              open: its.filter((i) => !i.done_at).map(row),
+              learned: its.filter((i) => i.done_at).map(row),
+            };
+          }),
+      });
+    },
+  },
+  {
+    name: 'save_coach_plan_tab',
+    description: 'Create a tab (area) in the coaching plan, or update it when id is given. Superadmin only. Ask Dao before changing his plan.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        id: { type: 'integer', description: 'Existing tab to update; omit to create' },
+        name: { type: 'string' },
+        goal: { type: 'string', description: 'What the team should be able to do at the end' },
+        deadline: { type: 'string', description: 'YYYY-MM-DD' },
+        archived: { type: 'boolean' },
+      },
+    },
+    async run(a, { env, user }) {
+      requireSuperadmin(env, user);
+      const { id, ...rest } = a;
+      if (id) {
+        await updateTab(env, int(id, 'id'), rest);
+        return text({ ok: true, tab_id: id });
+      }
+      return text({ ok: true, tab_id: await createTab(env, rest) });
+    },
+  },
+  {
+    name: 'add_coach_plan_items',
+    description: 'Add items (things the team or a player should learn) to a coaching plan tab. Superadmin only. Ask Dao before adding.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        tab_id: { type: 'integer' },
+        items: {
+          type: 'array',
+          maxItems: 30,
+          items: {
+            type: 'object',
+            properties: {
+              title: { type: 'string' },
+              details: { type: 'string', description: 'How to train it / when it counts as learned' },
+              player_id: { type: 'integer', description: 'One of our players; omit for the whole team' },
+              priority: { type: 'integer', enum: [1, 2, 3], description: '1 high, 2 normal, 3 low' },
+              due_date: { type: 'string', description: 'YYYY-MM-DD' },
+            },
+            required: ['title'],
+          },
+        },
+      },
+      required: ['tab_id', 'items'],
+    },
+    async run(a, { env, user }) {
+      requireSuperadmin(env, user);
+      const list = Array.isArray(a.items) ? (a.items as Json[]) : [];
+      const ids: number[] = [];
+      for (const it of list) ids.push(await createItem(env, { ...it, tab_id: a.tab_id }, 'claude'));
+      return text({ ok: true, item_ids: ids });
+    },
+  },
+  {
+    name: 'update_coach_plan_item',
+    description: 'Change a coaching plan item: tick it off (done: true, with learned_note), reopen it, set focus, edit text, priority, due date or move it to another tab. Superadmin only.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        id: { type: 'integer' },
+        done: { type: 'boolean' },
+        learned_note: { type: 'string', description: 'What the team took from it (when ticking off)' },
+        focus: { type: 'boolean' },
+        title: { type: 'string' },
+        details: { type: 'string' },
+        player_id: { type: ['integer', 'null'] },
+        priority: { type: 'integer', enum: [1, 2, 3] },
+        due_date: { type: ['string', 'null'] },
+        tab_id: { type: 'integer' },
+      },
+      required: ['id'],
+    },
+    async run(a, { env, user }) {
+      requireSuperadmin(env, user);
+      const { id, learned_note, ...rest } = a;
+      await updateItem(env, int(id, 'id'), learned_note !== undefined ? { ...rest, done_note: learned_note } : rest);
+      return text({ ok: true });
     },
   },
   {

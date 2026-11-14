@@ -660,4 +660,34 @@ CREATE TABLE availability (
   PRIMARY KEY (row_key, day)
 );
 `,
+
+  /* 31: Plán koučování – the coach's (superadmin's) private strategic plan: tabs with a goal, items to tick off */ `
+CREATE TABLE coach_plan_tabs (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  name       TEXT NOT NULL,
+  goal       TEXT,
+  deadline   TEXT,
+  sort       INTEGER NOT NULL DEFAULT 0,
+  archived   INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE TABLE coach_plan_items (
+  id              INTEGER PRIMARY KEY AUTOINCREMENT,
+  tab_id          INTEGER NOT NULL REFERENCES coach_plan_tabs(id) ON DELETE CASCADE,
+  title           TEXT NOT NULL,
+  details         TEXT,
+  player_id       INTEGER REFERENCES players(id) ON DELETE SET NULL,
+  priority        INTEGER NOT NULL DEFAULT 2,
+  focus           INTEGER NOT NULL DEFAULT 0,
+  due_date        TEXT,
+  done_at         TEXT,
+  done_note       TEXT,
+  sort            INTEGER NOT NULL DEFAULT 0,
+  created_by_kind TEXT NOT NULL DEFAULT 'user',
+  created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at      TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX idx_coach_plan_items_tab ON coach_plan_items(tab_id, sort);
+`,
 ];

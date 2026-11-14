@@ -1,0 +1,552 @@
+<!doctype html>
+<html lang="cs">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Plán koučování · SGooBovo šedl scouting</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="preload" href="/fonts/inter-var.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="/fonts/rajdhani-700.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="/app.css">
+  <style>
+    .plan-summary { display: grid; grid-template-columns: minmax(220px, 300px) 1fr; gap: 14px; margin-bottom: 22px; }
+    .plan-summary .card h3 { margin: 0 0 10px; font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); font-weight: 600; }
+    .big-num { font: 700 2.3rem/1 var(--display); }
+    .big-num small { font-size: 1rem; color: var(--muted); margin-left: 4px; }
+    .bar { height: 8px; border-radius: 99px; background: var(--bg-2); border: 1px solid var(--line); overflow: hidden; margin-top: 10px; }
+    .bar > i { display: block; height: 100%; background: linear-gradient(90deg, var(--gold), var(--green)); border-radius: inherit; transition: width .3s; }
+    .focus-list { display: flex; flex-wrap: wrap; gap: 8px; }
+    .focus-chip { display: inline-flex; align-items: center; gap: 6px; padding: 6px 11px; border-radius: 999px; background: #3a2e10; border: 1px solid rgba(232,184,74,.45); color: var(--gold-2); font-size: 0.86rem; cursor: pointer; }
+    .focus-chip small { color: var(--muted); }
+    .focus-chip:hover { border-color: var(--gold); }
+
+    .plan-tabs { display: flex; align-items: center; gap: 4px; border-bottom: 1px solid var(--line); margin-bottom: 18px; overflow-x: auto; }
+    .plan-tabs button.tab { background: none; border: 0; color: var(--muted); font: 600 0.95rem var(--font); padding: 9px 14px; cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1px; white-space: nowrap; }
+    .plan-tabs button.tab:hover { color: var(--text); }
+    .plan-tabs button.tab.active { color: var(--text); border-bottom-color: var(--gold); }
+    .plan-tabs button.tab.archived { font-style: italic; opacity: .75; }
+    .plan-tabs .count { color: var(--muted); font-weight: 500; margin-left: 5px; font-size: .82rem; }
+    .plan-tabs .count.all-done { color: var(--green); }
+    .plan-tabs .add-tab { margin-left: 6px; white-space: nowrap; }
+
+    .tab-head { display: flex; gap: 16px; align-items: flex-start; justify-content: space-between; flex-wrap: wrap; }
+    .tab-head h2 { margin: 0; font-size: 1.6rem; }
+    .goal { margin: 10px 0 0; white-space: pre-wrap; color: var(--text-2); line-height: 1.5; }
+    .goal.empty-goal { color: var(--muted); font-style: italic; cursor: pointer; }
+    .goal-label { display: inline-block; font-size: .72rem; text-transform: uppercase; letter-spacing: .07em; color: var(--gold-2); font-weight: 700; margin-right: 6px; }
+    .tab-meta { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; margin-top: 10px; color: var(--muted); font-size: .85rem; }
+    .tab-tools { display: flex; gap: 6px; flex-wrap: wrap; }
+    .tab-progress { margin-top: 14px; display: flex; align-items: center; gap: 12px; }
+    .tab-progress .bar { flex: 1; margin: 0; }
+    .tab-progress span { font-size: .85rem; color: var(--muted); white-space: nowrap; }
+
+    .add-item { display: grid; grid-template-columns: 1fr 170px 130px 150px auto; gap: 8px; margin: 18px 0 12px; }
+    .filters { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 10px; font-size: .88rem; color: var(--muted); }
+    .filters select { width: auto; min-height: 32px; padding: 4px 8px; }
+
+    .items { display: flex; flex-direction: column; gap: 8px; }
+    .item { display: grid; grid-template-columns: auto auto 1fr auto; gap: 12px; align-items: flex-start; padding: 12px 14px; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; }
+    .item.focus { border-color: rgba(232,184,74,.6); box-shadow: inset 3px 0 0 var(--gold); }
+    .item.flash { animation: flash 1.2s ease; }
+    @keyframes flash { 0%, 40% { background: #2b2410; } 100% { background: var(--panel); } }
+    .check { width: 24px; height: 24px; border-radius: 7px; border: 2px solid var(--line-2); background: var(--bg-2); cursor: pointer; display: grid; place-items: center; padding: 0; margin-top: 1px; color: transparent; }
+    .check:hover { border-color: var(--green); }
+    .check svg { width: 15px; height: 15px; }
+    .item.done .check { background: var(--green); border-color: var(--green); color: #06210f; }
+    .star { background: none; border: 0; padding: 0; cursor: pointer; color: var(--line-2); font-size: 1.2rem; line-height: 1; margin-top: 2px; }
+    .star:hover, .star.on { color: var(--gold); }
+    .item-title { font-weight: 600; line-height: 1.35; overflow-wrap: anywhere; }
+    .item-details { color: var(--muted); font-size: .88rem; margin-top: 4px; white-space: pre-wrap; line-height: 1.45; overflow-wrap: anywhere; }
+    .item-tags { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
+    .tag { font-size: .74rem; padding: 2px 8px; border-radius: 999px; background: var(--bg-2); border: 1px solid var(--line); color: var(--text-2); }
+    .tag.p1 { color: #ff9a9d; border-color: rgba(229,72,77,.5); }
+    .tag.p3 { color: var(--muted); }
+    .tag.late { color: #ff9a9d; border-color: rgba(229,72,77,.5); }
+    .tag.ai { color: #c6a6ff; }
+    .item-actions { display: flex; gap: 2px; opacity: .55; }
+    .item:hover .item-actions, .item:focus-within .item-actions { opacity: 1; }
+    .item-actions button { background: none; border: 0; color: var(--muted); cursor: pointer; padding: 4px 6px; border-radius: 6px; font-size: .9rem; }
+    .item-actions button:hover { color: var(--text); background: var(--bg-2); }
+    .item-actions button:disabled { visibility: hidden; }
+    .item.done .item-title { color: var(--text-2); }
+    .done-note { margin-top: 6px; font-size: .88rem; color: #9fe3bd; white-space: pre-wrap; }
+
+    details.learned { margin-top: 22px; }
+    details.learned summary { cursor: pointer; font-weight: 700; color: var(--green); list-style: none; display: flex; align-items: center; gap: 8px; padding: 6px 0; }
+    details.learned summary::-webkit-details-marker { display: none; }
+    details.learned summary::before { content: '▸'; transition: transform .15s; }
+    details.learned[open] summary::before { transform: rotate(90deg); }
+    details.learned .items { margin-top: 8px; }
+
+    .starter { max-width: 640px; }
+    .starter ul { margin: 10px 0 16px; padding-left: 20px; color: var(--text-2); line-height: 1.7; }
+
+    @media (max-width: 860px) {
+      .plan-summary { grid-template-columns: 1fr; }
+      .add-item { grid-template-columns: 1fr 1fr; }
+      .add-item input[name=title] { grid-column: 1 / -1; }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <div class="page-head">
+      <div>
+        <h1>Plán koučování</h1>
+        <p>Vidíš jen ty. Co se má tým naučit, v jakém pořadí – a co už umí, ať se k tomu nevracíš.</p>
+      </div>
+    </div>
+
+    <div id="root"><p class="muted">Načítám…</p></div>
+  </main>
+
+  <dialog id="tab-dialog" class="ev-dialog">
+    <form>
+      <div class="dlg-head">
+        <div><h2 id="tab-dlg-title">Nová záložka</h2><p>Záložka = jedna oblast koučování (draft, makro, lajny…) s jasným cílem.</p></div>
+        <button type="button" class="btn btn-icon btn-ghost" data-cancel aria-label="Zavřít">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+        </button>
+      </div>
+      <div class="dlg-body">
+        <label class="field"><span class="field-label">Název</span><input name="name" maxlength="60" required placeholder="např. Makro & draky"></label>
+        <label class="field"><span class="field-label">Cíl – čeho chceš v téhle oblasti dosáhnout</span>
+          <textarea name="goal" maxlength="2000" placeholder="např. Tým sám od sebe hraje přes draky: prio botu před spawnem, vision 1 min předem, jungler je u pitu včas."></textarea></label>
+        <label class="field" style="max-width:220px"><span class="field-label">Termín (nepovinné)</span><input name="deadline" type="date"></label>
+      </div>
+      <p class="form-error"></p>
+      <div class="dlg-foot"><span class="spacer"></span><button type="button" class="btn btn-ghost" data-cancel>Zrušit</button><button type="submit" class="btn btn-primary">Uložit</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="item-dialog" class="ev-dialog">
+    <form>
+      <div class="dlg-head">
+        <div><h2>Upravit bod</h2><p>Co přesně se má tým (nebo hráč) naučit a jak poznáš, že to umí.</p></div>
+        <button type="button" class="btn btn-icon btn-ghost" data-cancel aria-label="Zavřít">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+        </button>
+      </div>
+      <div class="dlg-body">
+        <label class="field"><span class="field-label">Bod</span><input name="title" maxlength="200" required></label>
+        <label class="field"><span class="field-label">Detail / jak to trénovat / kdy je to hotové</span><textarea name="details" maxlength="4000" class="big" style="min-height:140px"></textarea></label>
+        <div class="field-row">
+          <label class="field grow"><span class="field-label">Pro koho</span><select name="player_id" data-players></select></label>
+          <label class="field grow"><span class="field-label">Priorita</span><select name="priority"><option value="1">Vysoká</option><option value="2">Normální</option><option value="3">Nízká</option></select></label>
+          <label class="field grow"><span class="field-label">Termín</span><input name="due_date" type="date"></label>
+        </div>
+        <div class="field-row">
+          <label class="field grow"><span class="field-label">Záložka</span><select name="tab_id" data-tabs></select></label>
+          <label class="field grow" style="flex-direction:row;align-items:center;gap:8px;margin-top:26px"><input type="checkbox" name="focus"> <span>★ Teď trénujeme</span></label>
+        </div>
+        <label class="field" data-done-only><span class="field-label">Co si z toho tým odnesl</span><textarea name="done_note" maxlength="2000"></textarea></label>
+      </div>
+      <p class="form-error"></p>
+      <div class="dlg-foot"><button type="button" class="btn btn-ghost btn-danger" data-delete-item>Smazat</button><span class="spacer"></span><button type="button" class="btn btn-ghost" data-cancel>Zrušit</button><button type="submit" class="btn btn-primary">Uložit</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="done-dialog" class="ev-dialog">
+    <form>
+      <div class="dlg-head">
+        <div><h2>✓ Naučeno</h2><p id="done-sub"></p></div>
+        <button type="button" class="btn btn-icon btn-ghost" data-cancel aria-label="Zavřít">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+        </button>
+      </div>
+      <div class="dlg-body">
+        <label class="field"><span class="field-label">Co si z toho tým odnesl? (nepovinné – Ctrl+Enter uloží)</span>
+          <textarea name="done_note" maxlength="2000" placeholder="např. Wardujeme pit 60 s předem, jungler hlásí timer. Ještě občas zapomíná ADC."></textarea></label>
+      </div>
+      <p class="form-error"></p>
+      <div class="dlg-foot"><span class="spacer"></span><button type="button" class="btn btn-ghost" data-cancel>Zrušit</button><button type="submit" class="btn btn-primary">Odškrtnout</button></div>
+    </form>
+  </dialog>
+
+  <script type="module">
+    import { api, esc, initPage, formDialog, ROLE_LABELS } from '/app.js';
+
+    const me = await initPage('plan');
+    if (!me.is_superadmin) location.href = '/';
+
+    const PRIO = { 1: 'vysoká priorita', 2: '', 3: 'nízká priorita' };
+    const STARTER = [
+      ['Cíle sezóny', 'Kam chceme tým dostat do play-off – 2–3 konkrétní, měřitelné věci.'],
+      ['Draft', 'Jasná identita draftu: comfort picky, prio bany a plán, jak chceme hrát každou hru.'],
+      ['Lajny & early', 'Lane fáze, level 1–3, spolupráce jungle s lajnami, první recall.'],
+      ['Makro & objektivy', 'Hrát přes draky a objektivy: prio, vision předem, rotace.'],
+      ['Teamfighty', 'Kdo engageuje, na koho jdeme, peel, kdy fight nebrat.'],
+      ['Komunikace & mentál', 'Krátké jasné cally, kdo shotcalluje, reset po chybě, žádný tilt.'],
+    ];
+    const CHECK = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>';
+
+    let data = { tabs: [], items: [], players: [] };
+    let active = null;            // active tab id
+    let showArchived = false;
+    let playerFilter = '';        // '' = everyone, 'team' = whole team, or player id
+    let learnedOpen = false;
+    let flashId = null;
+
+    const store = {
+      get(k) { try { return localStorage.getItem(k); } catch { return null; } },
+      set(k, v) { try { localStorage.setItem(k, v); } catch {} },
+    };
+    active = Number(location.hash.slice(1)) || Number(store.get('plan.tab')) || null;
+
+    const root = document.getElementById('root');
+    const today = new Date().toISOString().slice(0, 10);
+    const fmtDate = (d) => d ? new Date(d + 'T12:00:00').toLocaleDateString('cs-CZ', { day: 'numeric', month: 'numeric' }) : '';
+    const fmtDone = (d) => d ? new Date(d.replace(' ', 'T') + 'Z').toLocaleDateString('cs-CZ', { day: 'numeric', month: 'numeric', year: 'numeric' }) : '';
+    const playerLabel = (p) => `${p.nickname}${p.role ? ` (${ROLE_LABELS[p.role] ?? p.role})` : ''}`;
+
+    async function load() {
+      data = await api('/api/plan');
+      const visible = data.tabs.filter((t) => showArchived || !t.archived);
+      if (!data.tabs.some((t) => t.id === active)) active = visible[0]?.id ?? null;
+      const cur = data.tabs.find((t) => t.id === active);
+      if (cur?.archived) showArchived = true;
+      render();
+    }
+
+    function selectTab(id) {
+      active = id;
+      store.set('plan.tab', String(id));
+      history.replaceState(null, '', `#${id}`);
+      render();
+    }
+
+    function render() {
+      if (!data.tabs.length) return renderStarter();
+      const itemsOf = (t) => data.items.filter((i) => i.tab_id === t.id);
+      const allLive = data.items.filter((i) => !data.tabs.find((t) => t.id === i.tab_id)?.archived);
+      const done = allLive.filter((i) => i.done_at).length;
+      const pct = allLive.length ? Math.round((done / allLive.length) * 100) : 0;
+      const focus = allLive.filter((i) => i.focus && !i.done_at);
+      const tabs = data.tabs.filter((t) => showArchived || !t.archived);
+      const archivedCount = data.tabs.filter((t) => t.archived).length;
+
+      root.innerHTML = `
+        <div class="plan-summary">
+          <div class="card">
+            <h3>Celkem naučeno</h3>
+            <div class="big-num">${done}<small>/ ${allLive.length}</small></div>
+            <div class="bar"><i style="width:${pct}%"></i></div>
+          </div>
+          <div class="card">
+            <h3>★ Teď trénujeme</h3>
+            ${focus.length
+              ? `<div class="focus-list">${focus.map((i) => `<span class="focus-chip" data-goto="${i.id}">${esc(i.title)} <small>· ${esc(data.tabs.find((t) => t.id === i.tab_id)?.name ?? '')}</small></span>`).join('')}</div>`
+              : '<p class="muted" style="margin:0">Nic. Hvězdičkou u bodu označ, na co se tým zrovna soustředí – uvidíš to tady napříč záložkami.</p>'}
+          </div>
+        </div>
+
+        <div class="plan-tabs" role="tablist">
+          ${tabs.map((t) => {
+            const its = itemsOf(t), open = its.filter((i) => !i.done_at).length;
+            return `<button class="tab ${t.id === active ? 'active' : ''} ${t.archived ? 'archived' : ''}" data-tab="${t.id}" role="tab">${esc(t.name)}<span class="count ${its.length && !open ? 'all-done' : ''}">${its.length ? (open ? open : '✓') : ''}</span></button>`;
+          }).join('')}
+          <button class="btn btn-small btn-ghost add-tab" data-new-tab>+ Záložka</button>
+          ${archivedCount ? `<button class="btn btn-small btn-ghost add-tab" data-toggle-archived>${showArchived ? 'Skrýt archiv' : `Archiv (${archivedCount})`}</button>` : ''}
+        </div>
+
+        <div id="panel"></div>`;
+      renderPanel();
+    }
+
+    function renderPanel() {
+      const panel = document.getElementById('panel');
+      const t = data.tabs.find((x) => x.id === active);
+      if (!t) { panel.innerHTML = '<p class="muted">Vyber záložku.</p>'; return; }
+      const tabs = data.tabs.filter((x) => showArchived || !x.archived);
+      const idx = tabs.findIndex((x) => x.id === t.id);
+      const all = data.items.filter((i) => i.tab_id === t.id);
+      const match = (i) => !playerFilter || (playerFilter === 'team' ? !i.player_id : String(i.player_id) === playerFilter);
+      const open = all.filter((i) => !i.done_at && match(i));
+      const learned = all.filter((i) => i.done_at && match(i)).sort((a, b) => (b.done_at > a.done_at ? 1 : -1));
+      const doneAll = all.filter((i) => i.done_at).length;
+      const pct = all.length ? Math.round((doneAll / all.length) * 100) : 0;
+      const late = t.deadline && t.deadline < today && doneAll < all.length;
+
+      panel.innerHTML = `
+        <div class="card">
+          <div class="tab-head">
+            <div style="flex:1;min-width:240px">
+              <h2>${esc(t.name)}${t.archived ? ' <span class="badge">archiv</span>' : ''}</h2>
+              ${t.goal ? `<p class="goal"><span class="goal-label">Cíl</span>${esc(t.goal)}</p>` : '<p class="goal empty-goal" data-edit-tab>+ Napiš cíl téhle oblasti – co má tým na konci umět.</p>'}
+              <div class="tab-meta">${t.deadline ? `<span class="${late ? 'tag late' : ''}">Termín: ${fmtDate(t.deadline)}</span>` : ''}</div>
+            </div>
+            <div class="tab-tools">
+              <button class="btn btn-small btn-ghost" data-move-tab="-1" ${idx <= 0 ? 'disabled' : ''} title="Posunout doleva">←</button>
+              <button class="btn btn-small btn-ghost" data-move-tab="1" ${idx >= tabs.length - 1 ? 'disabled' : ''} title="Posunout doprava">→</button>
+              <button class="btn btn-small" data-edit-tab>Upravit</button>
+              <button class="btn btn-small btn-ghost" data-archive-tab>${t.archived ? 'Obnovit' : 'Archivovat'}</button>
+              <button class="btn btn-small btn-ghost btn-danger" data-delete-tab>Smazat</button>
+            </div>
+          </div>
+          <div class="tab-progress"><div class="bar"><i style="width:${pct}%"></i></div><span>${doneAll} / ${all.length} naučeno</span></div>
+        </div>
+
+        <form class="add-item" id="add-item">
+          <input name="title" maxlength="200" placeholder="Co se má tým naučit… (Enter přidá)" required autocomplete="off">
+          <select name="player_id">${playerOptions('')}</select>
+          <select name="priority"><option value="2">Normální</option><option value="1">Vysoká</option><option value="3">Nízká</option></select>
+          <input name="due_date" type="date" title="Termín (nepovinné)">
+          <button class="btn btn-primary" type="submit">Přidat</button>
+        </form>
+        <p class="form-error" id="add-error" style="margin:-4px 0 8px"></p>
+
+        ${data.players.length ? `<div class="filters">Zobrazit:
+          <select id="filter">
+            <option value="">Všechny body</option>
+            <option value="team" ${playerFilter === 'team' ? 'selected' : ''}>Jen celý tým</option>
+            ${data.players.map((p) => `<option value="${p.id}" ${String(p.id) === playerFilter ? 'selected' : ''}>${esc(playerLabel(p))}</option>`).join('')}
+          </select></div>` : ''}
+
+        <div class="items" id="open-items">
+          ${open.length ? open.map((i, n) => itemHtml(i, n, open.length)).join('') : `<div class="empty">${all.length && !playerFilter ? 'Všechno v téhle záložce je naučené 🎉' : 'Žádné otevřené body.'}</div>`}
+        </div>
+
+        ${learned.length ? `<details class="learned" ${learnedOpen ? 'open' : ''}>
+          <summary>✓ Naučeno (${learned.length}) – k tomuhle se už nevracíš</summary>
+          <div class="items">${learned.map((i) => itemHtml(i)).join('')}</div>
+        </details>` : ''}`;
+
+      panel.querySelector('details.learned')?.addEventListener('toggle', (e) => { learnedOpen = e.target.open; });
+      if (flashId) {
+        const el = panel.querySelector(`[data-item="${flashId}"]`);
+        if (el) { el.classList.add('flash'); el.scrollIntoView({ block: 'center', behavior: 'smooth' }); }
+        flashId = null;
+      }
+      bindAddForm();
+    }
+
+    function itemHtml(i, n = 0, count = 0) {
+      const done = !!i.done_at;
+      const late = !done && i.due_date && i.due_date < today;
+      const tags = [
+        i.player_id ? `<span class="tag">${esc(i.player_name)}${i.player_role ? ` · ${ROLE_LABELS[i.player_role] ?? i.player_role}` : ''}</span>` : '<span class="tag">celý tým</span>',
+        !done && PRIO[i.priority] ? `<span class="tag p${i.priority}">${PRIO[i.priority]}</span>` : '',
+        !done && i.due_date ? `<span class="tag ${late ? 'late' : ''}">do ${fmtDate(i.due_date)}</span>` : '',
+        done ? `<span class="tag">naučeno ${fmtDone(i.done_at)}</span>` : '',
+        i.created_by_kind === 'claude' ? '<span class="tag ai">od Clauda</span>' : '',
+      ].join('');
+      return `
+        <div class="item ${done ? 'done' : ''} ${i.focus && !done ? 'focus' : ''}" data-item="${i.id}">
+          <button class="check" data-check="${i.id}" title="${done ? 'Vrátit mezi otevřené' : 'Odškrtnout – naučeno'}" aria-label="${done ? 'Vrátit' : 'Odškrtnout'}">${CHECK}</button>
+          ${done ? '<span></span>' : `<button class="star ${i.focus ? 'on' : ''}" data-star="${i.id}" title="Teď trénujeme">${i.focus ? '★' : '☆'}</button>`}
+          <div>
+            <div class="item-title">${esc(i.title)}</div>
+            ${i.details ? `<div class="item-details">${esc(i.details)}</div>` : ''}
+            ${done && i.done_note ? `<div class="done-note">→ ${esc(i.done_note)}</div>` : ''}
+            <div class="item-tags">${tags}</div>
+          </div>
+          <div class="item-actions">
+            ${done ? '' : `<button data-move="${i.id}" data-dir="-1" ${n === 0 ? 'disabled' : ''} title="Výš">↑</button><button data-move="${i.id}" data-dir="1" ${n >= count - 1 ? 'disabled' : ''} title="Níž">↓</button>`}
+            <button data-edit="${i.id}" title="Upravit">✎</button>
+          </div>
+        </div>`;
+    }
+
+    function playerOptions(sel) {
+      return `<option value="">Celý tým</option>` + data.players.map((p) => `<option value="${p.id}" ${String(p.id) === String(sel ?? '') ? 'selected' : ''}>${esc(playerLabel(p))}</option>`).join('');
+    }
+
+    function renderStarter() {
+      root.innerHTML = `
+        <div class="card starter">
+          <h2>Začni plánem</h2>
+          <p class="muted">Rozděl koučování do záložek. Každá má cíl a body, které po naučení odškrtneš (a připíšeš, co si z toho tým odnesl). Můžu ti založit tyhle:</p>
+          <ul>${STARTER.map(([n, g]) => `<li><b>${esc(n)}</b> – <span class="muted">${esc(g)}</span></li>`).join('')}</ul>
+          <div style="display:flex;gap:10px;flex-wrap:wrap">
+            <button class="btn btn-primary" data-starter>Založit tyhle záložky</button>
+            <button class="btn" data-new-tab>Vlastní záložka</button>
+          </div>
+          <p class="form-error" id="starter-error"></p>
+        </div>`;
+    }
+
+    function bindAddForm() {
+      const form = document.getElementById('add-item');
+      if (!form) return;
+      form.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const err = document.getElementById('add-error');
+        err.textContent = '';
+        const btn = form.querySelector('[type=submit]');
+        btn.disabled = true;
+        try {
+          const { id } = await api('/api/plan/items', { method: 'POST', body: {
+            tab_id: active, title: form.title.value, player_id: form.player_id.value || null,
+            priority: Number(form.priority.value), due_date: form.due_date.value || null,
+          } });
+          const keepPlayer = form.player_id.value;
+          flashId = id;
+          await load();
+          const f = document.getElementById('add-item');
+          f.player_id.value = keepPlayer;
+          f.title.focus();
+        } catch (ex) { err.textContent = ex.message; btn.disabled = false; }
+      });
+    }
+
+    // --- dialogs -----------------------------------------------------------
+    const tabDlgEl = document.getElementById('tab-dialog');
+    let editingTab = null;
+    const tabDlg = formDialog(tabDlgEl, {
+      async onSubmit(v) {
+        const body = { name: v.name, goal: v.goal, deadline: v.deadline || null };
+        if (editingTab) await api(`/api/plan/tabs/${editingTab}`, { method: 'PATCH', body });
+        else { const { id } = await api('/api/plan/tabs', { method: 'POST', body }); active = id; store.set('plan.tab', String(id)); }
+        await load();
+      },
+    });
+    function openTabDialog(t) {
+      editingTab = t?.id ?? null;
+      document.getElementById('tab-dlg-title').textContent = t ? 'Upravit záložku' : 'Nová záložka';
+      tabDlg.open(t ? { name: t.name, goal: t.goal ?? '', deadline: t.deadline ?? '' } : {});
+    }
+
+    const itemDlgEl = document.getElementById('item-dialog');
+    let editingItem = null;
+    const itemDlg = formDialog(itemDlgEl, {
+      async onSubmit(v) {
+        const body = {
+          title: v.title, details: v.details, player_id: v.player_id || null, priority: Number(v.priority),
+          due_date: v.due_date || null, tab_id: Number(v.tab_id), focus: v.focus,
+        };
+        if (editingItem.done_at) body.done_note = v.done_note;
+        await api(`/api/plan/items/${editingItem.id}`, { method: 'PATCH', body });
+        if (body.tab_id !== active) selectTab(body.tab_id);
+        await load();
+      },
+    });
+    function openItemDialog(i) {
+      editingItem = i;
+      itemDlgEl.querySelector('[data-players]').innerHTML = playerOptions(i.player_id);
+      itemDlgEl.querySelector('[data-tabs]').innerHTML = data.tabs.map((t) => `<option value="${t.id}">${esc(t.name)}${t.archived ? ' (archiv)' : ''}</option>`).join('');
+      itemDlgEl.querySelector('[data-done-only]').hidden = !i.done_at;
+      itemDlg.open({
+        title: i.title, details: i.details ?? '', player_id: i.player_id ?? '', priority: String(i.priority),
+        due_date: i.due_date ?? '', tab_id: String(i.tab_id), focus: !!i.focus, done_note: i.done_note ?? '',
+      });
+    }
+    itemDlgEl.querySelector('[data-delete-item]').addEventListener('click', async () => {
+      if (!editingItem || !confirm(`Smazat bod „${editingItem.title}“?`)) return;
+      await api(`/api/plan/items/${editingItem.id}`, { method: 'DELETE' });
+      itemDlgEl.close();
+      await load();
+    });
+
+    const doneDlgEl = document.getElementById('done-dialog');
+    let doneItem = null;
+    const doneDlg = formDialog(doneDlgEl, {
+      async onSubmit(v) {
+        await api(`/api/plan/items/${doneItem.id}`, { method: 'PATCH', body: { done: true, done_note: v.done_note } });
+        await load();
+      },
+    });
+    doneDlgEl.querySelector('textarea').addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); doneDlgEl.querySelector('form').requestSubmit(); }
+    });
+
+    // --- events ------------------------------------------------------------
+    root.addEventListener('change', (e) => {
+      if (e.target.id === 'filter') { playerFilter = e.target.value; renderPanel(); }
+    });
+
+    root.addEventListener('click', async (e) => {
+      const el = e.target.closest('button, [data-goto], [data-edit-tab]');
+      if (!el) return;
+      const t = data.tabs.find((x) => x.id === active);
+      try {
+        if (el.dataset.tab) return selectTab(Number(el.dataset.tab));
+        if ('newTab' in el.dataset) return openTabDialog(null);
+        if ('toggleArchived' in el.dataset) {
+          showArchived = !showArchived;
+          if (!showArchived && t?.archived) active = data.tabs.find((x) => !x.archived)?.id ?? null;
+          return render();
+        }
+        if ('editTab' in el.dataset) return openTabDialog(t);
+        if ('archiveTab' in el.dataset) {
+          await api(`/api/plan/tabs/${t.id}`, { method: 'PATCH', body: { archived: !t.archived } });
+          if (!t.archived) active = data.tabs.find((x) => !x.archived && x.id !== t.id)?.id ?? null;
+          return load();
+        }
+        if ('deleteTab' in el.dataset) {
+          const n = data.items.filter((i) => i.tab_id === t.id).length;
+          if (!confirm(`Smazat záložku „${t.name}“${n ? ` i s ${n} body` : ''}? Tohle nejde vrátit – jestli ji jen nechceš vidět, dej Archivovat.`)) return;
+          await api(`/api/plan/tabs/${t.id}`, { method: 'DELETE' });
+          active = null;
+          return load();
+        }
+        if (el.dataset.moveTab) {
+          const tabs = data.tabs.filter((x) => showArchived || !x.archived).map((x) => x.id);
+          const i = tabs.indexOf(t.id), j = i + Number(el.dataset.moveTab);
+          if (j < 0 || j >= tabs.length) return;
+          [tabs[i], tabs[j]] = [tabs[j], tabs[i]];
+          const rest = data.tabs.map((x) => x.id).filter((id) => !tabs.includes(id));
+          await api('/api/plan/tabs/order', { method: 'PUT', body: { ids: [...tabs, ...rest] } });
+          return load();
+        }
+        if ('starter' in el.dataset) {
+          el.disabled = true;
+          for (const [name, goal] of STARTER) await api('/api/plan/tabs', { method: 'POST', body: { name, goal } });
+          active = null;
+          return load();
+        }
+        if (el.dataset.goto) {
+          const item = data.items.find((i) => i.id === Number(el.dataset.goto));
+          if (!item) return;
+          flashId = item.id;
+          playerFilter = '';
+          return selectTab(item.tab_id);
+        }
+        if (el.dataset.check) {
+          const item = data.items.find((i) => i.id === Number(el.dataset.check));
+          if (item.done_at) {
+            await api(`/api/plan/items/${item.id}`, { method: 'PATCH', body: { done: false } });
+            return load();
+          }
+          doneItem = item;
+          document.getElementById('done-sub').textContent = item.title;
+          doneDlg.open({ done_note: item.done_note ?? '' });
+          doneDlgEl.querySelector('textarea').focus();
+          return;
+        }
+        if (el.dataset.star) {
+          const item = data.items.find((i) => i.id === Number(el.dataset.star));
+          await api(`/api/plan/items/${item.id}`, { method: 'PATCH', body: { focus: !item.focus } });
+          return load();
+        }
+        if (el.dataset.move) {
+          // Reorder within all open items of the tab (the filter only hides some of them).
+          const open = data.items.filter((i) => i.tab_id === active && !i.done_at).map((i) => i.id);
+          const id = Number(el.dataset.move), dir = Number(el.dataset.dir);
+          const match = (iid) => {
+            const i = data.items.find((x) => x.id === iid);
+            return !playerFilter || (playerFilter === 'team' ? !i.player_id : String(i.player_id) === playerFilter);
+          };
+          const from = open.indexOf(id);
+          let to = from + dir;
+          while (to >= 0 && to < open.length && !match(open[to])) to += dir;
+          if (to < 0 || to >= open.length) return;
+          [open[from], open[to]] = [open[to], open[from]];
+          const doneIds = data.items.filter((i) => i.tab_id === active && i.done_at).map((i) => i.id);
+          await api(`/api/plan/tabs/${active}/order`, { method: 'PUT', body: { ids: [...open, ...doneIds] } });
+          return load();
+        }
+        if (el.dataset.edit) return openItemDialog(data.items.find((i) => i.id === Number(el.dataset.edit)));
+      } catch (ex) {
+        alert(ex.message);
+      }
+    });
+
+    window.addEventListener('hashchange', () => {
+      const id = Number(location.hash.slice(1));
+      if (id && id !== active && data.tabs.some((t) => t.id === id)) selectTab(id);
+    });
+
+    await load();
+  </script>
+</body>
+</html>

@@ -280,7 +280,7 @@
 
     <section class="tab-panel" data-panel="players">
       <div class="qs-tools">
-        <input type="search" id="q" placeholder="Hledat hráče…">
+        <input type="search" id="q" placeholder="Hledat hráče, Riot ID nebo OP.GG…">
         <div class="seg" id="role-filter"></div>
         <select id="show">
           <option value="all">Všichni</option>
@@ -493,6 +493,23 @@
       if (!p.profile_checked) return '<span class="zero" title="Profil ještě nebyl načten">…</span>';
       return '<span class="zero" title="V profilu na SC nejsou žádné účty">–</span>';
     };
+    /** Normalizace pro hledání: bez diakritiky, mezer, "#" a "-" – "Name #EUNE", "Name-EUNE" i "name#eune" jsou totéž. */
+    const normQ = (s) => String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[\s#\-_.]+/g, '');
+    /** Dotaz z vyhledávání: vloženou OP.GG adresu zkrátí na "Jméno-TAG" z konce cesty. */
+    const parseQ = (raw) => {
+      let q = String(raw || '').trim();
+      const m = q.match(/op\.gg\/(?:lol\/)?summoners?\/[^/]+\/([^/?#]+)/i);
+      if (m) { try { q = decodeURIComponent(m[1]); } catch { q = m[1]; } }
+      return normQ(q);
+    };
+    /** Hledá v přezdívce i ve všech Riot ID hráče (profil, ručně doplněné, návrhy). */
+    const matchesQ = (p, q) => {
+      if (!q) return true;
+      if (normQ(p.nickname).includes(q)) return true;
+      if (accountsOf(p).some((a) => normQ(a.riot).includes(q))) return true;
+      const sugs = S.suggestions?.[p.key] || {};
+      return Object.values(sugs).some((list) => (list || []).some((x) => normQ(x.riot).includes(q)));
+    };
     const bestAccount = (p) => accountsOf(p).filter((a) => a.rank).sort((a, b) => rankScore(b.rank) - rankScore(a.rank))[0];
     /** OP.GG odkazy hráče; když v regionu žádný účet není, ale je návrh, ukáže ho čárkovaně. */
     const opggChips = (p, withSug = true) => {
@@ -538,10 +555,10 @@
     const byBlocked = (a, b) => (a.scout.blocked ? 1 : 0) - (b.scout.blocked ? 1 : 0);
 
     function filtered() {
-      const q = S.q.toLowerCase();
+      const q = parseQ(S.q);
       const { col, dir } = S.sort;
       return [...S.players.values()].filter((p) =>
-        (!q || p.nickname.toLowerCase().includes(q)) && p.games >= S.min &&
+        matchesQ(p, q) && p.games >= S.min &&
         (!S.role || (p.scout.draft_role && S.show !== 'fav' ? p.scout.draft_role === S.role : p.scout.fav_roles.includes(S.role))) &&
         (S.show === 'all' || (S.show === 'fav' && p.scout.fav_roles.length) || (S.show === 'note' && p.scout.note) || (S.show === 'price' && p.scout.price != null) || (S.show === 'noprice' && p.scout.price == null) || (S.show === 'blocked' && p.scout.blocked) || (S.show === 'wanted' && !p.scout.blocked)),
       ).sort((a, b) => {
@@ -588,7 +605,7 @@
 
     function renderDuos() {
       const min = +$('#duo-min').value || 3;
-      const q = $('#duo-q').value.trim().toLowerCase();
+      const q = parseQ($('#duo-q').value);
       const favOnly = $('#duo-fav').checked;
       const pairs = new Map();
       for (const m of S.matches) for (const side of ['blue', 'red']) {
@@ -604,7 +621,7 @@
       }
       const isFav = (n) => S.players.get(k(n))?.scout.fav_roles.length;
       const list = [...pairs.values()].filter((r) => r.wins + r.losses >= min
-        && (!q || r.a.toLowerCase().includes(q) || r.b.toLowerCase().includes(q))
+        && (!q || [r.a, r.b].some((n) => { const p = S.players.get(k(n)); return p ? matchesQ(p, q) : normQ(n).includes(q); }))
         && (!favOnly || isFav(r.a) || isFav(r.b)));
       const wr = (r) => r.wins / (r.wins + r.losses);
       const name = (n) => `<a href="#" data-open="${esc(k(n))}">${esc(n)}</a>${isFav(n) ? ' ★' : ''}`;
@@ -677,7 +694,7 @@
       const variants = S.variants || [];
       const q = vq(), pk = S.picked || {};
       // nalezení hráči: ukážou se i s tlačítky pro „picknutý“
-      const found = q.length >= 2 ? [...S.players.values()].filter((p) => p.nickname.toLowerCase().includes(q) && (p.scout.price != null || pk[p.key])).slice(0, 8) : [];
+      const found = q.length >= 2 ? [...S.players.values()].filter((p) => matchesQ(p, parseQ(q)) && (p.scout.price != null || pk[p.key])).slice(0, 8) : [];
       $('#v-found').innerHTML = found.map((p) => {
         const inVars = variants.filter((v) => v.picks.some((x) => x.key === p.key)).length, st = pk[p.key];
         return `<div class="f-row ${st ? `st-${st}` : ''}">${nope(p)}<b>${hl(p.nickname)}</b><small>${p.scout.draft_role ? ROLE_SHORT[p.scout.draft_role] : '?'} · ${p.scout.price != null ? fmtPrice(p.scout.price) : 'bez ceny'} · ve ${inVars} variantách</small>

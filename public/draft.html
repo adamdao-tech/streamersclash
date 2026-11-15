@@ -345,7 +345,7 @@
       try { sharing = localStorage.getItem(LS_SHARE) === '1'; } catch {}
       const forced = !!S.stream.hidden;
       $('#shield').hidden = !(forced || sharing);
-      $('#shield-text').textContent = forced ? 'Jsi live na Twitchi – výpočet je skrytý, dokud stream neskončí.' : 'Sdílíš obrazovku – výpočet je skrytý. Vypneš to v Queue scoutingu (F9).';
+      $('#shield-text').textContent = forced ? 'Jsi live na Twitchi – výpočet je skrytý, dokud stream neskončí.' : 'Sdílíš obrazovku – výpočet je skrytý. Vypneš to na stránce Hráči (F9).';
       const wm = $('#watermark');
       wm.hidden = !!S.stream.allowed;
       if (!wm.hidden && !wm.childElementCount) {

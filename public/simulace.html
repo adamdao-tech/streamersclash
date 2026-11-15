@@ -165,7 +165,7 @@
         <p>Naklikej si, kdo by šel ke kterému kapitánovi a za kolik. Každý tým musí mít obsazené všech pět pozic.</p>
       </div>
       <div class="page-head-tools">
-        <a class="btn btn-small btn-ghost" href="/scouting">← Queue scouting</a>
+        <a class="btn btn-small btn-ghost" href="/scouting">← Hráči</a>
       </div>
     </div>
 
@@ -278,7 +278,7 @@
 
     function renderTeams() {
       if (!S.caps.length) {
-        $('#teams').innerHTML = '<p class="empty">Zatím nejsou naimportovaní kapitáni. V Queue scoutingu nahraj excel i s listem kapitánů.</p>';
+        $('#teams').innerHTML = '<p class="empty">Zatím nejsou naimportovaní kapitáni. Na stránce Hráči nahraj excel i s listem kapitánů.</p>';
         return;
       }
       $('#teams').innerHTML = S.caps.map((c) => {
@@ -806,7 +806,7 @@
       try { sharing = localStorage.getItem(LS_SHARE) === '1'; } catch {}
       const forced = !!S.stream.hidden;
       $('#shield').hidden = !(forced || sharing);
-      $('#shield-text').textContent = forced ? 'Jsi live na Twitchi – simulace je skrytá, dokud stream neskončí.' : 'Sdílíš obrazovku – simulace je skrytá. Vypneš to v Queue scoutingu (F9).';
+      $('#shield-text').textContent = forced ? 'Jsi live na Twitchi – simulace je skrytá, dokud stream neskončí.' : 'Sdílíš obrazovku – simulace je skrytá. Vypneš to na stránce Hráči (F9).';
       const wm = $('#watermark');
       wm.hidden = !!S.stream.allowed;
       if (!wm.hidden && !wm.childElementCount) {

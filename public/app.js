@@ -39,7 +39,7 @@ export async function initPage(active) {
     ['/schedule', 'Harmonogram', 'schedule'],
     ['/coaching', 'Koučing', 'coaching'],
     ['/vods', 'VODky', 'vods'],
-    ...(user.role === 'admin' ? [['/scouting', 'Queue scouting', 'scouting'], ['/users', 'Uživatelé', 'users']] : []),
+    ...(user.role === 'admin' ? [['/scouting', 'Hráči', 'scouting'], ['/users', 'Uživatelé', 'users']] : []),
     ...(user.is_superadmin ? [['/plan', 'Plán', 'plan']] : []),
   ];
   const header = document.createElement('header');

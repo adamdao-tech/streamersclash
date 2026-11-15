@@ -690,4 +690,9 @@ CREATE TABLE coach_plan_items (
 );
 CREATE INDEX idx_coach_plan_items_tab ON coach_plan_items(tab_id, sort);
 `,
+
+  /* 32: Výpočet essence – player who left the tournament (e.g. Toxar): hidden from the calculator and the simulation,
+         kept in the database (an Excel re-import won't bring him back), can be returned */ `
+ALTER TABLE queue_scout ADD COLUMN gone INTEGER NOT NULL DEFAULT 0;
+`,
 ];

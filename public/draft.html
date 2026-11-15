@@ -61,6 +61,20 @@
     .slot .nope { width: 20px; height: 20px; font-size: 1rem; margin-right: 5px; vertical-align: middle; }
     .info .warn { color: #ff7a7e; font-weight: 700; }
     .p:disabled:hover { background: transparent; }
+    /* odešel z turnaje: tlačítko u hráče (ukáže se při najetí) + seznam odešlých k vrácení */
+    .row { display: flex; align-items: center; gap: 2px; }
+    .row .p { flex: 1; min-width: 0; }
+    .out { flex: none; width: 26px; height: 26px; border: 0; border-radius: 6px; background: transparent; color: var(--muted); cursor: pointer; font-size: 0.9rem; opacity: 0; }
+    .row:hover .out, .out:focus-visible { opacity: 1; }
+    .out:hover { background: rgba(229,56,59,.18); color: #ff7a7e; }
+    @media (hover: none) { .out { opacity: .6; } }
+    .gone { display: inline-flex; gap: 6px; align-items: center; flex-wrap: wrap; font-size: 0.84rem; color: var(--muted); }
+    .gone button { border: 1px solid var(--line-2); border-radius: 999px; background: var(--bg-2); color: var(--text-2); padding: 2px 10px; cursor: pointer; font: 500 0.82rem var(--font); }
+    .gone button s { color: var(--muted); }
+    .gone button:hover { border-color: var(--gold); color: var(--gold-2); }
+    .slot.left-t { border-color: var(--muted); border-style: dashed; opacity: .75; }
+    .slot.left-t .n { text-decoration: line-through; }
+    .var div.left-t em { text-decoration: line-through; color: var(--muted); }
     #vars form { display: flex; gap: 6px; padding: 8px; border-bottom: 1px solid var(--line); }
     #vars form input { min-height: 34px; padding: 4px 8px; min-width: 0; flex: 1; }
     .vg { margin: 6px 4px; font: 700 0.76rem var(--display); letter-spacing: .05em; text-transform: uppercase; color: var(--muted); }
@@ -97,6 +111,7 @@
     <label><input type="checkbox" id="afford"> jen na koho mám</label>
     <label><input type="checkbox" id="favs"> jen oblíbení</label>
     <label><input type="checkbox" id="hide-blocked"> skrýt nechtěné <span class="nope" style="width:18px;height:18px;font-size:.9rem">✕</span></label>
+    <span class="gone" id="gone" hidden></span>
   </div>
   <section class="cols">
     <div id="cols" style="display: contents"></div>
@@ -135,6 +150,7 @@
       const have = new Set(['JUNGLE', ...pl.picks.map((x) => S.players.get(x.key)?.draft_role)]);
       const missing = ROLES.filter(([r]) => !have.has(r)).map(([, l]) => l);
       const unwanted = pl.picks.filter((x) => S.players.get(x.key)?.blocked).length;
+      const gone = pl.picks.filter((x) => S.players.get(x.key)?.gone).map((x) => S.players.get(x.key).nickname);
       $('#top').innerHTML = `
         <div class="left ${rest < 0 ? 'neg' : ''}"><span>Zbývá essence</span><b>${fmt(rest)}</b></div>
         <div class="sets">
@@ -145,7 +161,7 @@
           ${pl.picks.map((x) => {
             const p = S.players.get(x.key);
             const name = p?.nickname ?? x.nickname;
-            return `<div class="slot ${p?.blocked ? 'blocked' : ''}"><span class="n" title="${esc(name)}${p?.blocked ? ' – nechceme' : ''}">${p?.blocked ? NOPE : ''}${p?.draft_role ? `<small>${SHORT[p.draft_role]}</small>` : ''}${esc(name)}</span>
+            return `<div class="slot ${p?.blocked ? 'blocked' : ''} ${p?.gone ? 'left-t' : ''}"><span class="n" title="${esc(name)}${p?.gone ? ' – odešel z turnaje' : p?.blocked ? ' – nechceme' : ''}">${p?.blocked ? NOPE : ''}${p?.draft_role ? `<small>${SHORT[p.draft_role]}</small>` : ''}${esc(name)}</span>
               <button type="button" data-off="${esc(x.key)}" title="Odebrat">✕</button>
               <input type="number" min="0" data-price="${esc(x.key)}" value="${priceOf(x)}" title="V aukci přepiš na vydraženou cenu"></div>`;
           }).join('')}
@@ -153,6 +169,7 @@
         </div>
         <div class="info">
           ${rest < 0 ? `<span class="neg">Přes rozpočet o ${fmt(-rest)}</span><br>` : free ? `Ø ${fmt(Math.floor(rest / free))} na hráče<br>` : ''}
+          ${gone.length ? `<span class="warn">${esc(gone.join(', '))} ${gone.length === 1 ? 'odešel' : 'odešli'} z turnaje</span><br>` : ''}
           ${unwanted ? `<span class="warn">✕ ${unwanted === 1 ? 'vybraný hráč je mezi nechtěnými' : `${unwanted} vybraní jsou mezi nechtěnými`}</span><br>` : ''}
           ${pl.picks.length}/${SLOTS} hráčů${missing.length ? `<br>chybí ${missing.join(', ')}` : ''}
           ${pl.picks.length ? '<br><button type="button" class="reset" id="reset">Vymazat hráče</button>' : ''}
@@ -164,20 +181,48 @@
       const list = $('#cols');
       const scroll = [...list.querySelectorAll('.list')].map((l) => l.scrollTop);
       list.innerHTML = ROLES.map(([r, l]) => {
-        const all = [...S.players.values()].filter((p) => p.draft_role === r);
+        const all = [...S.players.values()].filter((p) => p.draft_role === r && !p.gone);
         const rows = all.filter((p) => pickOf(p.key) || ((!q || p.nickname.toLowerCase().includes(q)) && (!S.afford || p.price <= rest) && (!S.favs || p.fav_roles.length) && (!S.hideBlocked || !p.blocked)))
           .sort((a, b) => (a.blocked ? 1 : 0) - (b.blocked ? 1 : 0) || b.price - a.price || a.nickname.localeCompare(b.nickname));
         const done = r === 'JUNGLE' || all.some((p) => pickOf(p.key));
         return `<div class="col ${done ? 'done' : ''}"><h2>${l} <small>${r === 'JUNGLE' ? 'SGooB · ' : ''}${rows.length}</small></h2><div class="list">
           ${rows.map((p) => {
             const on = !!pickOf(p.key), over = !on && p.price > rest;
-            return `<button type="button" class="p ${on ? 'on' : ''} ${over ? 'over' : ''} ${p.blocked ? 'blocked' : ''}" data-key="${esc(p.key)}" ${full && !on ? 'disabled' : ''} title="${p.blocked ? 'NECHCEME' + (p.note ? ' – ' : '') : ''}${esc(p.note || '')}">
-              ${p.blocked ? NOPE : ''}<span class="n">${esc(p.nickname)}</span>${p.fav_roles.length ? '<span class="fav">★</span>' : ''}<span class="c">${fmt(on ? priceOf(pickOf(p.key)) : p.price)}</span></button>`;
+            return `<div class="row"><button type="button" class="p ${on ? 'on' : ''} ${over ? 'over' : ''} ${p.blocked ? 'blocked' : ''}" data-key="${esc(p.key)}" ${full && !on ? 'disabled' : ''} title="${p.blocked ? 'NECHCEME' + (p.note ? ' – ' : '') : ''}${esc(p.note || '')}">
+              ${p.blocked ? NOPE : ''}<span class="n">${esc(p.nickname)}</span>${p.fav_roles.length ? '<span class="fav">★</span>' : ''}<span class="c">${fmt(on ? priceOf(pickOf(p.key)) : p.price)}</span></button>
+              <button type="button" class="out" data-out="${esc(p.key)}" title="Odešel z turnaje – odebrat z draftu">🗑</button></div>`;
           }).join('') || '<div class="none">Nikdo</div>'}
         </div></div>`;
       }).join('');
       list.querySelectorAll('.list').forEach((l, i) => { l.scrollTop = scroll[i] || 0; });
+      renderGone();
     }
+
+    function renderGone() {
+      const gone = [...S.players.values()].filter((p) => p.gone).sort((a, b) => a.nickname.localeCompare(b.nickname));
+      const box = $('#gone');
+      box.hidden = !gone.length;
+      box.innerHTML = gone.length ? `Odešli:${gone.map((p) => `<button type="button" data-back="${esc(p.key)}" title="Vrátit ${esc(p.nickname)} zpátky do draftu"><s>${esc(p.nickname)}</s> ↩</button>`).join('')}` : '';
+    }
+
+    // odešel / vrátit: sdílené pro všechny adminy (uloží se ke scoutingu hráče)
+    async function setGone(key, gone) {
+      const p = S.players.get(key);
+      if (!p) return;
+      p.gone = gone ? 1 : 0;
+      const pl = plan();
+      S.saving++;
+      try {
+        if (gone && pickOf(key)) await save({ ...pl, picks: pl.picks.filter((x) => x.key !== key) });
+        else render();
+        await api(`/api/queue/scout/${encodeURIComponent(key)}`, { method: 'PUT', body: { gone: !!gone } });
+      } catch (err) { p.gone = gone ? 0 : 1; alert(err.message); render(); }
+      finally { S.saving--; }
+    }
+    $('#gone').addEventListener('click', (e) => {
+      const b = e.target.closest('[data-back]');
+      if (b) setGone(b.dataset.back, false);
+    });
 
     /* ---------- uložené varianty ---------- */
 
@@ -192,7 +237,7 @@
         const rest = variantLeft(v);
         return `<div class="var ${samePicks(v, pl) ? 'cur' : ''}" role="button" tabindex="0" data-load="${v.id}" title="${v.mine ? 'Načíst tuhle variantu' : `Načíst k sobě, autorovi (${esc(v.author)}) se nic nezmění`}">
           <header><b title="${esc(v.name)}">${esc(v.name)}</b><i class="${rest < 0 ? 'neg' : ''}">${fmt(rest)}</i>${v.mine || user.is_superadmin ? `<span data-del="${v.id}" title="Smazat">✕</span>` : ''}</header>
-          ${v.picks.map((x) => { const p = S.players.get(x.key); return `<div><small>${p?.draft_role ? SHORT[p.draft_role] : ''}</small>${p?.blocked ? NOPE.replace('class="nope"', 'class="nope" style="width:16px;height:16px;font-size:.8rem"') : ''}<em>${esc(p?.nickname ?? x.nickname)}</em><span>${fmt(priceOf(x))}</span></div>`; }).join('')}
+          ${v.picks.map((x) => { const p = S.players.get(x.key); return `<div class="${p?.gone ? 'left-t' : ''}" ${p?.gone ? 'title="Odešel z turnaje"' : ''}><small>${p?.draft_role ? SHORT[p.draft_role] : ''}</small>${p?.blocked ? NOPE.replace('class="nope"', 'class="nope" style="width:16px;height:16px;font-size:.8rem"') : ''}<em>${esc(p?.nickname ?? x.nickname)}</em><span>${fmt(priceOf(x))}</span></div>`; }).join('')}
         </div>`;
       };
       const groups = new Map([['Moje', S.variants.filter((v) => v.mine)]]);
@@ -276,6 +321,12 @@
       if (e.target.id === 'reset' && confirm('Vymazat všechny vybrané hráče z výpočtu?')) save({ ...pl, picks: [] });
     });
     $('#cols').addEventListener('click', (e) => {
+      const out = e.target.closest('[data-out]');
+      if (out) {
+        const p = S.players.get(out.dataset.out);
+        if (p && confirm(`Odebrat ${p.nickname} z draftu (odešel z turnaje)?\nZmizí všem adminům, vrátit ho jde nahoře v „Odešli“.`)) setGone(p.key, true);
+        return;
+      }
       const b = e.target.closest('.p[data-key]');
       if (!b) return;
       const pl = plan(), key = b.dataset.key;

@@ -224,7 +224,7 @@
     import { api, esc, initPage, formDialog, ROLE_LABELS } from '/app.js';
 
     const me = await initPage('plan');
-    if (!me.is_superadmin) location.href = '/';
+    if (!me.can_plan) location.href = '/';
 
     const STARTER = [
       ['Cíle sezóny', 'Kam chceme tým dostat do play-off – 2–3 konkrétní, měřitelné věci.'],

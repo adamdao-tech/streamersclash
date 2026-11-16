@@ -40,7 +40,7 @@ export async function initPage(active) {
     ['/coaching', 'Koučing', 'coaching'],
     ['/vods', 'VODky', 'vods'],
     ...(user.role === 'admin' ? [['/scouting', 'Hráči', 'scouting'], ['/users', 'Uživatelé', 'users']] : []),
-    ...(user.is_superadmin ? [['/plan', 'Plán', 'plan']] : []),
+    ...(user.can_plan ? [['/plan', 'Plán', 'plan']] : []),
   ];
   const header = document.createElement('header');
   header.className = 'topbar';

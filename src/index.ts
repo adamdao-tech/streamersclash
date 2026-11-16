@@ -1,6 +1,6 @@
 import { handleApi } from './api';
 import { getSessionUser, handleAuth, safeNext } from './auth';
-import { ensureSchema, isSuperadmin } from './db';
+import { canSeePlan, ensureSchema } from './db';
 import { json, redirect } from './http';
 import { handleMcp } from './mcp';
 import { handleOAuth, isOAuthPath } from './oauth';
@@ -16,6 +16,8 @@ export interface Env {
   READER_TOKEN?: string;
   /** Twitch logins (comma-separated) that see the activity log – superadmins, above admins. */
   SUPERADMINS?: string;
+  /** Twitch logins (comma-separated) that see Plán koučování besides the superadmins. */
+  PLAN_USERS?: string;
   /** Streamers Queue API (Candi) – secret key and base URL */
   SQ_API_KEY?: string;
   SQ_BASE_URL?: string;
@@ -118,7 +120,7 @@ async function route(req: Request, env: Env, url: URL): Promise<Response> {
     }
 
     // Plán koučování is the coach's private page: not even admins get the HTML.
-    if (user && SUPERADMIN_PAGES.has(url.pathname) && !isSuperadmin(env, user)) return redirect('/');
+    if (user && SUPERADMIN_PAGES.has(url.pathname) && !canSeePlan(env, user)) return redirect('/');
 
     const res = await env.ASSETS.fetch(req);
     // Pages behind login must not be cached by the browser or shared caches.

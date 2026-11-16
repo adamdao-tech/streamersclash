@@ -1,5 +1,5 @@
 import type { Env } from './index';
-import { isSuperadmin, logActivity, type User } from './db';
+import { canSeePlan, isSuperadmin, logActivity, type User } from './db';
 import { HttpError, json, assertBodySize } from './http';
 import { getLiveChannels, syncTwitchVods } from './vods';
 import { listDrafts, playerGames, relinkDraftPlayers, summarizeGames } from './drafts';
@@ -39,7 +39,7 @@ async function route(req: Request, env: Env, url: URL, user: User): Promise<Resp
   }
 
   // --- me ---------------------------------------------------------------
-  if (path === '/api/me' && method === 'GET') return json({ user: { ...user, is_superadmin: isSuperadmin(env, user) } });
+  if (path === '/api/me' && method === 'GET') return json({ user: { ...user, is_superadmin: isSuperadmin(env, user), can_plan: canSeePlan(env, user) } });
 
   // --- users (allowlist, admin only) -------------------------------------
   if (path === '/api/users') {

@@ -20,6 +20,8 @@
     "TWITCH_CLIENT_ID": "jfq4y3dpmayp3srqtylgpjtz7hn9oa",
     // Superadmins (Twitch logins, comma-separated): the only ones who see the activity log.
     "SUPERADMINS": "ddddddao",
+    // Besides the superadmins, these Twitch logins see Plán koučování (not the activity log).
+    "PLAN_USERS": "kryst1f",
     // Streamers Queue API (Candi). Klíč je secret SQ_API_KEY – nikdy ho nedávej sem!
     "SQ_BASE_URL": "https://sq.candycz01.xyz"
   },

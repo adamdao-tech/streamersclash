@@ -1,9 +1,9 @@
 import type { Env } from './index';
-import { isSuperadmin, type User } from './db';
+import { canSeePlan, type User } from './db';
 import { HttpError, json } from './http';
 
-// Plán koučování: the coach's private strategic plan. Only superadmins (Dao) see it –
-// the page, the API and the MCP tools all check isSuperadmin.
+// Plán koučování: the coach's private strategic plan. Only superadmins (Dao) and the logins in PLAN_USERS see it –
+// the page, the API and the MCP tools all check canSeePlan.
 // Tabs ("Draft", "Makro", "Lajny"…) each have a goal; items inside are ticked off when the
 // team has learned them, with a short note, so finished topics don't come back.
 
@@ -13,7 +13,7 @@ type Row = Record<string, string | number | null>;
 export const PRIORITY_LABELS: Record<number, string> = { 1: 'vysoká', 2: 'normální', 3: 'nízká' };
 
 export function requireSuperadmin(env: Env, user: User): void {
-  if (!isSuperadmin(env, user)) throw new HttpError(403, 'forbidden', 'Plán koučování vidí jen superadmin.');
+  if (!canSeePlan(env, user)) throw new HttpError(403, 'forbidden', 'Plán koučování nevidíš.');
 }
 
 function str(v: unknown, label: string, max: number): string | null {

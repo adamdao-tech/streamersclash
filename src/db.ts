@@ -47,6 +47,12 @@ export function isSuperadmin(env: { SUPERADMINS?: string }, user: Pick<User, 'tw
   return logins.includes(String(user.twitch_login).toLowerCase());
 }
 
+/** Who sees Plán koučování: superadmins + the Twitch logins in PLAN_USERS (they don't get the activity log). */
+export function canSeePlan(env: { SUPERADMINS?: string; PLAN_USERS?: string }, user: Pick<User, 'twitch_login'>): boolean {
+  const logins = String(env.PLAN_USERS ?? '').split(',').map((s) => s.trim().toLowerCase()).filter(Boolean);
+  return isSuperadmin(env, user) || logins.includes(String(user.twitch_login).toLowerCase());
+}
+
 export async function logActivity(
   db: D1Database,
   actor: { kind: 'user' | 'claude' | 'sync'; userId?: number | null },

@@ -215,7 +215,9 @@ export async function fetchProfile(profileUrl: string, attempt = 1): Promise<Pro
   } catch (err) {
     return { ok: false, error: `síť: ${(err as Error).message}`, throttled: false };
   }
-  if (res.status === 404) return { ok: true, accounts: [], preferred_role: null };
+  // a 404 doesn't mean "no accounts": their site has answered the Worker with 404 for existing profiles,
+  // so keep what was read before and try again later
+  if (res.status === 404) return { ok: false, error: 'HTTP 404', throttled: false };
   if (!res.ok) return { ok: false, error: `HTTP ${res.status}`, throttled: res.status === 429 || res.status === 403 || res.status === 503 };
   const html = await res.text();
   const parsed = parseProfile(html);
@@ -256,7 +258,7 @@ async function saveProfile(db: D1Database, playerKey: string, data: ProfileResul
   // No accounts found: check again in ~2 h instead of tomorrow (their page sometimes omits them).
   await db
     .prepare(
-      `UPDATE queue_players SET accounts = ?, preferred_role = COALESCE(?, preferred_role), socials = COALESCE(?, socials),
+      `UPDATE queue_players SET accounts = CASE WHEN ?1 = '[]' AND accounts IS NOT NULL AND accounts <> '[]' THEN accounts ELSE ?1 END, preferred_role = COALESCE(?, preferred_role), socials = COALESCE(?, socials),
          profile_checked_at = CASE WHEN ? THEN datetime('now') ELSE datetime('now', '-22 hours') END, profile_error = NULL
        WHERE key = ?`,
     )

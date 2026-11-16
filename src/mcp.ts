@@ -11,6 +11,7 @@ import { syncTwitchVods } from './vods';
 import { createFolder, getShotImage, loadCoaching, saveNote, savePool, saveRunePage, TIER_LABELS } from './coaching';
 import { describeRunePage, getRuneData } from './runes';
 import { createItem, createTab, loadPlan, PRIORITY_LABELS, requireSuperadmin, updateItem, updateTab } from './plan';
+import { handleQueueApi, streamGuard } from './queue';
 import { compactTournament, freeSlot, listTournament, SLOTS, tournamentFields, tournamentLabel } from './tournament';
 
 // Remote MCP server (Streamable HTTP transport, JSON responses only).
@@ -31,7 +32,12 @@ Coaching: get_coaching shows rune pages and coaching notes per player and folder
 Schedule: get_schedule lists our tournament matches, scrims and other events; the next opponent's opponent_team_id is the team to scout.
 Coaching plan (superadmin only): get_coach_plan shows the coach's strategic plan – tabs with a goal and items to tick off when learned; add_coach_plan_items, update_coach_plan_item, save_coach_plan_tab change it. Items already done were learned – don't suggest them again.
 Tournament: get_tournament lists every match of the whole tournament (all teams: group match days and the play-off bracket); assign teams and results with update_tournament_match.
-Reply to the user in Czech.`;
+Streamers Queue (the player auction before the tournament, admins only): queue_players lists players with price, role and the admins' scouting;
+queue_draft_state shows the essence calculator budget (SGooB is our captain and jungler, 4 more players to buy), saved variants and who is already picked;
+save_queue_variant / delete_queue_variant manage variants, set_queue_pick marks the real draft (us / other / free), get_pick_simulation / save_pick_simulation
+the per-admin simulation of all captains' teams. After the draft, add_queue_player_to_team puts players into app teams (Riot ID from their profile) and
+update_player sets Twitch/Kick channels so their VODs get fetched.
+Reply to the user in Czech.`
 
 type Json = Record<string, unknown>;
 type ToolResult = { content: Json[]; isError?: boolean };
@@ -53,6 +59,8 @@ const int = (v: unknown, name: string): number => {
   if (!Number.isInteger(n) || n <= 0) throw new HttpError(400, 'invalid', `${name} must be a positive integer`);
   return n;
 };
+
+const QROLES = ['TOP', 'JUNGLE', 'MID', 'ADC', 'SUPPORT'];
 
 const slotSchema = {
   type: 'object',
@@ -419,6 +427,272 @@ const TOOLS: Tool[] = [
       await relinkDraftPlayers(env);
       if (fields.twitch_login) await syncTwitchVods(env, [String(fields.twitch_login)]).catch(() => {});
       return text({ ok: true, player_id: id });
+    },
+  },
+  // --- Streamers Queue: players, essence calculator variants, picks, pick simulation ---
+  {
+    name: 'queue_players',
+    description: 'Players of the Streamers Queue (the player auction before the tournament) with the admins\' scouting: price from the organizer\'s Excel, draft role, queue W/L, favourite roles, "blocked" (= we don\'t want him), "gone" (left the tournament), note, and picked state from the real draft ("us" = we got him, "other" = another team took him). Admin only.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        role: { type: 'string', enum: QROLES },
+        search: { type: 'string', description: 'Part of a nickname' },
+        priced_only: { type: 'boolean', description: 'Only players with a price (= in the auction). Default true.' },
+        include_taken: { type: 'boolean', description: 'Include players another team already took. Default true.' },
+        limit: { type: 'integer', description: 'Default 200' },
+      },
+    },
+    annotations: { readOnlyHint: true },
+    async run(a, { env, user }) {
+      await requireQueue(env, user);
+      const [{ results }, picked] = await Promise.all([
+        env.DB.prepare(
+          `SELECT p.key, p.nickname, p.wins, p.losses, p.games, p.elo, s.price, s.draft_role, s.is_captain, s.fav_roles, s.blocked, s.gone, s.note
+             FROM queue_players p LEFT JOIN queue_scout s ON s.player_key = p.key`,
+        ).all<Record<string, unknown>>(),
+        env.DB.prepare(`SELECT v FROM queue_meta WHERE k = 'draft_picked'`).first<{ v: string }>(),
+      ]);
+      const pk = (picked ? JSON.parse(picked.v) : {}) as Record<string, string>;
+      const f = a.search ? foldName(String(a.search)) : '';
+      const list = results
+        .filter((r) => (a.priced_only === false || r.price != null) && (!a.role || r.draft_role === a.role)
+          && (!f || foldName(String(r.nickname)).includes(f)) && (a.include_taken !== false || pk[String(r.key)] !== 'other'))
+        .sort((x, y) => Number(y.price ?? -1) - Number(x.price ?? -1) || Number(y.wins) - Number(x.wins))
+        .slice(0, Math.min(Number(a.limit) || 200, 700))
+        .map((r) => ({
+          player: r.nickname, role: r.draft_role ?? null, price: r.price ?? null, captain: !!r.is_captain || undefined,
+          queue: `${r.wins}W ${r.losses}L`, winrate: Number(r.games) ? Math.round((Number(r.wins) / Number(r.games)) * 100) : null, elo: r.elo ?? undefined,
+          fav_roles: r.fav_roles && r.fav_roles !== '[]' ? JSON.parse(String(r.fav_roles)) : undefined,
+          blocked: r.blocked ? true : undefined, gone: r.gone ? true : undefined, picked: pk[String(r.key)] ?? undefined,
+          note: r.note || undefined,
+        }));
+      return text({ count: list.length, players: list });
+    },
+  },
+  {
+    name: 'queue_draft_state',
+    description: 'The essence calculator ("Výpočet essence"): budget (start essence, our captain SGooB\'s price – he is the jungler, 4 more players to buy), the current user\'s calculator selection, every saved variant (author, players in priority order with prices, essence left), the picked state from the real draft and the shared notes under Varianty. Admin only.',
+    inputSchema: { type: 'object', properties: {} },
+    annotations: { readOnlyHint: true },
+    async run(_a, { env, user }) {
+      await requireQueue(env, user);
+      const d = await queueCall(env, user, 'GET', '/api/queue/draft');
+      const players = new Map(((d.players as Json[]) || []).map((p) => [String(p.key), p]));
+      const nick = (k: string) => String(players.get(k)?.nickname ?? k);
+      const picked = (d.picked || {}) as Record<string, string>;
+      const plan = (d.plan as { start: number; captain_price: number; picks: { key: string; price: number | null }[] }) || { start: 1000, captain_price: 325, picks: [] };
+      const show = (v: { start: number; captain_price: number; picks: { key: string; nickname?: string; price: number | null }[] }) => {
+        const picks = v.picks.map((x, i) => {
+          const p = players.get(x.key);
+          const price = x.price ?? (p?.price as number | null) ?? 0;
+          return { priority: i + 1, player: p ? nick(x.key) : x.nickname ?? x.key, role: p?.draft_role ?? null, price, picked: picked[x.key] ?? undefined, gone: p?.gone ? true : undefined };
+        });
+        return { start: v.start, captain_price: v.captain_price, players: picks, essence_left: v.start - v.captain_price - picks.reduce((s2, x) => s2 + x.price, 0) };
+      };
+      return text({
+        budget: { start: plan.start, captain: 'SGooB (JUNGLE)', captain_price: plan.captain_price, slots: 4 },
+        my_calculator: show(plan),
+        variants: ((d.variants as Json[]) || []).map((v) => ({ id: v.id, name: v.name, author: v.author, mine: v.mine, ...show(v as never) })),
+        picked: Object.fromEntries(Object.entries(picked).map(([k, st]) => [nick(k), st])),
+        notes: (d.notes as { text?: string } | null)?.text || undefined,
+      });
+    },
+  },
+  {
+    name: 'save_queue_variant',
+    description: 'Saves a variant of our team for the essence calculator (visible to all admins under Varianty). Players in priority order (who we want first), up to 4, ideally one per missing role (TOP, MID, ADC, SUPPORT – SGooB is the jungler). price = expected auction price if different from the Excel price. Saving under an existing name of yours overwrites it. The same set of players can\'t be saved twice. Admin only.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        name: { type: 'string', description: 'Variant name, e.g. "Agresivní bot"' },
+        players: {
+          type: 'array', maxItems: 4,
+          items: { type: 'object', properties: { player: { type: 'string', description: 'Nickname' }, price: { type: 'number' } }, required: ['player'] },
+        },
+        start: { type: 'number', description: 'Start essence (default: from the calculator, usually 1000)' },
+        captain_price: { type: 'number', description: 'SGooB\'s price (default: from the calculator, usually 325)' },
+      },
+      required: ['name', 'players'],
+    },
+    async run(a, { env, user }) {
+      await requireQueue(env, user);
+      const list = Array.isArray(a.players) ? (a.players as Json[]) : [];
+      if (!list.length || list.length > 4) throw new HttpError(400, 'invalid', 'A variant has 1–4 players.');
+      const [rows, d] = await Promise.all([queueRoster(env), queueCall(env, user, 'GET', '/api/queue/draft')]);
+      const picked = (d.picked || {}) as Record<string, string>;
+      const plan = (d.plan as { start?: number; captain_price?: number } | null) || {};
+      const picks = list.map((x) => {
+        const r = resolveQueuePlayer(rows, x.player);
+        if (r.is_captain) throw new HttpError(400, 'invalid', `${r.nickname} is a captain, not in the auction.`);
+        return { r, price: x.price === undefined || x.price === null ? null : Number(x.price) };
+      });
+      const keys = picks.map((x) => x.r.key);
+      if (new Set(keys).size !== keys.length) throw new HttpError(400, 'invalid', 'A player is in the list twice.');
+      const start = a.start != null ? Number(a.start) : plan.start ?? 1000;
+      const captain = a.captain_price != null ? Number(a.captain_price) : plan.captain_price ?? 325;
+      await queueCall(env, user, 'POST', '/api/queue/variants', {
+        name: String(a.name ?? ''), start, captain_price: captain,
+        picks: picks.map((x) => ({ key: x.r.key, nickname: x.r.nickname, price: x.price })),
+      });
+      const cost = picks.reduce((s2, x) => s2 + (x.price ?? x.r.price ?? 0), 0);
+      const roles = new Set(['JUNGLE', ...picks.map((x) => x.r.draft_role)]);
+      const warnings = [
+        ...picks.filter((x) => x.r.price == null && x.price == null).map((x) => `${x.r.nickname} has no price (not in the auction?)`),
+        ...picks.filter((x) => picked[x.r.key] === 'other').map((x) => `${x.r.nickname} was already taken by another team`),
+        ...picks.filter((x) => x.r.gone).map((x) => `${x.r.nickname} left the tournament`),
+        ...picks.filter((x) => x.r.blocked).map((x) => `${x.r.nickname} is marked as unwanted`),
+        ...QROLES.filter((r) => !roles.has(r)).map((r) => `no ${r}`),
+        ...(start - captain - cost < 0 ? [`over budget by ${captain + cost - start}`] : []),
+      ];
+      await logActivity(env.DB, { kind: 'claude', userId: user.id }, 'queue.variant', null, null, { name: a.name, players: picks.map((x) => x.r.nickname) });
+      return text({ ok: true, essence_left: start - captain - cost, warnings: warnings.length ? warnings : undefined });
+    },
+  },
+  {
+    name: 'delete_queue_variant',
+    description: 'Deletes a saved variant (only your own; the superadmin can delete any). Get ids from queue_draft_state.',
+    inputSchema: { type: 'object', properties: { variant_id: { type: 'integer' } }, required: ['variant_id'] },
+    annotations: { destructiveHint: true },
+    async run(a, { env, user }) {
+      await requireQueue(env, user);
+      await queueCall(env, user, 'DELETE', `/api/queue/variants/${int(a.variant_id, 'variant_id')}`);
+      return text({ ok: true });
+    },
+  },
+  {
+    name: 'set_queue_pick',
+    description: 'Marks a player in the real draft (shared by all admins, shown in Varianty and the essence calculator): "us" = we got him, "other" = another team took him, "free" = still available.',
+    inputSchema: {
+      type: 'object',
+      properties: { player: { type: 'string' }, state: { type: 'string', enum: ['us', 'other', 'free'] } },
+      required: ['player', 'state'],
+    },
+    async run(a, { env, user }) {
+      await requireQueue(env, user);
+      const r = resolveQueuePlayer(await queueRoster(env), a.player);
+      await queueCall(env, user, 'PUT', '/api/queue/picked', { key: r.key, state: a.state === 'free' ? null : a.state });
+      return text({ ok: true, player: r.nickname, state: a.state });
+    },
+  },
+  {
+    name: 'get_pick_simulation',
+    description: 'The user\'s own pick simulation ("Simulace picku"): which players each captain buys and for how much. Lists the captains (with their role and price) and the current board. Admin only.',
+    inputSchema: { type: 'object', properties: {} },
+    annotations: { readOnlyHint: true },
+    async run(_a, { env, user }) {
+      await requireQueue(env, user);
+      const d = await queueCall(env, user, 'GET', '/api/queue/sim');
+      const players = (d.players as Json[]) || [];
+      const nick = new Map(players.map((p) => [String(p.key), p]));
+      const board = (d.board as { start: number; cap_roles: Record<string, string>; teams: Record<string, { key: string; price: number | null }[]> } | null);
+      return text({
+        captains: players.filter((p) => p.is_captain).map((p) => ({ captain: p.nickname, role: board?.cap_roles?.[String(p.key)] ?? p.draft_role ?? null, price: p.price })),
+        start: board?.start ?? (d.plan as { start?: number } | null)?.start ?? 1000,
+        teams: board ? Object.fromEntries(Object.entries(board.teams).map(([cap, l]) => [String(nick.get(cap)?.nickname ?? cap), l.map((x) => ({
+          player: nick.get(x.key)?.nickname ?? x.key, role: nick.get(x.key)?.draft_role ?? null, price: x.price ?? nick.get(x.key)?.price ?? null,
+        }))])) : {},
+      });
+    },
+  },
+  {
+    name: 'save_pick_simulation',
+    description: 'Replaces the user\'s pick simulation: for each captain the players he buys (one per role besides the captain\'s own role, a player can be in one team only), price = auction price if different from the Excel. Captains not listed keep an empty team. Admin only.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        start: { type: 'number', description: 'Start essence per captain (default 1000)' },
+        teams: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              captain: { type: 'string' },
+              captain_role: { type: 'string', enum: QROLES, description: 'Only when the captain\'s role should change' },
+              players: { type: 'array', maxItems: 5, items: { type: 'object', properties: { player: { type: 'string' }, price: { type: 'number' } }, required: ['player'] } },
+            },
+            required: ['captain', 'players'],
+          },
+        },
+      },
+      required: ['teams'],
+    },
+    async run(a, { env, user }) {
+      await requireQueue(env, user);
+      const [rows, d] = await Promise.all([queueRoster(env), queueCall(env, user, 'GET', '/api/queue/sim')]);
+      const prev = (d.board as { start?: number; cap_roles?: Record<string, string> } | null) || {};
+      const capRoles: Record<string, string> = { ...(prev.cap_roles || {}) };
+      const teams: Record<string, { key: string; price: number | null }[]> = {};
+      for (const t of (Array.isArray(a.teams) ? a.teams : []) as Json[]) {
+        const cap = resolveQueuePlayer(rows.filter((r) => r.is_captain), t.captain);
+        if (t.captain_role) capRoles[cap.key] = String(t.captain_role);
+        teams[cap.key] = ((t.players as Json[]) || []).map((x) => {
+          const r = resolveQueuePlayer(rows.filter((q) => !q.is_captain), x.player);
+          return { key: r.key, price: x.price === undefined || x.price === null ? null : Number(x.price) };
+        });
+      }
+      await queueCall(env, user, 'PUT', '/api/queue/sim', { start: a.start ?? prev.start ?? 1000, cap_roles: capRoles, teams });
+      return text({ ok: true, teams: Object.keys(teams).length });
+    },
+  },
+  {
+    name: 'add_queue_player_to_team',
+    description: 'Adds a Streamers Queue player to a team in the app (e.g. after the real draft, to scout the opponents): creates the player with his best Riot ID from his Streamers Clash profile, linked to his queue stats. Twitch/Kick channel (name or link) is set too, and his Twitch VODs are fetched right away. Use list_teams/add_team for the team.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        player: { type: 'string', description: 'Queue nickname' },
+        team_id: { type: 'integer' },
+        role: { type: 'string', enum: ['TOP', 'JUNGLE', 'MID', 'ADC', 'SUPPORT', 'SUB'], description: 'Default: his draft role' },
+        twitch_login: { type: 'string' },
+        kick_slug: { type: 'string' },
+      },
+      required: ['player', 'team_id'],
+    },
+    async run(a, { env, user }) {
+      if (user.role !== 'admin') throw new HttpError(403, 'forbidden', 'Admins only.');
+      const r = resolveQueuePlayer(await queueRoster(env), a.player);
+      const res = await queueCall(env, user, 'POST', '/api/queue/link', { player_key: r.key, team_id: int(a.team_id, 'team_id'), role: a.role ?? r.draft_role });
+      const id = Number(res.player_id);
+      const ch = playerFields({ ...(a.twitch_login !== undefined ? { twitch_login: a.twitch_login } : {}), ...(a.kick_slug !== undefined ? { kick_slug: a.kick_slug } : {}) }, true);
+      if (Object.keys(ch).length) await update(env.DB, 'players', id, ch);
+      if (ch.twitch_login) await syncTwitchVods(env, [String(ch.twitch_login)]).catch(() => {});
+      const p = await env.DB.prepare('SELECT nickname, role, riot_game_name, riot_tag_line, twitch_login, kick_slug FROM players WHERE id = ?').bind(id).first();
+      return text({ ok: true, player_id: id, player: p });
+    },
+  },
+  {
+    name: 'update_player',
+    description: "Changes a player in the app: team, nickname, role, Riot ID (GameName#TAG, empty to clear), Twitch/Kick channel (name or link – a new Twitch channel fetches its VODs right away), notes. Only the fields given are changed.",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        player_id: { type: 'integer' },
+        team_id: { type: 'integer' },
+        nickname: { type: 'string' },
+        role: { type: 'string', enum: ['TOP', 'JUNGLE', 'MID', 'ADC', 'SUPPORT', 'SUB'] },
+        riot_id: { type: 'string' },
+        twitch_login: { type: 'string' },
+        kick_slug: { type: 'string' },
+        notes: { type: 'string' },
+      },
+      required: ['player_id'],
+    },
+    async run(a, { env, user }) {
+      const id = int(a.player_id, 'player_id');
+      const { player_id: _pid, team_id: teamRaw, ...rest } = a;
+      const fields = playerFields(rest, true);
+      if (teamRaw !== undefined) {
+        const teamId = int(teamRaw, 'team_id');
+        if (!(await env.DB.prepare('SELECT 1 FROM teams WHERE id = ?').bind(teamId).first())) throw new HttpError(404, 'not_found', 'Team not found');
+        fields.team_id = teamId;
+      }
+      if (!Object.keys(fields).length) throw new HttpError(400, 'invalid', 'Nothing to change.');
+      await update(env.DB, 'players', id, fields);
+      await logActivity(env.DB, { kind: 'claude', userId: user.id }, 'player.update', 'player', id, fields);
+      if ('riot_game_name' in fields || 'nickname' in fields || 'team_id' in fields) await relinkDraftPlayers(env).catch(() => {});
+      if (fields.twitch_login) await syncTwitchVods(env, [String(fields.twitch_login)]).catch(() => {});
+      return text({ ok: true });
     },
   },
   {
@@ -959,6 +1233,57 @@ function toBase64(bytes: Uint8Array): string {
   for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
   return btoa(s);
 }
+
+
+// --- Streamers Queue (player auction) helpers -------------------------------------
+// The queue tools go through the same handler as the web pages (/api/queue/...), so they share its
+// validation, the admin-only rule and the "live on Twitch" lock.
+
+async function queueCall(env: Env, user: User, method: string, path: string, body?: Json): Promise<Json> {
+  const req = new Request(`https://mcp.internal${path}`, {
+    method, headers: { 'Content-Type': 'application/json' }, body: body ? JSON.stringify(body) : undefined,
+  });
+  const res = await handleQueueApi(req, env, path.split('?')[0], method, user, async (r) => (await r.json()) as Json);
+  if (!res) throw new HttpError(404, 'not_found', `Unknown queue route ${path}`);
+  const data = (await res.json()) as Json;
+  if (!res.ok) throw new HttpError(res.status, 'error', String((data as { message?: string }).message ?? `HTTP ${res.status}`));
+  return data;
+}
+
+async function requireQueue(env: Env, user: User): Promise<void> {
+  if (user.role !== 'admin') throw new HttpError(403, 'forbidden', 'Streamers Queue scouting is for admins only.');
+  const g = await streamGuard(env, user);
+  if (g.hidden) throw new HttpError(423, 'live', 'You are live on Twitch – queue scouting is locked until the stream ends.');
+}
+
+const foldName = (s: string) => s.toLowerCase().normalize('NFD').replace(/[^a-z0-9]/g, '');
+
+interface QueueRow { key: string; nickname: string; price: number | null; draft_role: string | null; is_captain: number | null; gone: number | null; blocked: number | null }
+
+async function queueRoster(env: Env): Promise<QueueRow[]> {
+  const { results } = await env.DB.prepare(
+    `SELECT p.key, p.nickname, s.price, s.draft_role, s.is_captain, s.gone, s.blocked
+       FROM queue_players p LEFT JOIN queue_scout s ON s.player_key = p.key`,
+  ).all<QueueRow>();
+  return results;
+}
+
+/** Nickname (any case/diacritics) or key → the queue player; ambiguous or unknown names fail with candidates. */
+function resolveQueuePlayer(rows: QueueRow[], name: unknown): QueueRow {
+  const raw = String(name ?? '').trim();
+  if (!raw) throw new HttpError(400, 'invalid', 'Missing player name.');
+  const f = foldName(raw);
+  const exact = rows.filter((r) => r.key === raw.toLowerCase() || foldName(r.nickname) === f);
+  if (exact.length === 1) return exact[0];
+  const priced = (l: QueueRow[]) => (l.filter((r) => r.price != null).length === 1 ? l.filter((r) => r.price != null) : l);
+  if (exact.length > 1 && priced(exact).length === 1) return priced(exact)[0];
+  const part = rows.filter((r) => foldName(r.nickname).includes(f));
+  if (part.length === 1) return part[0];
+  if (part.length > 1 && priced(part).length === 1) return priced(part)[0];
+  const cand = (part.length ? part : exact).slice(0, 8).map((r) => r.nickname);
+  throw new HttpError(404, 'not_found', cand.length ? `"${raw}" is ambiguous: ${cand.join(', ')}` : `No queue player "${raw}".`);
+}
+
 
 // --- JSON-RPC over HTTP -----------------------------------------------------------
 

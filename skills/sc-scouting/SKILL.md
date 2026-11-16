@@ -86,6 +86,17 @@ If `save_draft` says a champion is unknown, fix the spelling (e.g. "Kai'Sa", "Nu
 - `rescan_vod` re-queues a VOD; a rescan updates existing games instead of duplicating them.
 - If nothing new appears for a long time, the reader on Dao's PC is probably not running: `docker compose up -d` in `~/streamersclash/reader` (WSL), logs with `docker compose logs -f reader`.
 
+## Workflow 7 – Streamers Queue auction ("udělej varianty", "naklikej týmy", "vzal ho jiný")
+
+Admins only, and locked while the user is live on Twitch (the tools say so).
+- `queue_players` – auction players: Excel price, draft role, queue W/L and winrate, favourite roles, `blocked` (we don't want him), `gone` (left the tournament), note, `picked` (`us` / `other`). Filter by `role`, `search`.
+- `queue_draft_state` – the essence calculator: budget (start, usually 1000; SGooB is our captain and jungler for ~325; **4 more players**), every saved variant with essence left, the picked state, shared notes.
+- **Making variants** (`save_queue_variant`): one player per missing role (TOP, MID, ADC, SUPPORT), in priority order (who we want first), within budget. Skip `blocked`, `gone` and `picked: other` players unless Dao says otherwise; use favourites and good winrate. Give each variant a short Czech name that says what it is ("Levný top, drahý bot"). The same set of players can't be saved twice. Read the warnings in the result and fix or report them. Saving under an existing name overwrites it.
+- `delete_queue_variant` – only after Dao asks.
+- `set_queue_pick` – during the real draft: `us` = we got him, `other` = another team took him, `free` = undo. Shows up in Varianty and the essence calculator for all admins.
+- `get_pick_simulation` / `save_pick_simulation` – Dao's own simulation of every captain's team ("Simulace picku"); save replaces the listed captains' teams.
+- **After the draft – teams and VODs:** `list_teams` / `add_team` for each opponent team, `add_queue_player_to_team` puts a queue player in it (Riot ID from his profile, his Twitch/Kick channel if given – Twitch VODs are fetched at once), `update_player` changes team, role, Riot ID or channels later. Twitch channel is often the same as the nickname – if unsure, ask Dao instead of guessing.
+
 ## Tools
 
 | Tool | Use |
@@ -99,6 +110,9 @@ If `save_draft` says a champion is unknown, fix the spelling (e.g. "Kai'Sa", "Nu
 | `add_scouting_note` | note on a team, player or game (ask first) |
 | `add_team`, `add_player` | new data |
 | `rescan_vod`, `get_activity` | reader and app status |
+| `queue_players`, `queue_draft_state`, `save_queue_variant`, `delete_queue_variant`, `set_queue_pick` | Streamers Queue auction: players, essence calculator variants, real-draft picks |
+| `get_pick_simulation`, `save_pick_simulation` | per-admin simulation of all captains' teams |
+| `add_queue_player_to_team`, `update_player` | queue players into app teams, Riot ID and Twitch/Kick channels (VODs) |
 | `get_schedule`, `add_scheduled_match`, `update_scheduled_match` | our match schedule |
 | `get_tournament`, `update_tournament_match` | whole tournament: match days, bracket, teams, results |
 | `get_coaching`, `get_coaching_screenshot`, `save_rune_page`, `add_coaching_note`, `add_coaching_folder`, `set_champion_pool_entry` | coaching: rune pages and notes per player/folder |

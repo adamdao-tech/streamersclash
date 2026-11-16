@@ -591,7 +591,7 @@ function oneOf<T extends string>(v: unknown, allowed: readonly T[], label: strin
 }
 
 /** Accepts "name", "@name" or a full channel URL and returns the bare channel name. */
-function normalizeChannel(v: unknown, host: string): string | null {
+export function normalizeChannel(v: unknown, host: string): string | null {
   const s = str(v, 'Kanál', 200);
   if (!s) return null;
   let name = s.replace(/^@/, '');

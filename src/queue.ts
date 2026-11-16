@@ -5,6 +5,8 @@ import { relinkDraftPlayers } from './drafts';
 import { bumpMatchesRev, flattenGame, SqError, sqEnabled, sqFetch, rankStatement, storeSqGames, syncSqGames, syncSqPlayers, type SqGame } from './sq';
 import { HttpError, json } from './http';
 import { parseStart } from './schedule';
+import { syncTwitchVods } from './vods';
+import { normalizeChannel } from './api';
 
 // Streamers Queue scouting (admin only).
 // Data come from the public Streamers Clash endpoints the queue page itself uses:
@@ -160,7 +162,21 @@ const ROLE_ALIASES: Record<string, string> = {
 };
 
 /** Reads accounts and preferred role from a profile page's HTML. */
-export function parseProfile(html: string): { accounts: Account[]; preferred_role: string | null } {
+export interface Socials { twitch?: string; kick?: string }
+
+/** Twitch/Kick channel linked on the profile (the site's own footer links to its channels are skipped). */
+function parseSocials(html: string): Socials {
+  const out: Socials = {};
+  for (const m of html.matchAll(/href="https?:\/\/(?:www\.)?(twitch\.tv|kick\.com)\/([A-Za-z0-9_]{2,40})\/?"/gi)) {
+    const site = m[1].toLowerCase() === 'twitch.tv' ? 'twitch' : 'kick';
+    const name = m[2].toLowerCase();
+    if (name === 'streamersclash' || ['videos', 'directory', 'p'].includes(name) || out[site]) continue;
+    out[site] = name;
+  }
+  return out;
+}
+
+export function parseProfile(html: string): { accounts: Account[]; preferred_role: string | null; socials: Socials } {
   const accounts: Account[] = [];
   const re = /<a\b[^>]*\bhref="(https?:\/\/(?:www\.)?op\.gg\/(?:lol\/)?summoners\/([a-z]+)\/([^"?#]+))"[^>]*>([\s\S]*?)<\/a>/gi;
   for (const m of html.matchAll(re)) {
@@ -183,13 +199,13 @@ export function parseProfile(html: string): { accounts: Account[]; preferred_rol
   }
   const text = stripTags(html.replace(/<script[\s\S]*?<\/script>/gi, ' '));
   const pref = text.match(/Preferovan[áa] pozice:?\s*([A-Za-z]+)/i)?.[1]?.toUpperCase();
-  return { accounts, preferred_role: pref ? ROLE_ALIASES[pref] ?? null : null };
+  return { accounts, preferred_role: pref ? ROLE_ALIASES[pref] ?? null : null, socials: parseSocials(html) };
 }
 
 const pause = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 type ProfileResult =
-  | { ok: true; accounts: Account[]; preferred_role: string | null }
+  | { ok: true; accounts: Account[]; preferred_role: string | null; socials?: Socials }
   | { ok: false; error: string; throttled: boolean };
 
 export async function fetchProfile(profileUrl: string, attempt = 1): Promise<ProfileResult> {
@@ -240,11 +256,11 @@ async function saveProfile(db: D1Database, playerKey: string, data: ProfileResul
   // No accounts found: check again in ~2 h instead of tomorrow (their page sometimes omits them).
   await db
     .prepare(
-      `UPDATE queue_players SET accounts = ?, preferred_role = COALESCE(?, preferred_role),
+      `UPDATE queue_players SET accounts = ?, preferred_role = COALESCE(?, preferred_role), socials = COALESCE(?, socials),
          profile_checked_at = CASE WHEN ? THEN datetime('now') ELSE datetime('now', '-22 hours') END, profile_error = NULL
        WHERE key = ?`,
     )
-    .bind(JSON.stringify(data.accounts), data.preferred_role, data.accounts.length ? 1 : 0, playerKey)
+    .bind(JSON.stringify(data.accounts), data.preferred_role, data.socials && Object.keys(data.socials).length ? JSON.stringify(data.socials) : null, data.accounts.length ? 1 : 0, playerKey)
     .run();
 }
 
@@ -684,13 +700,18 @@ export async function handleQueueApi(
       const best = [...accounts].sort((a, b) => rankValue(b.rank) - rankValue(a.rank))[0];
       const [gameName, tagLine] = best ? best.riot.split('#') : [null, null];
       const region = best ? (best.region === 'euw' ? 'EUW' : 'EUNE') : team.region || 'EUNE';
+      // Twitch/Kick from the profile, unless given here
+      const socials = (q.socials ? JSON.parse(String(q.socials)) : {}) as Socials;
+      const twitch = body.twitch_login ? normalizeChannel(body.twitch_login, 'twitch.tv') : socials.twitch ?? null;
+      const kick = body.kick_slug ? normalizeChannel(body.kick_slug, 'kick.com') : socials.kick ?? null;
       const res = await db
         .prepare(
-          `INSERT INTO players (team_id, nickname, role, riot_game_name, riot_tag_line, region, queue_key)
-           VALUES (?, ?, ?, ?, ?, ?, ?)`,
+          `INSERT INTO players (team_id, nickname, role, riot_game_name, riot_tag_line, region, queue_key, twitch_login, kick_slug)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         )
-        .bind(teamId, String(q.nickname), role, gameName ?? null, tagLine ?? null, region, playerKey)
+        .bind(teamId, String(q.nickname), role, gameName ?? null, tagLine ?? null, region, playerKey, twitch, kick)
         .run();
+      if (twitch) await syncTwitchVods(env, [twitch]).catch(() => {});
       playerId = res.meta.last_row_id;
       await logActivity(db, actor, 'player.create', 'player', playerId, { nickname: q.nickname, team_id: teamId, from: 'queue' });
       await relinkDraftPlayers(env).catch(() => {});

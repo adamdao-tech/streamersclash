@@ -695,4 +695,8 @@ CREATE INDEX idx_coach_plan_items_tab ON coach_plan_items(tab_id, sort);
          kept in the database (an Excel re-import won't bring him back), can be returned */ `
 ALTER TABLE queue_scout ADD COLUMN gone INTEGER NOT NULL DEFAULT 0;
 `,
+
+  /* 33: Twitch/Kick channel from the player's Streamers Clash profile – filled in when he's added to a team */ `
+ALTER TABLE queue_players ADD COLUMN socials TEXT;
+`,
 ];

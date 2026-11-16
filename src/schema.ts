@@ -699,4 +699,22 @@ ALTER TABLE queue_scout ADD COLUMN gone INTEGER NOT NULL DEFAULT 0;
   /* 33: Twitch/Kick channel from the player's Streamers Clash profile – filled in when he's added to a team */ `
 ALTER TABLE queue_players ADD COLUMN socials TEXT;
 `,
+
+  /* 34: Draft – admins' prepared drafts for different situations (picks, bans, notes), shared by all admins */ `
+CREATE TABLE draft_boards (
+  id               INTEGER PRIMARY KEY AUTOINCREMENT,
+  name             TEXT NOT NULL,
+  folder           TEXT,
+  our_side         TEXT NOT NULL DEFAULT 'BLUE' CHECK (our_side IN ('BLUE', 'RED')),
+  opponent_team_id INTEGER REFERENCES teams(id) ON DELETE SET NULL,
+  data             TEXT NOT NULL,
+  notes            TEXT,
+  created_by       INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  created_by_kind  TEXT NOT NULL DEFAULT 'user',
+  updated_by       INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  created_at       TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at       TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX idx_draft_boards_folder ON draft_boards(folder, updated_at);
+`,
 ];

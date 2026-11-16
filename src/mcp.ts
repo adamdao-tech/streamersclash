@@ -12,6 +12,7 @@ import { createFolder, getShotImage, loadCoaching, saveNote, savePool, saveRuneP
 import { describeRunePage, getRuneData } from './runes';
 import { createItem, createTab, loadPlan, PRIORITY_LABELS, requireSuperadmin, updateItem, updateTab } from './plan';
 import { handleQueueApi, streamGuard } from './queue';
+import { createBoard, listBoards, updateBoard } from './draftboards';
 import { compactTournament, freeSlot, listTournament, SLOTS, tournamentFields, tournamentLabel } from './tournament';
 
 // Remote MCP server (Streamable HTTP transport, JSON responses only).
@@ -693,6 +694,59 @@ const TOOLS: Tool[] = [
       if ('riot_game_name' in fields || 'nickname' in fields || 'team_id' in fields) await relinkDraftPlayers(env).catch(() => {});
       if (fields.twitch_login) await syncTwitchVods(env, [String(fields.twitch_login)]).catch(() => {});
       return text({ ok: true });
+    },
+  },
+  // --- Draft (prepared drafts for situations) ---
+  {
+    name: 'list_draft_boards',
+    description: 'Prepared drafts on the "Draft" page (admins): name, folder (situation), our side (BLUE/RED), opponent team, bans and picks per side with roles, notes. Admin only.',
+    inputSchema: { type: 'object', properties: { folder: { type: 'string', description: 'Only one folder/situation' } } },
+    annotations: { readOnlyHint: true },
+    async run(a, { env, user }) {
+      if (user.role !== 'admin') throw new HttpError(403, 'forbidden', 'Admins only.');
+      const boards = await listBoards(env, a.folder ? String(a.folder) : null);
+      return text({ count: boards.length, boards: boards.map((b) => ({
+        id: b.id, name: b.name, folder: b.folder, our_side: b.our_side, opponent: b.opponent_name ?? undefined, notes: b.notes || undefined,
+        blue: { bans: b.data.blue.bans.filter(Boolean), picks: b.data.blue.picks.map((p) => `${p.role}: ${p.champion ?? '–'}${p.note ? ` (${p.note})` : ''}`) },
+        red: { bans: b.data.red.bans.filter(Boolean), picks: b.data.red.picks.map((p) => `${p.role}: ${p.champion ?? '–'}${p.note ? ` (${p.note})` : ''}`) },
+        updated: b.updated_at, by: b.updated_by_name ?? undefined,
+      })) });
+    },
+  },
+  {
+    name: 'save_draft_board',
+    description: 'Creates (no id) or changes (id) a prepared draft on the "Draft" page. Champions by English name, each at most once. picks are 5 per side in role order unless role is given; bans up to 5 per side. Only the fields given are changed when updating (data replaces the whole board). Write name/folder/notes in Czech. Ask the user before overwriting an existing draft. Admin only.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        id: { type: 'integer' },
+        name: { type: 'string' },
+        folder: { type: 'string', description: 'Situation / folder, e.g. "Blue side", "Proti Tým Johny", "Když nám banují Ahri"' },
+        our_side: { type: 'string', enum: ['BLUE', 'RED'] },
+        opponent_team_id: { type: 'integer' },
+        notes: { type: 'string' },
+        data: {
+          type: 'object',
+          properties: Object.fromEntries(['blue', 'red'].map((k) => [k, {
+            type: 'object',
+            properties: {
+              bans: { type: 'array', maxItems: 5, items: { type: 'string' } },
+              picks: { type: 'array', maxItems: 5, items: { type: 'object', properties: { champion: { type: 'string' }, role: { type: 'string', enum: QROLES }, note: { type: 'string' } } } },
+            },
+          }])),
+        },
+      },
+    },
+    async run(a, { env, user }) {
+      if (user.role !== 'admin') throw new HttpError(403, 'forbidden', 'Admins only.');
+      const { id: rawId, ...body } = a;
+      if (rawId) {
+        const id = int(rawId, 'id');
+        await updateBoard(env, user, id, body, 'claude');
+        return text({ ok: true, id });
+      }
+      if (!body.data) body.data = {};
+      return text({ ok: true, id: await createBoard(env, user, body, 'claude') });
     },
   },
   {

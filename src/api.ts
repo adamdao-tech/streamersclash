@@ -13,6 +13,7 @@ import {
 import { getRuneData } from './runes';
 import { handleQueueApi } from './queue';
 import { handlePlanApi } from './plan';
+import { handleDraftBoardsApi } from './draftboards';
 
 const ROLES = ['TOP', 'JUNGLE', 'MID', 'ADC', 'SUPPORT', 'SUB'] as const;
 const REGIONS = ['EUNE', 'EUW'] as const;
@@ -539,6 +540,8 @@ async function route(req: Request, env: Env, url: URL, user: User): Promise<Resp
   if (queue) return queue;
 
   // --- Plán koučování (superadmin only) -------------------------------------
+  const boards = await handleDraftBoardsApi(req, env, path, method, user, readBody);
+  if (boards) return boards;
   const plan = await handlePlanApi(req, env, path, method, user, readBody);
   if (plan) return plan;
 

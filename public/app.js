@@ -39,7 +39,7 @@ export async function initPage(active) {
     ['/schedule', 'Harmonogram', 'schedule'],
     ['/coaching', 'Koučing', 'coaching'],
     ['/vods', 'VODky', 'vods'],
-    ...(user.role === 'admin' ? [['/scouting', 'Hráči', 'scouting'], ['/users', 'Uživatelé', 'users']] : []),
+    ...(user.role === 'admin' ? [['/drafty', 'Draft', 'drafty'], ['/scouting', 'Hráči', 'scouting'], ['/users', 'Uživatelé', 'users']] : []),
     ...(user.can_plan ? [['/plan', 'Plán', 'plan']] : []),
   ];
   const header = document.createElement('header');

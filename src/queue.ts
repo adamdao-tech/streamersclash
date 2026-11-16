@@ -711,7 +711,7 @@ export async function handleQueueApi(
            FROM queue_scout s JOIN queue_players p ON p.key = s.player_key WHERE s.price IS NOT NULL AND s.is_captain = 0`,
       ).all<Record<string, unknown>>(),
       // everyone clicks in their own selection; the old shared one is only a starting point for the superadmin
-      db.prepare(`SELECT k, v FROM queue_meta WHERE k IN (?, 'draft_plan', 'draft_picked')`).bind(`draft_plan:${user.id}`).all<{ k: string; v: string }>(),
+      db.prepare(`SELECT k, v FROM queue_meta WHERE k IN (?, 'draft_plan', 'draft_picked', 'vars_notes')`).bind(`draft_plan:${user.id}`).all<{ k: string; v: string }>(),
       db.prepare(
         `SELECT v.id, v.user_id, v.name, v.data, COALESCE(u.display_name, u.twitch_login, 'Neznámý') AS author
            FROM draft_variants v LEFT JOIN users u ON u.id = v.user_id ORDER BY v.updated_at DESC, v.id DESC`,
@@ -724,6 +724,7 @@ export async function handleQueueApi(
       players: players.results.map((r) => ({ ...r, fav_roles: JSON.parse(String(r.fav_roles || '[]')) })),
       plan: start ? JSON.parse(start.v) : null,
       picked: JSON.parse(plan.results.find((r) => r.k === 'draft_picked')?.v || '{}'),
+      notes: JSON.parse(plan.results.find((r) => r.k === 'vars_notes')?.v || 'null'),
       stream: guard,
     });
   }
@@ -810,6 +811,16 @@ export async function handleQueueApi(
     data.picks = keys.map((k) => byKey.get(k)!);
     await db.prepare(`UPDATE draft_variants SET data = ?, updated_at = datetime('now') WHERE id = ?`).bind(JSON.stringify(data), Number(m[1])).run();
     return json({ ok: true });
+  }
+
+  // Free-text notes under the Varianty tab of Queue scouting (shared by all admins).
+  if (path === '/api/queue/vars-notes' && method === 'PUT') {
+    if (guard.hidden) throw new HttpError(423, 'live', 'Jsi live na Twitchi – během streamu se scouting upravovat nedá.');
+    const body = await readBody(req);
+    const text = String(body.text ?? '').slice(0, 20000);
+    const notes = { text, by: user.display_name || user.twitch_login, at: new Date().toISOString().slice(0, 19).replace('T', ' ') };
+    await db.prepare(`INSERT INTO queue_meta (k, v) VALUES ('vars_notes', ?) ON CONFLICT(k) DO UPDATE SET v = excluded.v`).bind(JSON.stringify(notes)).run();
+    return json({ ok: true, notes });
   }
 
   // Players already picked in the real draft (shared by all admins): "us" = we got him, "other" = another team took him.

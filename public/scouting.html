@@ -112,6 +112,14 @@
     .d-riot .sugs button:hover { border-color: var(--gold); color: var(--gold-2); }
     .opgg { display: inline-block; font: 700 0.7rem var(--display); padding: 2px 7px; border-radius: 5px; background: #5c46e8; color: #fff; margin: 4px 3px 0 0; }
     .opgg:hover { text-decoration: none; filter: brightness(1.15); }
+    /* podzáložky ve Variantách */
+    .v-sub { margin-bottom: 14px; }
+    .v-sub .count { margin-left: 4px; color: var(--muted); font-size: 0.78rem; }
+    .vn-box { display: flex; flex-direction: column; gap: 8px; }
+    .vn-box textarea { width: 100%; min-height: 420px; resize: vertical; padding: 14px; font: 500 0.95rem/1.55 var(--font); background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: 12px; }
+    .vn-box textarea:focus { border-color: var(--gold); outline: none; }
+    .vn-state { color: var(--muted); font-size: 0.84rem; }
+    .vn-state.err { color: #ff7a7e; }
     /* uložené varianty týmu */
     .v-who { margin: 18px 0 8px; font: 700 0.82rem var(--display); letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
     .v-who:first-child { margin-top: 0; }
@@ -307,6 +315,15 @@
     </section>
 
     <section class="tab-panel" data-panel="vars" hidden>
+      <div class="seg v-sub" id="v-sub" role="tablist">
+        <button type="button" data-sub="list" class="active">Varianty</button>
+        <button type="button" data-sub="notes">Poznámky <span class="count" id="c-vnotes"></span></button>
+      </div>
+      <div class="vn-box" data-subpanel="notes" hidden>
+        <textarea id="vn-text" maxlength="20000" placeholder="Sem si piš cokoliv k variantám – koho brát, plány B, poznámky z draftu…"></textarea>
+        <span class="vn-state" id="vn-state"></span>
+      </div>
+      <div data-subpanel="list">
       <div class="v-tools">
         <input type="search" id="v-q" placeholder="Hledat hráče ve variantách…" autocomplete="off">
         <label><input type="checkbox" id="v-only" checked> jen varianty, které jsou pořád možné</label>
@@ -315,6 +332,7 @@
       <div class="v-found" id="v-found"></div>
       <div id="v-picked"></div>
       <div id="vars"></div>
+      </div>
     </section>
 
     <section class="tab-panel" data-panel="duos" hidden>
@@ -424,7 +442,8 @@
 
     /** Uložené varianty z výpočtu essence (okno /draft). */
     async function loadVariants() {
-      const { variants = [], picked = {} } = await api('/api/queue/draft');
+      const { variants = [], picked = {}, notes = null } = await api('/api/queue/draft');
+      applyVarNotes(notes);
       const raw = JSON.stringify([variants, picked]);
       if (raw === S.variantsRaw) return;
       S.variantsRaw = raw; S.variants = variants; S.picked = picked;
@@ -634,6 +653,55 @@
         block('Nejčastěji spolu', [...list].sort((x, y) => (y.wins + y.losses) - (x.wins + x.losses) || wr(y) - wr(x)));
     }
     for (const id of ['#duo-q', '#duo-min', '#duo-fav']) $(id).addEventListener('input', renderDuos);
+
+    /* ---------- poznámky k variantám (sdílené mezi adminy, ukládají se samy) ---------- */
+
+    const VN = { saved: null, timer: 0, saving: false };
+    function vnState() {
+      const n = VN.saved;
+      $('#vn-state').className = 'vn-state';
+      $('#vn-state').textContent = n?.at ? `Uloženo · naposledy upravil ${n.by} ${timeAgo(n.at)} · vidí a mění všichni admini` : 'Píše se a ukládá samo. Vidí a mění všichni admini.';
+      $('#c-vnotes').textContent = n?.text?.trim() ? '•' : '';
+    }
+    function applyVarNotes(n) {
+      const ta = $('#vn-text');
+      const dirty = VN.timer || VN.saving || (VN.saved && ta.value !== (VN.saved.text || ''));
+      if (JSON.stringify(n) === JSON.stringify(VN.saved)) return;
+      // rozepsaný text nepřepisuj automatickou obnovou
+      if (dirty || document.activeElement === ta) return;
+      VN.saved = n;
+      ta.value = n?.text || '';
+      vnState();
+    }
+    async function saveVarNotes() {
+      VN.timer = 0; VN.saving = true;
+      const ta = $('#vn-text'), text = ta.value;
+      $('#vn-state').textContent = 'Ukládám…';
+      try {
+        const { notes } = await api('/api/queue/vars-notes', { method: 'PUT', body: { text } });
+        VN.saved = notes; vnState();
+      } catch (err) {
+        $('#vn-state').className = 'vn-state err';
+        $('#vn-state').textContent = `Nepodařilo se uložit: ${err.message || err}`;
+      } finally {
+        VN.saving = false;
+        if (ta.value !== text && !VN.timer) VN.timer = setTimeout(saveVarNotes, 800);
+      }
+    }
+    $('#vn-text').addEventListener('input', () => {
+      clearTimeout(VN.timer);
+      $('#vn-state').className = 'vn-state';
+      $('#vn-state').textContent = 'Neuloženo…';
+      VN.timer = setTimeout(saveVarNotes, 800);
+    });
+    $('#vn-text').addEventListener('blur', () => { if (VN.timer) { clearTimeout(VN.timer); saveVarNotes(); } });
+    window.addEventListener('beforeunload', (e) => { if (VN.timer || VN.saving) e.preventDefault(); });
+    $('#v-sub').addEventListener('click', (e) => {
+      const b = e.target.closest('button[data-sub]'); if (!b) return;
+      document.querySelectorAll('#v-sub button').forEach((x) => x.classList.toggle('active', x === b));
+      document.querySelectorAll('[data-subpanel]').forEach((p) => (p.hidden = p.dataset.subpanel !== b.dataset.sub));
+      if (b.dataset.sub === 'notes') $('#vn-text').focus();
+    });
 
     /* ---------- uložené varianty ---------- */
 

@@ -112,6 +112,12 @@
     .av-row i:hover { background: rgba(232,184,74,.22); }
     .av-row i.on { background: #2fbf71; border-left-color: rgba(0,0,0,.08); }
     .av-row i.on:hover { background: #3fd683; }
+    /* „?“ = neví, jestli bude mít čas */
+    .av-row i.mb { background: repeating-linear-gradient(135deg, rgba(232,184,74,.55) 0 5px, rgba(232,184,74,.3) 5px 10px); }
+    .av-row i.mb:hover { background: rgba(232,184,74,.7); }
+    .av-row .lbl.mb { color: #2a1f00; }
+    .av-brush button { min-width: 0; }
+    .sw.mb { background: repeating-linear-gradient(135deg, rgba(232,184,74,.55) 0 4px, rgba(232,184,74,.3) 4px 8px); }
     .av-row .lbl { position: absolute; top: 0; bottom: 0; display: flex; align-items: center; justify-content: center; pointer-events: none; font: 700 0.8rem var(--font); color: #06140c; white-space: nowrap; overflow: hidden; font-variant-numeric: tabular-nums; }
     .av-row.sum { background: rgba(47,191,113,.04); border-top: 2px solid var(--line-2); }
     .av-row.sum i { cursor: default; }
@@ -208,6 +214,10 @@
         <h2 id="av-title"></h2>
         <button class="btn btn-icon" id="av-next" aria-label="Další"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg></button>
         <button class="btn" id="av-today">Dnes</button>
+        <div class="seg av-brush" id="av-brush" role="tablist" aria-label="Co zapisuješ">
+          <button data-b="1" role="tab" title="Kreslíš „má čas“">✔ má čas</button>
+          <button data-b="2" role="tab" title="Kreslíš „neví“">? neví</button>
+        </div>
         <span class="av-saving" id="av-saving"></span>
         <span class="sp"></span>
         <label><input type="checkbox" id="av-full"> i ráno (0–24)</label>
@@ -219,9 +229,10 @@
       </div>
       <div class="av-legend">
         <span><i class="sw on"></i>má čas</span>
+        <span><i class="sw mb"></i>? neví</span>
         <span><i class="sw c5"></i>můžou všichni</span>
         <span><i class="sw c4"></i>4 z 5</span>
-        <span class="tip">👉 Klikni nebo táhni po řádku hráče = má čas. Znovu přes zelenou = nemá. Ukládá se samo.</span>
+        <span class="tip">👉 Vyber nahoře „✔ má čas“ nebo „? neví“ a klikni nebo táhni po řádku hráče. Znovu přes stejnou barvu = smaže. Ukládá se samo.</span>
       </div>
     </div>
 
@@ -973,6 +984,7 @@
     const $ = (q) => document.querySelector(q);
     const mondayOf = (d0) => { const d = new Date(d0); d.setHours(0, 0, 0, 0); d.setDate(d.getDate() - ((d.getDay() + 6) % 7)); return d; };
     const AV = {
+      brush: store.get('sched.av.brush') === '2' ? '2' : '1',
       week: mondayOf(new Date()),
       dayIdx: (new Date().getDay() + 6) % 7,
       mode: store.get('sched.av.mode') === 'week' ? 'week' : 'day',
@@ -1044,7 +1056,7 @@
         const dk = avDay(d), cnt = countAt(dk);
         const full = runsOf((s) => cnt(s) === 5).filter(([x, y]) => y - x >= 2);
         const four = runsOf((s) => cnt(s) >= 4).filter(([x, y]) => y - x >= 2);
-        const filled = ROLES5.filter(([r]) => get(r, dk).includes('1')).length;
+        const filled = ROLES5.filter(([r]) => /[12]/.test(get(r, dk))).length;
         const st = full.length ? `<div class="st ok">✔ všichni ${full.map(([x, y]) => hShort(x, y)).join(', ')}</div>`
           : four.length ? `<div class="st part">4 z 5: ${four.map(([x, y]) => hShort(x, y)).join(', ')}</div>`
           : `<div class="st">${filled ? `vyplnilo ${filled} z 5` : 'nikdo nevyplnil'}</div>`;
@@ -1068,6 +1080,7 @@
       $('#av-title').textContent = day ? `${DAYL[days[0].getDay()]} ${fmtD(days[0])}` : `${fmtD(wd[0])} – ${fmtD(wd[6])}`;
       $('#av-today').textContent = day ? 'Dnes' : 'Tento týden';
       document.querySelectorAll('#av-mode button').forEach((x) => x.classList.toggle('active', x.dataset.m === AV.mode));
+      document.querySelectorAll('#av-brush button').forEach((x) => x.classList.toggle('active', x.dataset.b === AV.brush));
       $('#av-full').checked = AV.full;
       renderCards();
       const rows = AV.rows;
@@ -1081,8 +1094,9 @@
       const cells = (row) => days.map((d) => {
         const dk = avDay(d), v = get(row, dk);
         let h = '';
-        for (let s = a; s < b; s++) h += `<i data-r="${row}" data-d="${dk}" data-s="${s}" class="${v[s] === '1' ? 'on' : ''}${s % 2 ? '' : ' h'}" style="width:${cw}px"></i>`;
+        for (let s = a; s < b; s++) h += `<i data-r="${row}" data-d="${dk}" data-s="${s}" class="${v[s] === '1' ? 'on' : v[s] === '2' ? 'mb' : ''}${s % 2 ? '' : ' h'}" style="width:${cw}px"></i>`;
         h += runsOf((s) => v[s] === '1', a, b).map(([x, y]) => label(x, y, hShort(x, y))).join('');
+        h += runsOf((s) => v[s] === '2', a, b).map(([x, y]) => label(x, y, `? ${hShort(x, y)}`, 'mb')).join('');
         return `<div class="dy">${h}</div>`;
       }).join('');
       const sum = days.map((d) => {
@@ -1090,8 +1104,10 @@
         let h = '';
         for (let s = a; s < b; s++) {
           const c = cnt(s);
-          const miss = ROLES5.filter(([r]) => get(r, dk)[s] !== '1').map(([r]) => AV.rows.find((x) => x.key === r).name || r);
-          h += `<i class="c${c}${s % 2 ? '' : ' h'}" style="width:${cw}px" title="${hm(s)} – ${c} z 5${miss.length ? ` · nemůže: ${esc(miss.join(', '))}` : ''}"></i>`;
+          const nm = (r) => AV.rows.find((x) => x.key === r).name || r;
+          const miss = ROLES5.filter(([r]) => !'12'.includes(get(r, dk)[s])).map(([r]) => nm(r));
+          const unsure = ROLES5.filter(([r]) => get(r, dk)[s] === '2').map(([r]) => nm(r));
+          h += `<i class="c${c}${s % 2 ? '' : ' h'}" style="width:${cw}px" title="${hm(s)} – ${c} z 5${unsure.length ? ` · neví: ${esc(unsure.join(', '))}` : ''}${miss.length ? ` · nemůže: ${esc(miss.join(', '))}` : ''}"></i>`;
         }
         h += runsOf((s) => cnt(s) === 5, a, b).map(([x, y]) => label(x, y, day ? `✔ všichni ${hShort(x, y)}` : `✔ ${hShort(x, y)}`)).join('');
         h += runsOf((s) => cnt(s) === 4, a, b).map(([x, y]) => label(x, y, '4 z 5', 'part')).join('');
@@ -1116,17 +1132,19 @@
       if (!el || !AV.paint || el.dataset.r !== AV.paint.row) return;
       const k = `${el.dataset.r}|${el.dataset.d}`, s = Number(el.dataset.s);
       const v = get(el.dataset.r, el.dataset.d);
-      const want = AV.paint.on ? '1' : '0';
+      const want = AV.paint.on ? AV.brush : '0';
       if (v[s] === want) return;
       AV.data.set(k, v.slice(0, s) + want + v.slice(s + 1));
-      el.classList.toggle('on', AV.paint.on);
+      el.classList.toggle('on', want === '1');
+      el.classList.toggle('mb', want === '2');
       AV.dirty.add(k);
     }
     $('#av-grid').addEventListener('pointerdown', (e) => {
       const el = e.target.closest('.av-row[data-row] i');
       if (!el || e.button > 0) return;
       e.preventDefault();
-      AV.paint = { row: el.dataset.r, on: !el.classList.contains('on') };
+      // klik na políčko se stejnou barvou ho smaže, jinak ho přebarví aktuálním štětcem
+      AV.paint = { row: el.dataset.r, on: get(el.dataset.r, el.dataset.d)[Number(el.dataset.s)] !== AV.brush };
       paintCell(el);
     });
     $('#av-grid').addEventListener('pointermove', (e) => {
@@ -1181,6 +1199,10 @@
     $('#av-next').addEventListener('click', () => shift(1));
     $('#av-today').addEventListener('click', () => { AV.week = mondayOf(new Date()); AV.dayIdx = (new Date().getDay() + 6) % 7; AV.loadedWeek = ''; loadAvail(); });
     $('#av-full').addEventListener('change', (e) => { AV.full = e.target.checked; store.set('sched.av.full', AV.full ? '1' : '0'); renderAvail(); scrollToToday(); });
+    $('#av-brush').addEventListener('click', (e) => {
+      const x = e.target.closest('[data-b]'); if (!x) return;
+      AV.brush = x.dataset.b; store.set('sched.av.brush', AV.brush); renderAvail();
+    });
     $('#av-mode').addEventListener('click', (e) => {
       const x = e.target.closest('[data-m]'); if (!x) return;
       AV.mode = x.dataset.m; store.set('sched.av.mode', AV.mode); renderAvail(); scrollToToday();

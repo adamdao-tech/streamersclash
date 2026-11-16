@@ -386,11 +386,11 @@ async function route(req: Request, env: Env, url: URL, user: User): Promise<Resp
       const stmts = [];
       for (const it of items as Record<string, unknown>[]) {
         const rowKey = String(it?.row_key ?? ''), day = String(it?.day ?? ''), slots = String(it?.slots ?? '');
-        if (!/^(TOP|JUNGLE|MID|ADC|SUPPORT|COACH|p:\d{1,9})$/.test(rowKey) || !DAY.test(day) || !/^[01]{48}$/.test(slots)) {
+        if (!/^(TOP|JUNGLE|MID|ADC|SUPPORT|COACH|p:\d{1,9})$/.test(rowKey) || !DAY.test(day) || !/^[012]{48}$/.test(slots)) {
           throw new HttpError(400, 'invalid', 'Neplatná dostupnost.');
         }
         stmts.push(
-          slots.includes('1')
+          /[12]/.test(slots)
             ? db.prepare(
                 `INSERT INTO availability (row_key, day, slots, updated_by, updated_at) VALUES (?, ?, ?, ?, datetime('now'))
                  ON CONFLICT(row_key, day) DO UPDATE SET slots = excluded.slots, updated_by = excluded.updated_by, updated_at = excluded.updated_at`,

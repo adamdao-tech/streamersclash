@@ -501,7 +501,7 @@ const TOOLS: Tool[] = [
   },
   {
     name: 'save_queue_variant',
-    description: 'Saves a variant of our team for the essence calculator (visible to all admins under Varianty). Players in priority order (who we want first), up to 4, ideally one per missing role (TOP, MID, ADC, SUPPORT – SGooB is the jungler). price = expected auction price if different from the Excel price. Saving under an existing name of yours overwrites it. The same set of players can\'t be saved twice. Admin only.',
+    description: 'Saves a variant of our team for the essence calculator (visible to all admins under Varianty). Players in priority order (who we want first), up to 4, ideally one per missing role (TOP, MID, ADC, SUPPORT – SGooB is the jungler). price = expected auction price if different from the Excel price. Saving under an existing name of yours overwrites it. The same players at the same prices can\'t be saved twice (a different price, e.g. an overpaid player, is a new variant). Admin only.',
     inputSchema: {
       type: 'object',
       properties: {

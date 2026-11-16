@@ -814,14 +814,15 @@ export async function handleQueueApi(
     if (!name) throw new HttpError(400, 'invalid', 'Zadej název varianty.');
     const plan = parsePlan(body);
     if (!plan.picks.length) throw new HttpError(400, 'invalid', 'Varianta nemá žádné hráče.');
-    // stejná sestava (stejní hráči, bez ohledu na pořadí a ceny) se nesmí uložit dvakrát – u nikoho
-    const setKey = (picks: { key: string }[]) => picks.map((x) => x.key).sort().join('|');
+    // stejná sestava (stejní hráči za stejné ceny, bez ohledu na pořadí) se nesmí uložit dvakrát – u nikoho;
+    // stejní hráči s jinou cenou (např. předražený hráč) jsou jiná varianta
+    const setKey = (picks: { key: string; price?: number | null }[]) => picks.map((x) => `${x.key}@${x.price ?? ''}`).sort().join('|');
     const mine = setKey(plan.picks);
     const all = await db.prepare(
       `SELECT v.user_id, v.name, v.data, COALESCE(u.display_name, u.twitch_login, 'Neznámý') AS author FROM draft_variants v LEFT JOIN users u ON u.id = v.user_id`,
     ).all<{ user_id: number | null; name: string; data: string; author: string }>();
     const dup = all.results.find((v) => !(v.user_id === user.id && v.name === name) && setKey(JSON.parse(v.data).picks || []) === mine);
-    if (dup) throw new HttpError(409, 'duplicate', `Tihle hráči už jsou uložení ve variantě „${dup.name}“ (${dup.user_id === user.id ? 'tvoje' : dup.author}).`);
+    if (dup) throw new HttpError(409, 'duplicate', `Tihle hráči za stejné ceny už jsou uložení ve variantě „${dup.name}“ (${dup.user_id === user.id ? 'tvoje' : dup.author}).`);
     const count = await db.prepare('SELECT COUNT(*) AS n FROM draft_variants WHERE user_id = ?').bind(user.id).first<{ n: number }>();
     if ((count?.n ?? 0) >= 200) throw new HttpError(400, 'invalid', 'Variant je moc, nějaké smaž.');
     await db

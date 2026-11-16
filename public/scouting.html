@@ -379,8 +379,25 @@
 
     /* ---------- data ---------- */
 
+    /** Zápasy (~1 MB) se stahují zvlášť a jen když se změní jejich verze; prohlížeč je drží v cache. */
+    const LS_MREV = 'qs.matchesRev';
+    async function fetchMatches(rev) {
+      const res = await fetch(`/api/queue/matches?rev=${encodeURIComponent(rev || '')}`, { credentials: 'same-origin' });
+      if (!res.ok) throw new Error(`Zápasy se nepodařilo načíst (HTTP ${res.status})`);
+      return { rev: res.headers.get('X-Matches-Rev'), matches: await res.json() };
+    }
     async function load() {
+      // zápasy se stahují souběžně s ostatními daty podle naposledy známé verze (z cache prohlížeče je to hned)
+      let guess = S.matchesRev;
+      if (!guess) try { guess = localStorage.getItem(LS_MREV); } catch {}
+      const pending = S.matchesRev && S.matchesRaw ? null : fetchMatches(guess).catch(() => null);
       const data = await api('/api/queue');
+      let got = pending ? await pending : null;
+      if (S.matchesRaw && S.matchesRev === data.matches_rev) got = { rev: S.matchesRev, matches: S.matchesRaw };
+      if (!got || got.rev !== data.matches_rev) got = await fetchMatches(data.matches_rev);
+      S.matchesRev = got.rev; S.matchesRaw = got.matches;
+      try { localStorage.setItem(LS_MREV, got.rev); } catch {}
+      data.matches = got.matches;
       const players = new Map();
       const get = (nick, extra = {}) => {
         const key = k(nick);
@@ -1499,7 +1516,7 @@
         applyStream(u.stream);
         if (wasHidden && !u.stream?.hidden) return void (await load()); // stream skončil → načti data zpět
         // nový sync (přibyly zápasy / změnil se žebříček) → načti všechno
-        if (u.synced_at !== S.syncedAt || u.matches !== S.matchCount || (u.prices_imported_at ?? null) !== S.pricesImportedAt) return void (await load());
+        if (u.synced_at !== S.syncedAt || (u.matches_rev && u.matches_rev !== S.matchesRev) || (u.prices_imported_at ?? null) !== S.pricesImportedAt) return void (await load());
         const byKey = new Map(u.scout.map((x) => [x.player_key, x]));
         let changed = false;
         for (const p of S.players.values()) {

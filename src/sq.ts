@@ -334,10 +334,17 @@ export async function storeSqGames(env: Env, games: SqGame[]): Promise<{ stored:
     })));
   }
   await runChunks(db, stmts);
+  if (done.length) await bumpMatchesRev(db).run();
   // count for the page's 10 s poll (see /api/queue/updates)
   await db.prepare(`INSERT INTO queue_meta (k, v) SELECT 'match_count', CAST(COUNT(*) AS TEXT) FROM queue_matches WHERE 1
                     ON CONFLICT(k) DO UPDATE SET v = excluded.v WHERE v IS NOT excluded.v`).run();
   return { stored: done.length, paired };
+}
+
+/** New version of the stored games: the scouting page caches the (large) match list by it and re-downloads it only when it changes. */
+export function bumpMatchesRev(db: D1Database): D1PreparedStatement {
+  return db.prepare(`INSERT INTO queue_meta (k, v) VALUES ('matches_rev', strftime('%s', 'now') || '-' || abs(random() % 1000000))
+                     ON CONFLICT(k) DO UPDATE SET v = excluded.v`);
 }
 
 async function meta(db: D1Database, k: string): Promise<string | null> {

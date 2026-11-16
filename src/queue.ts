@@ -2,7 +2,7 @@ import type { Env } from './index';
 import { isSuperadmin, logActivity, type User } from './db';
 import { cacheGet, cacheSet, getStreams } from './twitch';
 import { relinkDraftPlayers } from './drafts';
-import { flattenGame, SqError, sqEnabled, sqFetch, rankStatement, storeSqGames, syncSqGames, syncSqPlayers, type SqGame } from './sq';
+import { bumpMatchesRev, flattenGame, SqError, sqEnabled, sqFetch, rankStatement, storeSqGames, syncSqGames, syncSqPlayers, type SqGame } from './sq';
 import { HttpError, json } from './http';
 import { parseStart } from './schedule';
 
@@ -356,6 +356,7 @@ export async function syncQueue(env: Env): Promise<{ players: number; added: num
         l.to ?? null, JSON.stringify(l.blue.map(slim)), JSON.stringify(l.red.map(slim))),
     ));
     added = res.reduce((n, r) => n + (r.meta.changes || 0), 0);
+    if (added) await bumpMatchesRev(db).run();
   }
   // Streamers Queue API: ELO + pairing, newly finished games (a failure there keeps the site data above)
   let sq: Record<string, unknown> | null = null;
@@ -441,13 +442,20 @@ function mergeScout(prev: Record<string, unknown> | null, body: Record<string, u
 
 export interface StreamGuard { live: boolean; allowed: boolean; hidden: boolean; title: string | null }
 
+const GUARD_MEMO_MS = 15_000;
+const guardMemo = new Map<string, { state: { live: boolean; title: string | null }; until: number }>();
+
 export async function streamGuard(env: Env, user: User): Promise<StreamGuard> {
   const allowed = isSuperadmin(env, user) || !!user.can_stream;
   const login = String(user.twitch_login).toLowerCase();
   const cacheKey = `live:user:${login}`;
   let state: { live: boolean; title: string | null } | null = null;
-  const cached = await cacheGet(env.DB, cacheKey).catch(() => null);
-  if (cached) state = JSON.parse(cached);
+  // the pages poll every 5–10 s: keep the answer in this Worker instance for a while instead of reading D1 on every request
+  const mem = guardMemo.get(login);
+  if (mem && mem.until > Date.now()) state = mem.state;
+  const cached = state ? null : await cacheGet(env.DB, cacheKey).catch(() => null);
+  if (state) { /* from memory */ }
+  else if (cached) state = JSON.parse(cached);
   else {
     try {
       const [stream] = await getStreams(env, [login]);
@@ -458,6 +466,7 @@ export async function streamGuard(env: Env, user: User): Promise<StreamGuard> {
       state = { live: false, title: null };
     }
   }
+  if (!mem || mem.until <= Date.now()) guardMemo.set(login, { state: state!, until: Date.now() + GUARD_MEMO_MS });
   return { live: state!.live, allowed, hidden: state!.live && !allowed, title: state!.title };
 }
 
@@ -503,6 +512,14 @@ function parseBoard(body: Record<string, unknown>) {
   return { start, cap_roles: capRoles, teams };
 }
 
+/** Version of the stored games (created on first use). */
+async function matchesRev(db: D1Database): Promise<string> {
+  const row = await db.prepare(`SELECT v FROM queue_meta WHERE k = 'matches_rev'`).first<{ v: string }>();
+  if (row?.v) return row.v;
+  await bumpMatchesRev(db).run();
+  return (await db.prepare(`SELECT v FROM queue_meta WHERE k = 'matches_rev'`).first<{ v: string }>())!.v;
+}
+
 /** Routes under /api/queue. Returns null when the path isn't ours. */
 export async function handleQueueApi(
   req: Request, env: Env, path: string, method: string, user: User, readBody: (r: Request) => Promise<Record<string, unknown>>,
@@ -517,9 +534,9 @@ export async function handleQueueApi(
   if (path === '/api/queue/stream' && method === 'GET') return json({ stream: guard });
 
   if (path === '/api/queue' && method === 'GET') {
-    const [players, matches, scout, meta, suggestions, links, teams, imported] = await Promise.all([
+    const [players, rev, scout, meta, suggestions, links, teams, imported] = await Promise.all([
       db.prepare('SELECT * FROM queue_players ORDER BY rank IS NULL, rank, nickname COLLATE NOCASE').all(),
-      db.prepare('SELECT * FROM queue_matches ORDER BY number DESC').all(),
+      matchesRev(db),
       db.prepare(`SELECT s.*, u.display_name AS updated_by_name FROM queue_scout s LEFT JOIN users u ON u.id = s.updated_by`).all(),
       db.prepare(`SELECT v FROM queue_meta WHERE k = 'synced_at'`).first<{ v: string }>(),
       opggSuggestions(db),
@@ -530,7 +547,9 @@ export async function handleQueueApi(
       db.prepare('SELECT id, name, tag, is_own_team FROM teams ORDER BY is_own_team DESC, name COLLATE NOCASE').all(),
       db.prepare(`SELECT v FROM queue_meta WHERE k = 'prices_imported_at'`).first<{ v: string }>(),
     ]);
-    const rest = JSON.stringify({
+    // the games (>1400, ~1 MB) come separately from /api/queue/matches, cached by matches_rev
+    return json({
+      matches_rev: rev,
       links: links.results,
       teams: teams.results,
       suggestions,
@@ -542,22 +561,38 @@ export async function handleQueueApi(
       stream: guard,
       sq_enabled: sqEnabled(env),
     });
-    // the full history is >1000 games: the stored team JSON goes out as is instead of parse + stringify
-    // (keeps the request well inside the free plan's CPU time)
+  }
+
+  // All stored games. They only change on a sync that adds games, so the response is cached by version:
+  // in the browser (URL ?rev=…) and in the Worker's cache, so a reload costs neither D1 reads nor CPU.
+  if (path === '/api/queue/matches' && method === 'GET') {
+    const rev = await matchesRev(db);
+    const asked = new URL(req.url).searchParams.get('rev');
+    const headers = {
+      'Content-Type': 'application/json; charset=utf-8',
+      'X-Matches-Rev': rev,
+      'Cache-Control': asked === rev ? 'private, max-age=31536000, immutable' : 'no-store',
+    };
+    // an old version from the page's guess: just say which one is current (the page asks again), don't send 1 MB
+    if (asked && asked !== rev) return new Response('[]', { headers });
+    const cacheKey = new Request(`https://sc-scouting.internal/queue-matches/${encodeURIComponent(rev)}`);
+    const hit = await caches.default.match(cacheKey).catch(() => undefined);
+    if (hit) return new Response(hit.body, { headers });
+    const { results } = await db.prepare('SELECT * FROM queue_matches ORDER BY number DESC').all<Record<string, unknown>>();
+    // the stored team JSON goes out as is instead of parse + stringify (keeps the CPU time low)
     const q = (v: unknown) => JSON.stringify(v ?? null);
-    const m = (matches.results as Record<string, unknown>[]).map((r) =>
+    const body = '[' + results.map((r) =>
       `{"uid":${q(r.uid)},"number":${q(r.number)},"winner":${q(r.winner)},"started_at":${q(r.started_at)},"day":${q(r.day)},` +
-      `"time_from":${q(r.time_from)},"time_to":${q(r.time_to)},"blue":${r.blue || '[]'},"red":${r.red || '[]'}}`);
-    return new Response(`${rest.slice(0, -1)},"matches":[${m.join(',')}]}`, {
-      headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' },
-    });
+      `"time_from":${q(r.time_from)},"time_to":${q(r.time_to)},"blue":${r.blue || '[]'},"red":${r.red || '[]'}}`).join(',') + ']';
+    await caches.default.put(cacheKey, new Response(body, { headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'max-age=86400' } })).catch(() => {});
+    return new Response(body, { headers });
   }
 
   // Lightweight poll for the page's auto-refresh: admins' edits + whether a new sync happened.
   if (path === '/api/queue/updates' && method === 'GET') {
     const [scout, meta] = await Promise.all([
       db.prepare(`SELECT s.*, u.display_name AS updated_by_name FROM queue_scout s LEFT JOIN users u ON u.id = s.updated_by`).all(),
-      db.prepare(`SELECT k, v FROM queue_meta WHERE k IN ('synced_at', 'match_count', 'prices_imported_at')`).all<{ k: string; v: string }>(),
+      db.prepare(`SELECT k, v FROM queue_meta WHERE k IN ('synced_at', 'match_count', 'prices_imported_at', 'matches_rev')`).all<{ k: string; v: string }>(),
     ]);
     const m = new Map(meta.results.map((r) => [r.k, r.v]));
     if (!m.has('match_count')) {
@@ -569,6 +604,7 @@ export async function handleQueueApi(
       scout: guard.hidden ? [] : scout.results.map((r: Record<string, unknown>) => ({ ...r, fav_roles: JSON.parse(String(r.fav_roles || '[]')) })),
       synced_at: m.get('synced_at') ?? null,
       matches: Number(m.get('match_count') ?? 0),
+      matches_rev: m.get('matches_rev') ?? null,
       prices_imported_at: m.get('prices_imported_at') ?? null,
       stream: guard,
     });

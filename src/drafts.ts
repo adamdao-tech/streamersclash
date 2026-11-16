@@ -111,35 +111,61 @@ export async function validateDraft(env: Env, input: DraftInput): Promise<DraftI
 export const TEAM_GAME_MIN = 4;
 
 /**
- * Is a game read from a VOD a game of the streamer's team? At least 4 of the ally names (the streamer's side) must be
- * players of the streamer's team – 5 when everyone plays, 4 when a sub stands in. Solo queue / Streamers Queue games
- * with random teammates don't pass. The streamer himself always counts (his own name is sometimes misread).
+ * Is a game read from a VOD a team game? At least 4 of the ally names (the streamer's side) must be players of one
+ * team – 5 when everyone plays, 4 when a sub stands in. Solo queue / Streamers Queue games with random teammates
+ * don't pass. For a streamer in a team it must be his team, and he himself always counts (his own name is sometimes
+ * misread); for a VOD of a channel without a team (e.g. "Další kanály") any team in the app counts.
+ * Names are compared with the nickname, the Riot ID and every LoL account from the player's Streamers Clash profile,
+ * so a game on an alt account still counts.
  */
 export async function teamGameCheck(env: Env, draft: Pick<DraftInput, 'vod_id' | 'ally'>): Promise<{ ok: boolean; matched: number; need: number; team: string | null; names: string[] }> {
-  const none = { ok: true, matched: 0, need: 0, team: null, names: [] as string[] };
-  if (!draft.vod_id) return none;
   const db = env.DB;
-  const vod = await db
-    .prepare(
-      `SELECT p.id AS player_id, p.team_id, t.name AS team_name FROM vods v
-         JOIN players p ON p.id = v.player_id LEFT JOIN teams t ON t.id = p.team_id WHERE v.id = ?`,
-    )
-    .bind(draft.vod_id)
-    .first<{ player_id: number; team_id: number | null; team_name: string | null }>();
-  if (!vod?.team_id) return none; // streamer without a team – nothing to compare with
-  const { results } = await db
-    .prepare('SELECT id, nickname, riot_game_name FROM players WHERE team_id = ?')
-    .bind(vod.team_id)
-    .all<{ id: number; nickname: string; riot_game_name: string | null }>();
-  const roster: PlayerNames[] = results.map((p) => ({ id: p.id, keys: [p.nickname, p.riot_game_name].filter((n): n is string => !!n).map(nameKey) }));
-  const need = Math.min(TEAM_GAME_MIN, roster.length);
-  const found = new Set<number>([vod.player_id]);
-  for (const s of draft.ally ?? []) {
-    const pid = s.player_name ? matchPlayer(roster, s.player_name) : null;
-    if (pid) found.add(pid);
+  const vod = draft.vod_id
+    ? await db
+        .prepare(`SELECT v.player_id, p.team_id FROM vods v LEFT JOIN players p ON p.id = v.player_id WHERE v.id = ?`)
+        .bind(draft.vod_id)
+        .first<{ player_id: number | null; team_id: number | null }>()
+    : null;
+  const all = await loadTeamRosters(db);
+  const teams = vod?.team_id ? all.filter((t) => t.id === vod.team_id) : all;
+  let best = { ok: false, matched: 0, need: TEAM_GAME_MIN, team: null as string | null, names: [] as string[] };
+  for (const t of teams) {
+    const need = Math.min(TEAM_GAME_MIN, t.players.length);
+    const found = new Set<number>(vod?.team_id && vod.player_id ? [vod.player_id] : []);
+    for (const s of draft.ally ?? []) {
+      const pid = s.player_name ? matchPlayer(t.players, s.player_name) : null;
+      if (pid) found.add(pid);
+    }
+    const r = { ok: need > 0 && found.size >= need, matched: found.size, need, team: t.name, names: t.players.filter((p) => found.has(p.id)).map((p) => p.nickname) };
+    if (!best.team || (r.ok && !best.ok) || (r.ok === best.ok && r.matched > best.matched)) best = r;
   }
-  const names = results.filter((p) => found.has(p.id)).map((p) => p.nickname);
-  return { ok: found.size >= need, matched: found.size, need, team: vod.team_name, names };
+  return best;
+}
+
+interface TeamRoster { id: number; name: string; players: (PlayerNames & { nickname: string })[] }
+
+async function loadTeamRosters(db: D1Database): Promise<TeamRoster[]> {
+  const { results } = await db
+    .prepare(
+      `SELECT p.id, p.team_id, t.name AS team_name, p.nickname, p.riot_game_name, q.accounts
+         FROM players p JOIN teams t ON t.id = p.team_id LEFT JOIN queue_players q ON q.key = p.queue_key`,
+    )
+    .all<{ id: number; team_id: number; team_name: string; nickname: string; riot_game_name: string | null; accounts: string | null }>();
+  const teams = new Map<number, TeamRoster>();
+  for (const r of results) {
+    if (!teams.has(r.team_id)) teams.set(r.team_id, { id: r.team_id, name: r.team_name, players: [] });
+    teams.get(r.team_id)!.players.push({ id: r.id, nickname: r.nickname, keys: playerKeys(r) });
+  }
+  return [...teams.values()];
+}
+
+/** Names a player can show up under in a game: nickname, Riot ID and the accounts from his Streamers Clash profile. */
+function playerKeys(r: { nickname: string; riot_game_name: string | null; accounts?: string | null }): string[] {
+  const names = [r.nickname, r.riot_game_name];
+  try {
+    for (const a of JSON.parse(r.accounts || '[]') as { riot?: string }[]) if (a.riot) names.push(a.riot.split('#')[0]);
+  } catch { /* ignore */ }
+  return [...new Set(names.filter((n): n is string => !!n).map(nameKey).filter(Boolean))];
 }
 
 /** Stores a validated draft as a match with draft actions. Returns the match id. */
@@ -279,9 +305,9 @@ function levenshtein(a: string, b: string): number {
 
 async function loadPlayerNames(db: D1Database): Promise<PlayerNames[]> {
   const { results } = await db
-    .prepare('SELECT id, nickname, riot_game_name FROM players')
-    .all<{ id: number; nickname: string; riot_game_name: string | null }>();
-  return results.map((p) => ({ id: p.id, keys: [p.nickname, p.riot_game_name].filter((n): n is string => !!n).map(nameKey) }));
+    .prepare('SELECT p.id, p.nickname, p.riot_game_name, q.accounts FROM players p LEFT JOIN queue_players q ON q.key = p.queue_key')
+    .all<{ id: number; nickname: string; riot_game_name: string | null; accounts: string | null }>();
+  return results.map((p) => ({ id: p.id, keys: playerKeys(p) }));
 }
 
 /** Best player for a name read by OCR: exact match, or up to 1–2 wrong letters for longer names. */

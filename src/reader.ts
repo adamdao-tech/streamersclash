@@ -28,6 +28,12 @@ export async function handleReader(req: Request, env: Env, url: URL): Promise<Re
   }
 }
 
+/** Start of data collection (env SCAN_FROM, ISO time): VODs and games before it are not read. */
+function scanFrom(env: Env): string | null {
+  const v = String(env.SCAN_FROM ?? '').trim();
+  return v && !Number.isNaN(new Date(v).getTime()) ? new Date(v).toISOString().slice(0, 19).replace('T', ' ') : null;
+}
+
 async function route(req: Request, env: Env, url: URL): Promise<Response> {
   const db = env.DB;
   const path = url.pathname.replace(/\/+$/, '');
@@ -44,9 +50,11 @@ async function route(req: Request, env: Env, url: URL): Promise<Response> {
             AND v.platform IN ('twitch', 'kick')
             -- skip VODs of streams still running: their duration keeps growing
             AND datetime(v.started_at, '+' || COALESCE(v.duration_s, 0) || ' seconds') < datetime('now', '-20 minutes')
+            -- only VODs that run past the start of data collection (SCAN_FROM); older ones are left alone
+            AND (? IS NULL OR datetime(v.started_at, '+' || COALESCE(v.duration_s, 0) || ' seconds') > datetime(?))
           ORDER BY v.started_at DESC LIMIT ?`,
       )
-      .bind(limit)
+      .bind(scanFrom(env), scanFrom(env), limit)
       .all<{ id: number }>();
     if (results.length) {
       await db.batch(
@@ -212,6 +220,19 @@ async function route(req: Request, env: Env, url: URL): Promise<Response> {
       .run();
     if (!ins.meta.changes) return json({ ok: true, duplicate: true });
     const frameId = ins.meta.last_row_id;
+
+    // A game from before the start of data collection (SCAN_FROM) – e.g. early in a VOD that started before it – isn't saved.
+    const from = scanFrom(env);
+    if (from) {
+      const v = await db.prepare('SELECT started_at FROM vods WHERE id = ?').bind(vodId).first<{ started_at: string | null }>();
+      const at = v?.started_at ? new Date(v.started_at).getTime() + Math.round(body.ts_s) * 1000 : NaN;
+      const fromMs = new Date(from.replace(' ', 'T') + 'Z').getTime();
+      if (Number.isFinite(at) && at < fromMs) {
+        const note = `Hra před začátkem sběru dat (${new Date(fromMs).toLocaleString('cs-CZ', { timeZone: 'Europe/Prague' })})`;
+        await db.prepare(`UPDATE draft_frames SET status = 'discarded', note = ? WHERE id = ?`).bind(note, frameId).run();
+        return json({ ok: true, frame_id: frameId, match_id: null, review: false, skipped: 'before_scan_from', reason: note }, 201);
+      }
+    }
 
     let matchId: number | null = null;
     let reviewReason: string | null = body.auto ? null : 'low confidence';

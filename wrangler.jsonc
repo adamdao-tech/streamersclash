@@ -22,6 +22,8 @@
     "SUPERADMINS": "ddddddao",
     // Besides the superadmins, these Twitch logins see Plán koučování (not the activity log).
     "PLAN_USERS": "kryst1f",
+    // Start of data collection from VODs (UTC): older VODs/games are not read. 2026-11-16 8:00 Prague time.
+    "SCAN_FROM": "2026-11-16T07:00:00Z",
     // Streamers Queue API (Candi). Klíč je secret SQ_API_KEY – nikdy ho nedávej sem!
     "SQ_BASE_URL": "https://sq.candycz01.xyz"
   },

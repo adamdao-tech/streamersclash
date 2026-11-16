@@ -18,6 +18,8 @@ export interface Env {
   SUPERADMINS?: string;
   /** Twitch logins (comma-separated) that see Plán koučování besides the superadmins. */
   PLAN_USERS?: string;
+  /** Start of data collection from VODs (ISO time, e.g. 2026-11-16T07:00:00Z): older VODs and games aren't read. */
+  SCAN_FROM?: string;
   /** Streamers Queue API (Candi) – secret key and base URL */
   SQ_API_KEY?: string;
   SQ_BASE_URL?: string;

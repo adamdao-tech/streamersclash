@@ -37,6 +37,8 @@ SCREENS = {
             (0.340, 0.905, 0.488, 0.975),  # "PLAY AGAIN" button
             (0.030, 0.915, 0.280, 0.965),  # chat input box
         ],
+        # the chat box sits where most streamers put their webcam: the screen is also found without it
+        "optional": 3,
     },
 }
 STATIC_REGIONS = SCREENS["champselect"]["regions"]

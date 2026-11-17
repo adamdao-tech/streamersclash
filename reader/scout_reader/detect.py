@@ -51,21 +51,34 @@ def _reference(screen: str) -> np.ndarray:
     return ref
 
 
-@lru_cache(maxsize=256)
-def _template(screen: str, tw: int, th: int) -> tuple[np.ndarray, np.ndarray]:
+@lru_cache(maxsize=512)
+def _template(screen: str, tw: int, th: int, skip: int | None = None) -> tuple[np.ndarray, np.ndarray]:
     t = cv2.resize(_reference(screen), (tw, th), interpolation=cv2.INTER_AREA)
     mask = np.zeros((th, tw), np.float32)
-    for x0, y0, x1, y1 in SCREENS[screen]["regions"]:
+    for i, (x0, y0, x1, y1) in enumerate(SCREENS[screen]["regions"]):
+        if i == skip:
+            continue
         mask[int(y0 * th) : int(y1 * th) + 1, int(x0 * tw) : int(x1 * tw) + 1] = 1
     return _gradient(t), mask
 
 
-def _match(grad: np.ndarray, screen: str, tw: int, th: int) -> tuple[float, tuple[int, int]]:
-    templ, mask = _template(screen, tw, th)
+def _match_mask(grad: np.ndarray, screen: str, tw: int, th: int, skip: int | None) -> tuple[float, tuple[int, int]]:
+    templ, mask = _template(screen, tw, th, skip)
     res = cv2.matchTemplate(grad, templ, cv2.TM_CCOEFF_NORMED, mask=mask)
     res = np.nan_to_num(res, nan=0.0, posinf=0.0, neginf=0.0)
     _, score, _, loc = cv2.minMaxLoc(res)
     return float(score), loc
+
+
+def _match(grad: np.ndarray, screen: str, tw: int, th: int) -> tuple[float, tuple[int, int]]:
+    best = _match_mask(grad, screen, tw, th, None)
+    # A region streamers often cover (the chat box bottom left, under a webcam) may be left out.
+    optional = SCREENS[screen].get("optional")
+    if optional is not None:
+        alt = _match_mask(grad, screen, tw, th, optional)
+        if alt[0] > best[0]:
+            best = alt
+    return best
 
 
 class Finder:

@@ -83,7 +83,7 @@ def find_episodes(streams: video.Streams, every_s: float = 5, start_s: float = 0
                 if other.hint is None:
                     other.hint = finder.hint
             ep = current[name]
-            if ep and ts - ep.end <= every_s * 3:
+            if ep and ts - ep.end <= SCREENS[name].get("merge_gap_s", every_s * 3):
                 ep.end, ep.hits = ts, ep.hits + 1
             else:
                 ep = current[name] = Episode(name, ts, ts, 1)

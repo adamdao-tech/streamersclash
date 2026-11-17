@@ -1,5 +1,5 @@
 import type { Env } from './index';
-import { applyPostgame, saveDraft, teamGameCheck, validateDraft, type DraftInput, type DraftSlot } from './drafts';
+import { applyPostgame, findSameGame, saveDraft, teamGameCheck, validateDraft, type DraftInput, type DraftSlot } from './drafts';
 import { logActivity } from './db';
 import { assertBodySize, HttpError, json, sha256Hex } from './http';
 import { getStreams } from './twitch';
@@ -323,6 +323,17 @@ async function route(req: Request, env: Env, url: URL): Promise<Response> {
       // A scrim against another team's roster with the streamer's teammates on unknown accounts: the normal
       // team check in saveDraft would refuse it, so it goes to review instead of being dropped.
       if (!a.ok && !e?.ok) body.auto = false;
+    }
+
+    // The same game already saved (scoreboard left on screen for minutes, or the game read on another stream):
+    // add what this read knows to it instead of saving it twice.
+    const pgDur = (rd?.postgame as { duration_s?: number | null } | undefined)?.duration_s;
+    const same = rd ? await findSameGame(env, [...(rd.ally ?? []), ...(rd.enemy ?? [])].map((s) => s.champion), pgDur) : null;
+    if (same) {
+      if (rd?.postgame) await applyPostgame(env, same, rd.postgame as Parameters<typeof applyPostgame>[2]);
+      await db.prepare(`UPDATE draft_frames SET status = 'accepted', match_id = ?, note = ? WHERE id = ?`)
+        .bind(same, 'Stejná hra už je uložená', frameId).run();
+      return json({ ok: true, duplicate: true, frame_id: frameId, match_id: same }, 201);
     }
 
     let matchId: number | null = null;

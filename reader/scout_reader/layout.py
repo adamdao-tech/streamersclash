@@ -35,6 +35,8 @@ SCREENS = {
         "min_seconds": 0,
         # A client filling the whole stream (fullscreen, webcam over the chat box) scores lower at the scan's
         # 320 px: such weaker matches count too, but each is confirmed by reading the scoreboard in full resolution.
+        # a scoreboard left on screen for minutes is one game: sightings up to this far apart are merged
+        "merge_gap_s": 180,
         "candidate_threshold": 0.55,
         "candidate_min_frac": 0.6,
         "regions": [

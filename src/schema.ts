@@ -725,4 +725,17 @@ ALTER TABLE players ADD COLUMN is_captain INTEGER NOT NULL DEFAULT 0;
   /* 36: Komentátor – read-only user who sees only the opposing teams (role stays 'member', this flag limits him) */ `
 ALTER TABLE users ADD COLUMN commentator INTEGER NOT NULL DEFAULT 0;
 `,
+
+  /* 37: duplicates of one game (a post-game screen left on stream for minutes was saved every ~90 s):
+         same ten champions and the same length → keep the first */ `
+DELETE FROM matches WHERE id IN (
+  SELECT s.id FROM (
+    SELECT m.id, m.duration_s, (SELECT group_concat(champion, '|') FROM (SELECT champion FROM draft_actions a WHERE a.match_id = m.id AND a.action = 'PICK' ORDER BY champion)) AS champs
+      FROM matches m WHERE m.duration_s IS NOT NULL
+  ) s JOIN (
+    SELECT m.id, m.duration_s, (SELECT group_concat(champion, '|') FROM (SELECT champion FROM draft_actions a WHERE a.match_id = m.id AND a.action = 'PICK' ORDER BY champion)) AS champs
+      FROM matches m WHERE m.duration_s IS NOT NULL
+  ) t ON t.champs = s.champs AND t.id < s.id AND ABS(t.duration_s - s.duration_s) <= 3
+);
+`,
 ];

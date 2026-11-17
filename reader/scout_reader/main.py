@@ -194,8 +194,14 @@ def process_job(app: AppClient, db: ChampionDB, job: dict, auto_accept: bool, ev
     # Games whose draft never showed up in the client (drafted on drafter.lol and so on): the post-game
     # screen alone gives all ten champions, names, K/D/A and the result (no bans). The app keeps only team
     # games and works out which scoreboard team is the streamer's; saved right away when every champion is clear.
+    seen: set[tuple] = set()
     for pg_ep in S.unclaimed_postgames(scan):
         got = S.best_open_postgame(streams, pg_ep, db, None)
+        if got:
+            sig = tuple(sorted(f"{r['champion']}:{r['kills']}/{r['deaths']}/{r['assists']}" for r in got[0]["ally"] + got[0]["enemy"]))
+            if sig in seen:  # the same scoreboard seen again later in the VOD
+                continue
+            seen.add(sig)
         if not got:
             log.info("  %s: post-game screen without a draft, unreadable – skipped", S.fmt(pg_ep.start))
             continue

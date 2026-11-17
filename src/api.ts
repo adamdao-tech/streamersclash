@@ -2,7 +2,7 @@ import type { Env } from './index';
 import { canSeePlan, isSuperadmin, logActivity, type User } from './db';
 import { HttpError, json, assertBodySize } from './http';
 import { getLiveChannels, syncTwitchVods } from './vods';
-import { listDrafts, playerGames, relinkDraftPlayers, summarizeGames } from './drafts';
+import { listDrafts, playerGames, relinkDraftPlayers, saveDraft, summarizeGames, teamGameCheck, validateDraft, type DraftInput } from './drafts';
 import { getChampionData } from './champions';
 import { listSchedule, opponentLabel, requireOpponent, scheduleFields } from './schedule';
 import { freeSlot, listTournament, SLOTS, tournamentFields, tournamentLabel } from './tournament';
@@ -346,6 +346,65 @@ async function route(req: Request, env: Env, url: URL, user: User): Promise<Resp
     return new Response(new Uint8Array(row.image), {
       headers: { 'Content-Type': 'image/jpeg', 'Cache-Control': 'private, max-age=86400' },
     });
+  }
+
+  // --- Ke kontrole: frames the reader wasn't sure about (admins) ---------------------
+  if (path === '/api/review' && method === 'GET') {
+    requireAdmin(user);
+    const { results } = await db
+      .prepare(
+        `SELECT f.id, f.vod_id, f.ts_s, f.reading, f.confidence, f.note, f.created_at,
+                CASE WHEN length(f.image) > 0 THEN 1 ELSE 0 END AS has_image,
+                CASE WHEN f.postgame_image IS NOT NULL THEN 1 ELSE 0 END AS has_postgame,
+                v.url AS vod_url, v.title AS vod_title, v.started_at AS vod_started_at,
+                p.id AS pov_player_id, p.nickname AS pov_player, t.id AS team_id, t.name AS team_name
+           FROM draft_frames f JOIN vods v ON v.id = f.vod_id
+           LEFT JOIN players p ON p.id = v.player_id LEFT JOIN teams t ON t.id = p.team_id
+          WHERE f.status = 'review' ORDER BY v.started_at DESC, f.ts_s LIMIT 100`,
+      )
+      .all<Record<string, unknown>>();
+    return json({
+      frames: results.map((r) => {
+        let reading = null;
+        try { reading = r.reading ? JSON.parse(String(r.reading)) : null; } catch {}
+        return { ...r, reading };
+      }),
+    });
+  }
+  if ((m = path.match(/^\/api\/review\/(\d+)\/save$/)) && method === 'POST') {
+    requireAdmin(user);
+    const id = Number(m[1]);
+    const f = await db.prepare('SELECT vod_id, ts_s, status FROM draft_frames WHERE id = ?').bind(id).first<{ vod_id: number; ts_s: number; status: string }>();
+    if (!f) throw new HttpError(404, 'not_found', 'Snímek neexistuje.');
+    if (f.status !== 'review') throw new HttpError(409, 'done', 'Tenhle snímek už je vyřízený.');
+    const body = await readBody(req);
+    const draft = await validateDraft(env, { ...(body as unknown as DraftInput), vod_id: f.vod_id, ts_s: f.ts_s });
+    if (!body.team_game_ok) {
+      const tg = await teamGameCheck(env, draft);
+      if (!tg.ok) {
+        throw new HttpError(422, 'not_team_game',
+          `Ze soupisky ${tg.team ?? 'týmu'} se na straně streamera poznalo jen ${tg.matched} z ${tg.need} hráčů (${tg.names.join(', ') || '–'}). Oprav jména, nebo zaškrtni „Je to týmová hra“.`);
+      }
+    }
+    const matchId = await saveDraft(env, draft, actor);
+    await db.prepare(`UPDATE draft_frames SET status = 'accepted', match_id = ? WHERE id = ?`).bind(matchId, id).run();
+    await logActivity(db, actor, 'draft.create', 'match', matchId, { frame: id });
+    return json({ ok: true, match_id: matchId });
+  }
+  if ((m = path.match(/^\/api\/review\/(\d+)\/discard$/)) && method === 'POST') {
+    requireAdmin(user);
+    const id = Number(m[1]);
+    const body = await readBody(req);
+    const reason = str(body.reason, 'Důvod', 300) || 'zahozeno ručně';
+    const res = await db.prepare(`UPDATE draft_frames SET status = 'discarded', note = ? WHERE id = ? AND status = 'review'`).bind(reason, id).run();
+    if (!res.meta.changes) throw new HttpError(404, 'not_found', 'Ve frontě takový snímek není.');
+    await logActivity(db, actor, 'frame.discard', 'frame', id, { reason });
+    return json({ ok: true });
+  }
+  if ((m = path.match(/^\/api\/frames\/(\d+)\/postgame$/)) && method === 'GET') {
+    const row = await db.prepare('SELECT postgame_image FROM draft_frames WHERE id = ?').bind(Number(m[1])).first<{ postgame_image: number[] | null }>();
+    if (!row?.postgame_image?.length) throw new HttpError(404, 'not_found', 'Snímek tabulky po hře není.');
+    return new Response(new Uint8Array(row.postgame_image), { headers: { 'Content-Type': 'image/jpeg', 'Cache-Control': 'private, max-age=86400' } });
   }
 
   if ((m = path.match(/^\/api\/vods\/(\d+)\/rescan$/)) && method === 'POST') {

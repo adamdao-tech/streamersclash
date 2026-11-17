@@ -1,0 +1,225 @@
+<!doctype html>
+<html lang="cs">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Ke kontrole · SGooBovo šedl scouting</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="preload" href="/fonts/inter-var.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="/fonts/rajdhani-700.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="/app.css">
+  <style>
+    .rv-list { display: grid; gap: 18px; }
+    .rv { background: var(--panel); border: 1px solid var(--line, #22304a); border-radius: 12px; padding: 16px; display: grid; gap: 14px; }
+    .rv-head { display: flex; gap: 12px; align-items: baseline; flex-wrap: wrap; justify-content: space-between; }
+    .rv-head h2 { margin: 0; font-size: 1.05rem; }
+    .rv-shots { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 10px; }
+    .rv-shots img { width: 100%; border-radius: 8px; border: 1px solid var(--line, #22304a); cursor: zoom-in; display: block; }
+    .rv-shots figure { margin: 0; }
+    .rv-shots figcaption { font-size: .75rem; color: var(--muted); margin-top: 4px; }
+    .rv-sides { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+    @media (max-width: 900px) { .rv-sides { grid-template-columns: 1fr; } }
+    .rv-side h3 { margin: 0 0 6px; font-size: .9rem; }
+    .rv-side table { width: 100%; border-collapse: collapse; }
+    .rv-side td { padding: 3px 4px 3px 0; vertical-align: middle; }
+    .rv-side td.r { width: 34px; color: var(--muted); font-size: .75rem; }
+    .rv-side input { width: 100%; padding: 5px 7px; font-size: .85rem; }
+    .rv-side td.kda input { width: 42px; text-align: center; padding: 5px 2px; }
+    .rv-side td.ic { width: 30px; }
+    .rv-side input.bad { border-color: #e0605a; }
+    .rv-bans { margin-top: 6px; }
+    .rv-meta { display: flex; gap: 10px; flex-wrap: wrap; align-items: end; }
+    .rv-meta label { display: grid; gap: 3px; font-size: .78rem; color: var(--muted); }
+    .rv-meta select, .rv-meta input { width: auto; padding: 5px 8px; }
+    .rv-actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+    .rv-actions .grow { flex: 1; }
+    .rv-err { color: #e0605a; font-size: .85rem; }
+    .rv-zoom { position: fixed; inset: 0; background: rgba(0,0,0,.85); display: flex; align-items: center; justify-content: center; z-index: 100; cursor: zoom-out; }
+    .rv-zoom img { max-width: 96vw; max-height: 94vh; }
+    .rv-tag { font-size: .72rem; padding: 2px 7px; border-radius: 999px; background: rgba(255,255,255,.07); color: var(--muted); }
+  </style>
+</head>
+<body>
+  <main>
+    <div class="page-head">
+      <div>
+        <h1>Ke kontrole</h1>
+        <p>Hry, které čtečka přečetla z VODek, ale nebyla si jistá. Zkontroluj championy a jména podle screenshotu a ulož, nebo zahoď (soloQ, ARAM, lobby, nečitelné).</p>
+      </div>
+      <button class="btn" id="reload">Obnovit</button>
+    </div>
+    <div id="list" class="rv-list"></div>
+  </main>
+
+  <datalist id="champ-list"></datalist>
+
+  <script type="module">
+    import { api, esc, initPage, loadChampions, champIcon, vodLink } from '/app.js';
+
+    const me = await initPage('review');
+    if (me.role !== 'admin') location.href = '/';
+
+    const icons = await loadChampions();
+    document.getElementById('champ-list').innerHTML = [...icons.keys()].sort().map((n) => `<option value="${esc(n)}">`).join('');
+
+    const ROLES = ['TOP', 'JUNGLE', 'MID', 'ADC', 'SUPPORT'];
+    const ROLE_SHORT = { TOP: 'Top', JUNGLE: 'Jg', MID: 'Mid', ADC: 'Bot', SUPPORT: 'Sup' };
+    const fmtTs = (s) => `${Math.floor(s / 3600)}:${String(Math.floor(s % 3600 / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
+    const fmtDur = (s) => (s ? `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}` : '');
+    const parseDur = (v) => { const m = String(v).trim().match(/^(\d{1,3}):(\d{2})$/); return m ? +m[1] * 60 + +m[2] : null; };
+    const clean = (c) => (c && c !== '?' ? c : '');
+
+    /** Five rows per side from the reader's guess: the post-game scoreboard when there is one (lanes, names, K/D/A), else the champ select. */
+    function sidesOf(reading) {
+      const pg = reading?.postgame;
+      const fromPg = (rows) => ROLES.map((role, i) => {
+        const r = (rows || [])[i] || {};
+        return { champion: clean(r.champion), player_name: r.player_name || '', role, lane: i, kills: r.kills ?? '', deaths: r.deaths ?? '', assists: r.assists ?? '' };
+      });
+      if (pg?.ally?.length) return { ally: fromPg(pg.ally), enemy: fromPg(pg.enemy), lanes: true };
+      const ally = (reading?.ally || []).map((s) => ({ champion: clean(s.champion), player_name: s.player_name || '', role: s.role || '' }));
+      const enemy = (reading?.enemy || []).map((s) => ({ champion: clean(s.champion), player_name: '', role: '' }));
+      while (ally.length < 5) ally.push({ champion: '', player_name: '', role: '' });
+      while (enemy.length < 5) enemy.push({ champion: '', player_name: '', role: '' });
+      return { ally, enemy, lanes: false };
+    }
+
+    function sideHtml(fid, side, rows, lanes, title) {
+      return `<div class="rv-side" data-side="${side}">
+        <h3>${title}</h3>
+        <table>${rows.map((r, i) => `<tr data-i="${i}">
+          <td class="r">${lanes ? ROLE_SHORT[ROLES[i]] : (ROLE_SHORT[r.role] || '')}</td>
+          <td class="ic">${r.champion ? champIcon(icons, r.champion, 'row') : ''}</td>
+          <td><input data-f="champion" list="champ-list" value="${esc(r.champion)}" placeholder="champion" aria-label="Champion ${i + 1}"></td>
+          <td><input data-f="player_name" value="${esc(r.player_name)}" placeholder="hráč" aria-label="Hráč ${i + 1}"></td>
+          ${lanes ? `<td class="kda"><input data-f="kills" value="${esc(r.kills)}" aria-label="Zabití"></td><td class="kda"><input data-f="deaths" value="${esc(r.deaths)}" aria-label="Smrti"></td><td class="kda"><input data-f="assists" value="${esc(r.assists)}" aria-label="Asistence"></td>` : ''}
+        </tr>`).join('')}</table>
+        <div class="rv-bans"><input data-f="bans" placeholder="bany (oddělené čárkou)" aria-label="Bany"></div>
+      </div>`;
+    }
+
+    function cardHtml(f) {
+      const r = f.reading || {};
+      const pg = r.postgame;
+      const { ally, enemy, lanes } = sidesOf(r);
+      const link = vodLink(f.vod_url, f.ts_s);
+      const pgOnly = !!(pg?.open && !(r.ally || []).length);
+      const kind = pgOnly ? 'jen tabulka po hře' : pg ? 'champ select + tabulka' : 'champ select';
+      const result = pg?.result || '';
+      return `<article class="rv" data-id="${f.id}" data-lanes="${lanes ? 1 : 0}">
+        <div class="rv-head">
+          <h2>${esc(f.pov_player || 'VODka')} ${f.team_name ? `<span class="muted">· ${esc(f.team_name)}</span>` : ''} <span class="muted">· ${fmtTs(f.ts_s)}</span></h2>
+          <div style="display:flex;gap:8px;align-items:center">
+            <span class="rv-tag">${kind}</span>
+            ${f.confidence != null ? `<span class="rv-tag">jistota ${Math.round(f.confidence * 100)} %</span>` : ''}
+            ${link ? `<a href="${esc(link)}" target="_blank" rel="noopener">VOD ▶</a>` : ''}
+          </div>
+        </div>
+        <div class="muted" style="font-size:.8rem">${esc(f.vod_title || '')}${f.vod_started_at ? ` · ${new Date(f.vod_started_at).toLocaleDateString('cs-CZ')}` : ''}${f.note ? ` · ${esc(f.note)}` : ''}</div>
+        <div class="rv-shots">
+          ${f.has_image && !(pgOnly && f.has_postgame) ? `<figure><img src="/api/frames/${f.id}/image" alt="Snímek z VODky" loading="lazy"><figcaption>${pgOnly ? 'Tabulka po hře' : 'Champ select'}</figcaption></figure>` : ''}
+          ${f.has_postgame ? `<figure><img src="/api/frames/${f.id}/postgame" alt="Tabulka po hře" loading="lazy"><figcaption>Tabulka po hře</figcaption></figure>` : ''}
+        </div>
+        <div class="rv-sides">
+          ${sideHtml(f.id, 'ally', ally, lanes, `Tým streamera${f.pov_player ? ` (${esc(f.pov_player)})` : ''}`)}
+          ${sideHtml(f.id, 'enemy', enemy, lanes, 'Soupeři')}
+        </div>
+        <div class="rv-meta">
+          <label>Výsledek (streamer)<select data-f="result"><option value="">–</option><option value="WIN" ${result === 'WIN' ? 'selected' : ''}>Výhra</option><option value="LOSS" ${result === 'LOSS' ? 'selected' : ''}>Prohra</option></select></label>
+          <label>Typ hry<input data-f="game_type" value="${esc(pg?.game_type || 'Custom')}" size="12"></label>
+          <label>Délka (mm:ss)<input data-f="duration" value="${esc(fmtDur(pg?.duration_s))}" size="6" placeholder="31:05"></label>
+          <label style="flex-direction:row;display:flex;gap:6px;align-items:center;color:var(--text-1,inherit)"><input type="checkbox" data-f="team_game_ok"> Je to týmová hra</label>
+        </div>
+        <div class="rv-actions">
+          <button class="btn btn-primary" data-act="save">Uložit hru</button>
+          <button class="btn" data-act="swap" title="Když je tým streamera ve skutečnosti ten druhý">Prohodit strany</button>
+          <span class="grow rv-err"></span>
+          <select data-f="reason" aria-label="Důvod zahození" style="width:auto">
+            <option>není týmová hra (soloQ / flex)</option><option>ARAM / jiný režim</option><option>lobby / nedokončený draft</option>
+            <option>nečitelné</option><option>duplicita – hra už je uložená</option>
+          </select>
+          <button class="btn btn-danger" data-act="discard">Zahodit</button>
+        </div>
+      </article>`;
+    }
+
+    async function load() {
+      const { frames } = await api('/api/review');
+      const el = document.getElementById('list');
+      el.innerHTML = frames.length ? frames.map(cardHtml).join('') : '<div class="empty">Nic nečeká na kontrolu. 🎉</div>';
+    }
+
+    function collect(card) {
+      const lanes = card.dataset.lanes === '1';
+      const side = (name) => [...card.querySelectorAll(`[data-side="${name}"] tr`)].map((tr, i) => {
+        const v = (f) => tr.querySelector(`[data-f="${f}"]`)?.value.trim() ?? '';
+        const num = (f) => (v(f) === '' ? null : Number(v(f)));
+        const slot = { champion: v('champion'), player_name: v('player_name') || null };
+        if (lanes) Object.assign(slot, { role: ROLES[i], lane: i, kills: num('kills'), deaths: num('deaths'), assists: num('assists') });
+        return slot;
+      });
+      const bans = (name) => (card.querySelector(`[data-side="${name}"] [data-f="bans"]`).value || '').split(',').map((s) => s.trim()).filter(Boolean);
+      const f = (n) => card.querySelector(`.rv-meta [data-f="${n}"]`);
+      return {
+        ally: side('ally'), enemy: side('enemy'), ally_bans: bans('ally'), enemy_bans: bans('enemy'),
+        result: f('result').value || null, game_type: f('game_type').value.trim() || null,
+        duration_s: parseDur(f('duration').value), team_game_ok: f('team_game_ok').checked,
+      };
+    }
+
+    const list = document.getElementById('list');
+    list.addEventListener('click', async (e) => {
+      const img = e.target.closest('.rv-shots img');
+      if (img) {
+        const z = document.createElement('div');
+        z.className = 'rv-zoom';
+        z.innerHTML = `<img src="${img.src}" alt="">`;
+        z.onclick = () => z.remove();
+        document.body.append(z);
+        return;
+      }
+      const btn = e.target.closest('[data-act]');
+      if (!btn) return;
+      const card = btn.closest('.rv');
+      const err = card.querySelector('.rv-err');
+      err.textContent = '';
+      const id = card.dataset.id;
+      if (btn.dataset.act === 'swap') {
+        const rowsA = [...card.querySelectorAll('[data-side="ally"] tr')], rowsE = [...card.querySelectorAll('[data-side="enemy"] tr')];
+        rowsA.forEach((tr, i) => tr.querySelectorAll('input').forEach((inp) => {
+          const other = rowsE[i].querySelector(`[data-f="${inp.dataset.f}"]`);
+          if (other) [inp.value, other.value] = [other.value, inp.value];
+        }));
+        const res = card.querySelector('[data-f="result"]');
+        res.value = res.value === 'WIN' ? 'LOSS' : res.value === 'LOSS' ? 'WIN' : '';
+        return;
+      }
+      btn.disabled = true;
+      try {
+        if (btn.dataset.act === 'save') {
+          const body = collect(card);
+          const missing = [...body.ally, ...body.enemy].filter((s) => !s.champion).length;
+          if (missing) throw new Error(`Doplň championy (${missing} chybí).`);
+          await api(`/api/review/${id}/save`, { method: 'POST', body });
+        } else {
+          await api(`/api/review/${id}/discard`, { method: 'POST', body: { reason: card.querySelector('[data-f="reason"]').value } });
+        }
+        card.remove();
+        if (!list.querySelector('.rv')) list.innerHTML = '<div class="empty">Nic nečeká na kontrolu. 🎉</div>';
+      } catch (ex) {
+        err.textContent = ex.message;
+      } finally {
+        btn.disabled = false;
+      }
+    });
+    list.addEventListener('change', (e) => {
+      if (e.target.dataset.f !== 'champion') return;
+      const ic = e.target.closest('tr').querySelector('.ic');
+      ic.innerHTML = e.target.value ? champIcon(icons, e.target.value, 'row') : '';
+    });
+    document.getElementById('reload').onclick = load;
+
+    load().catch((err) => { list.innerHTML = `<div class="empty">${esc(err.message)}</div>`; });
+  </script>
+</body>
+</html>

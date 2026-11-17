@@ -98,7 +98,7 @@
                 <div class="sub">${timeAgo(v.started_at?.replace('T', ' ').replace('Z', ''))} · <span class="scan scan-${esc(v.scan_status)}">${SCAN[v.scan_status] || esc(v.scan_status)}</span></div>
                 <div class="actions-row">
                   ${v.draft_count ? `<span class="badge" style="color:var(--green)">${v.draft_count} ${v.draft_count === 1 ? 'draft' : v.draft_count < 5 ? 'drafty' : 'draftů'}</span>` : ''}
-                  ${v.review_count ? `<span class="badge" style="color:var(--gold-2)">${v.review_count} ke kontrole</span>` : ''}
+                  ${v.review_count ? `<a class="badge" href="/review" style="color:var(--gold-2)">${v.review_count} ke kontrole</a>` : ''}
                   ${v.scan_status !== 'pending' ? `<button class="btn btn-small" data-rescan="${v.id}">Skenovat znovu</button>` : ''}
                 </div>
               </div>

@@ -12,6 +12,10 @@
     .opgg-row { display: flex; gap: 3px; flex-wrap: wrap; margin-top: 3px; }
     .opgg-mini { font: 700 0.66rem var(--display); letter-spacing: .04em; padding: 1px 6px; border-radius: 4px; background: #5c46e8; color: #fff; }
     .opgg-mini:hover { text-decoration: none; filter: brightness(1.15); }
+    .opgg-team { display: inline-flex; gap: 6px; flex-wrap: wrap; }
+    .opgg-team:empty { display: none; }
+    .opgg-btn { background: #5c46e8; border-color: #5c46e8; color: #fff; }
+    .opgg-btn:hover { text-decoration: none; filter: brightness(1.15); }
   </style>
 </head>
 <body>
@@ -22,6 +26,7 @@
       <div class="tp-title" id="hero"></div>
       <div class="tp-tools">
         <div class="gseg" id="type-filter" role="group" aria-label="Typ her"></div>
+        <span class="opgg-team" id="opgg-team"></span>
         <button class="btn btn-small btn-ghost" id="edit-team">Upravit tým</button>
         <button class="btn btn-small btn-ghost btn-danger" id="delete-team">Smazat</button>
       </div>
@@ -295,6 +300,33 @@
         <div class="opgg-row">${opgg}${link}</div>`;
     }
 
+    // --- multi op.gg for the whole team ----------------------------------------
+    // Every account of every player, grouped by region (op.gg multisearch works per region):
+    // the accounts from his Streamers Clash profile plus the Riot ID set in the app.
+    function renderTeamOpgg() {
+      const byRegion = new Map();
+      const add = (region, riot, who) => {
+        region = String(region || '').toLowerCase();
+        if (!region || !riot || !riot.includes('#')) return;
+        const list = byRegion.get(region) || [];
+        if (!list.some((x) => x.riot.toLowerCase() === riot.toLowerCase())) list.push({ riot, who });
+        byRegion.set(region, list);
+      };
+      const sorted = [...players].sort((a, b) => ROLE_ORDER.indexOf(a.role) - ROLE_ORDER.indexOf(b.role));
+      for (const p of sorted) {
+        if (p.riot_id) add(p.region || 'eune', p.riot_id, p.nickname);
+        for (const a of queueOf(p)?.accounts || []) add(a.region, a.riot, p.nickname);
+      }
+      const order = ['eune', 'euw'];
+      const regions = [...byRegion.keys()].sort((a, b) => (order.indexOf(a) + 1 || 99) - (order.indexOf(b) + 1 || 99));
+      document.getElementById('opgg-team').innerHTML = regions.map((r) => {
+        const list = byRegion.get(r);
+        const url = `https://op.gg/lol/multisearch/${encodeURIComponent(r)}?summoners=${list.map((x) => encodeURIComponent(x.riot)).join(',')}`;
+        const title = list.map((x) => `${x.who}: ${x.riot}`).join('\n');
+        return `<a class="btn btn-small opgg-btn" href="${esc(url)}" target="_blank" rel="noopener" title="${esc(title)}">op.gg ${esc(r.toUpperCase())} (${list.length})</a>`;
+      }).join('');
+    }
+
     // --- ban suggestions ------------------------------------------------------
     // Score per champion over the team's players: games in drafts (more weight with a good winrate),
     // the coaching champion pool tier (S/A/B), all scaled by how high the player is ranked.
@@ -488,6 +520,7 @@
       hiddenGames = ds.length - allDrafts.length;
       if (typeFilter && !allDrafts.some((d) => typeOf(d) === typeFilter)) typeFilter = '';
       renderHero();
+      renderTeamOpgg();
       renderNotes();
       renderStats();
     }

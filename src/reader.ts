@@ -291,21 +291,38 @@ async function route(req: Request, env: Env, url: URL): Promise<Response> {
     if (rd?.postgame?.open) {
       const pg = rd.postgame;
       const side = (rows?: DraftSlot[]) => (rows ?? []).map((r) => ({ champion: r.champion ?? '?', player_name: r.player_name ?? null }));
-      const a = await teamGameCheck(env, { vod_id: vodId, ally: rd.source === 'postgame' ? side(pg.ally) : rd.ally });
-      const e = rd.source === 'postgame' ? await teamGameCheck(env, { vod_id: vodId, ally: side(pg.enemy) }) : null;
-      if (!a.ok && !e?.ok) {
-        const note = `Není týmová hra: ze soupisky ${a.team ?? 'týmu'} jen ${a.matched} z ${a.need} (${a.names.join(', ') || '–'})`;
+      const fromBoard = rd.source === 'postgame';
+      const t1 = fromBoard ? side(pg.ally) : rd.ally;
+      const t2 = side(pg.enemy);
+      // the streamer's own roster on either side …
+      const a = await teamGameCheck(env, { vod_id: vodId, ally: t1 });
+      const e = fromBoard ? await teamGameCheck(env, { vod_id: vodId, ally: t2 }) : null;
+      // … or a full roster of another team on the other side: a scrim, even when the streamer's teammates
+      // play on accounts the app doesn't know (the scoreboard shows the account names)
+      const vsT2 = await teamGameCheck(env, { vod_id: null, ally: t2 });
+      const vsT1 = fromBoard ? await teamGameCheck(env, { vod_id: null, ally: t1 }) : null;
+      const scrimVsT2 = vsT2.ok && vsT2.team !== a.team;
+      const scrimVsT1 = !!vsT1?.ok && vsT1.team !== a.team;
+      let swap = false;
+      if (a.ok || e?.ok) swap = !!e?.ok && (!a.ok || e.matched > a.matched);
+      else if (scrimVsT2) swap = false;
+      else if (scrimVsT1) swap = true;
+      else {
+        const note = `Není týmová hra: ze soupisky ${a.team ?? 'týmu'} jen ${a.matched} z ${a.need} (${a.names.join(', ') || '–'}), soupeř není tým z appky`;
         await db.prepare(`UPDATE draft_frames SET status = 'discarded', note = ? WHERE id = ?`).bind(note.slice(0, 500), frameId).run();
         await logActivity(db, { kind: 'sync' }, 'frame.not_team', 'frame', frameId, { vod_id: vodId, matched: a.matched, need: a.need });
         return json({ ok: true, frame_id: frameId, match_id: null, review: false, skipped: 'not_team_game', reason: note }, 201);
       }
-      if (e?.ok && (!a.ok || e.matched > a.matched)) {
+      if (swap) {
         // the streamer's team is the second one on the scoreboard: swap the sides
         [pg.ally, pg.enemy] = [pg.enemy, pg.ally];
         rd.ally = (pg.ally ?? []).map((r) => ({ champion: r.champion ?? '?', player_name: r.player_name ?? null, role: r.role ?? null }));
         rd.enemy = (pg.enemy ?? []).map((r) => ({ champion: r.champion ?? '?' }));
         await db.prepare('UPDATE draft_frames SET reading = ? WHERE id = ?').bind(JSON.stringify(rd), frameId).run();
       }
+      // A scrim against another team's roster with the streamer's teammates on unknown accounts: the normal
+      // team check in saveDraft would refuse it, so it goes to review instead of being dropped.
+      if (!a.ok && !e?.ok) body.auto = false;
     }
 
     let matchId: number | null = null;

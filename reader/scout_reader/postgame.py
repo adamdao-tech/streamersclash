@@ -250,19 +250,28 @@ def match_to_draft(pg: PostGame, ally: list[str], enemy: list[str]) -> dict | No
 OPEN_OK = 75  # fuzzy score needed to accept a champion read from the scoreboard alone
 
 
+OPEN_MARGIN_OK = 55  # …or this much when no other champion comes close (e.g. "Nsutdus" → Nautilus)
+OPEN_MARGIN = 15
+
+
 def _open_row(row: ScoreRow, names: list[str]) -> tuple[str | None, float]:
-    best, best_s = None, 0.0
-    for r in row.champ_raw:
-        key = letters(r)
+    scores: dict[str, float] = {}
+    keys = {letters(r) for r in row.champ_raw} | {letters(c) for r in row.champ_raw if (c := clean_name(r))}
+    for key in keys:
         if len(key) < 2:
             continue
         for n in names:
             nk = letters(n)
             # very short names (Vi) only on an exact read – fuzzy scores on two letters mean nothing
             s = (100.0 if key == nk else 0.0) if min(len(key), len(nk)) <= 2 else fuzz.ratio(key, nk)
-            if s > best_s:
-                best, best_s = n, s
-    return (best, best_s) if best_s >= OPEN_OK else (None, best_s)
+            scores[n] = max(scores.get(n, 0.0), s)
+    if not scores:
+        return None, 0.0
+    ranked = sorted(scores.items(), key=lambda kv: -kv[1])
+    best, best_s = ranked[0]
+    second = ranked[1][1] if len(ranked) > 1 else 0.0
+    ok = best_s >= OPEN_OK or (best_s >= OPEN_MARGIN_OK and best_s - second >= OPEN_MARGIN)
+    return (best, best_s) if ok else (None, best_s)
 
 
 def _side_rows(rows: list[ScoreRow], champs: list[str | None], scores: list[float] | None = None) -> list[dict]:

@@ -116,7 +116,7 @@ def read_at(streams: video.Streams, ts: float, db: ChampionDB, debug_dir: Path |
 
 def read_postgame_at(streams: video.Streams, ts: float, ally: list[str], enemy: list[str], debug_dir: Path | None = None):
     frame = video.grab_frame(streams.hires_url, ts)
-    ok, rect = is_screen(frame, "postgame")
+    ok, rect = is_screen(frame, "postgame", leniency=0.05)
     if not ok:
         return None
     crop = rect.crop(frame)
@@ -126,7 +126,7 @@ def read_postgame_at(streams: video.Streams, ts: float, ally: list[str], enemy: 
 
 def read_postgame_open_at(streams: video.Streams, ts: float, names: list[str], ally: list[str] | None, debug_dir: Path | None = None):
     frame = video.grab_frame(streams.hires_url, ts)
-    ok, rect = is_screen(frame, "postgame")
+    ok, rect = is_screen(frame, "postgame", leniency=0.05)
     if not ok:
         return None
     crop = rect.crop(frame)

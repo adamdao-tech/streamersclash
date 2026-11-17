@@ -142,7 +142,13 @@ def find_client(frame: np.ndarray, work_width: int = 480, screen: str = "champse
     return Finder(screen, work_width).find(frame)
 
 
-def is_screen(frame: np.ndarray, screen: str, work_width: int = 640) -> tuple[bool, ClientRect]:
+def is_screen(frame: np.ndarray, screen: str, work_width: int = 640, leniency: float = 0.0) -> tuple[bool, ClientRect]:
+    """`leniency` lowers the threshold – for reading a frame at a moment the scan already found the screen."""
     f = Finder(screen, work_width)
     rect = f.find(frame)
-    return rect.score >= f.threshold, rect
+    if rect.score < f.threshold - leniency and work_width != 320:
+        # the scan finds screens at 320 px; at higher resolution webcams and overlays can weigh more
+        alt = Finder(screen, 320).find(frame)
+        if alt.score > rect.score:
+            rect = alt
+    return rect.score >= f.threshold - leniency, rect

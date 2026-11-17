@@ -131,7 +131,7 @@ def cmd_test(args) -> None:
 def cmd_scan(args) -> None:
     db = load_champions()
     streams = video.resolve(args.url)
-    every = float(env("SAMPLE_SECONDS", "5"))
+    every = float(env("SAMPLE_SECONDS", "2"))
     scan = S.find_episodes(streams, every, parse_time(args.start) if args.start else 0, parse_time(args.end) if args.end else None)
     print(f"Found {len(scan.drafts)} champion select(s), {len(scan.postgames)} post-game screen(s)")
     debug = Path(env("DEBUG_DIR", "/debug"))
@@ -243,7 +243,7 @@ def worker(n: int, every: float, poll: float, auto_accept: bool, db: ChampionDB)
 
 def cmd_run(_args) -> None:
     app = AppClient(env("APP_URL"), env("READER_TOKEN"))
-    every = float(env("SAMPLE_SECONDS", "5"))
+    every = float(env("SAMPLE_SECONDS", "2"))
     poll = float(env("POLL_SECONDS", "300"))
     auto_accept = env("AUTO_ACCEPT", "true").lower() in ("1", "true", "yes")
     kick_every = float(env("KICK_SYNC_SECONDS", "900"))

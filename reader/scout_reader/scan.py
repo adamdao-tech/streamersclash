@@ -55,6 +55,11 @@ def fmt(ts: float) -> str:
     return f"{ts // 3600}:{ts % 3600 // 60:02d}:{ts % 60:02d}"
 
 
+def min_hits(screen: str, every_s: float) -> int:
+    """Sampled frames a screen must be seen in to count, from how long it must be on screen."""
+    return max(1, round(SCREENS[screen].get("min_seconds", 0) / every_s))
+
+
 def find_episodes(streams: video.Streams, every_s: float = 5, start_s: float = 0, end_s: float | None = None) -> ScanResult:
     finders = {name: Finder(name, work_width=video.SCAN_W, full_search_every=6) for name in SCREENS}
     episodes: dict[str, list[Episode]] = {name: [] for name in SCREENS}
@@ -77,11 +82,11 @@ def find_episodes(streams: video.Streams, every_s: float = 5, start_s: float = 0
                 episodes[name].append(current[name])
             break  # one screen per frame
         if time.monotonic() - last_log > 30:
-            n = sum(1 for e in episodes["champselect"] if e.hits >= SCREENS["champselect"]["min_hits"])
+            n = sum(1 for e in episodes["champselect"] if e.hits >= min_hits("champselect", every_s))
             log.info("  scanned to %s, champ selects so far: %d", fmt(ts), n)
             last_log = time.monotonic()
 
-    keep = {name: [e for e in eps if e.hits >= SCREENS[name]["min_hits"]] for name, eps in episodes.items()}
+    keep = {name: [e for e in eps if e.hits >= min_hits(name, every_s)] for name, eps in episodes.items()}
     return ScanResult(keep["champselect"], keep["postgame"])
 
 

@@ -19,7 +19,7 @@ SCREENS = {
     "champselect": {
         "reference": REF_DIR / "champselect.png",
         "threshold": 0.74,
-        "min_hits": 3,  # a real champ select lasts at least ~15 s
+        "min_seconds": 12,  # a real champ select is on screen far longer than this
         "regions": [
             (0.015, 0.915, 0.275, 0.985),  # chat input box, bottom left
             (0.775, 0.915, 0.985, 0.985),  # QUIT button + buttons, bottom right
@@ -30,7 +30,9 @@ SCREENS = {
     "postgame": {
         "reference": REF_DIR / "postgame.png",
         "threshold": 0.65,
-        "min_hits": 2,
+        # in blind-pick customs streamers often click "Play again" within seconds: one sampled frame is enough
+        # (the frame is checked again at full resolution and its scoreboard must read before anything is saved)
+        "min_seconds": 0,
         "regions": [
             (0.030, 0.140, 0.105, 0.166),  # "SCOREBOARD" label
             (0.620, 0.042, 0.800, 0.088),  # "VIEW ADVANCED DETAILS" button

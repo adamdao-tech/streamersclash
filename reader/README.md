@@ -21,7 +21,9 @@ Logs: `docker compose logs -f reader`
 ## Kick VODs
 
 Kick has no public VOD API and blocks requests from Cloudflare, so the reader fetches Kick VODs itself:
-every 15 minutes (`KICK_SYNC_SECONDS` in `.env`, `0` turns it off) it asks the app for the Kick channels
+Several VODs are read at once (`WORKERS` in `.env`, default 3), and the scan decodes only keyframes (`SCAN_KEYFRAMES`, default on), which is ~10× faster than decoding every frame.
+
+Every 15 minutes (`KICK_SYNC_SECONDS` in `.env`, `0` turns it off) it asks the app for the Kick channels
 (players' Kick channel + Kick channels under *Další kanály*), lists their VODs on kick.com and sends them
 to the app. They then wait in the queue and are read like Twitch VODs (the reader plays Kick's HLS stream
 directly).

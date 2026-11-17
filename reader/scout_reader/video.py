@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import subprocess
 from dataclasses import dataclass
 from typing import Iterator
@@ -56,6 +57,10 @@ def resolve(url: str, stream_url: str | None = None, duration: float | None = No
 def iter_frames(stream_url: str, every_s: float, start_s: float = 0, end_s: float | None = None) -> Iterator[tuple[float, np.ndarray]]:
     """Yields (timestamp, frame) every `every_s` seconds, decoded at SCAN_W×SCAN_H."""
     cmd = ["ffmpeg", "-loglevel", "error", "-nostdin"]
+    # Decode only keyframes (every ~2 s on Twitch/Kick): ~10× faster, and a sample every few seconds
+    # is all the scan needs – each frame is then at most one keyframe interval earlier than its timestamp.
+    if os.environ.get("SCAN_KEYFRAMES", "true").lower() in ("1", "true", "yes"):
+        cmd += ["-skip_frame", "nokey"]
     if start_s:
         cmd += ["-ss", str(start_s)]
     cmd += ["-i", stream_url]

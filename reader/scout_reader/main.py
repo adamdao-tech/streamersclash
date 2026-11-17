@@ -12,6 +12,7 @@ import json
 import logging
 import os
 import sys
+import threading
 import time
 from pathlib import Path
 
@@ -173,25 +174,10 @@ def cmd_kick_sync(_args) -> None:
     log.info("Kick: %d channel(s) checked, %d new VOD(s)", synced, added)
 
 
-def cmd_run(_args) -> None:
+def worker(n: int, every: float, poll: float, auto_accept: bool, db: ChampionDB) -> None:
+    """One scanning loop: claims a VOD, reads it, repeats. Several run side by side (WORKERS)."""
     app = AppClient(env("APP_URL"), env("READER_TOKEN"))
-    every = float(env("SAMPLE_SECONDS", "5"))
-    poll = float(env("POLL_SECONDS", "300"))
-    auto_accept = env("AUTO_ACCEPT", "true").lower() in ("1", "true", "yes")
-    kick_every = float(env("KICK_SYNC_SECONDS", "900"))
-    db = load_champions()
-    log.info("Reader started, polling %s every %ds", env("APP_URL"), poll)
-    last_kick = 0.0
     while True:
-        # Kick VODs: their API blocks Cloudflare, so the reader fetches them and sends them to the app.
-        if kick_every > 0 and time.time() - last_kick >= kick_every:
-            last_kick = time.time()
-            try:
-                synced, added = kick.sync(app)
-                if synced:
-                    log.info("Kick: %d channel(s) checked, %d new VOD(s)", synced, added)
-            except Exception:
-                log.exception("Kick sync failed")
         try:
             jobs = app.claim_jobs(1)
             if not jobs:
@@ -203,15 +189,42 @@ def cmd_run(_args) -> None:
                 except Exception as e:
                     log.exception("  VOD %s failed", job["id"])
                     app.finish_job(job["id"], "failed", error=str(e)[:500])
-        except KeyboardInterrupt:
-            break
         except Exception:
-            log.exception("Polling failed; retrying in %ds", poll)
+            log.exception("Worker %d: polling failed; retrying in %ds", n, poll)
             time.sleep(poll)
 
 
+def cmd_run(_args) -> None:
+    app = AppClient(env("APP_URL"), env("READER_TOKEN"))
+    every = float(env("SAMPLE_SECONDS", "5"))
+    poll = float(env("POLL_SECONDS", "300"))
+    auto_accept = env("AUTO_ACCEPT", "true").lower() in ("1", "true", "yes")
+    kick_every = float(env("KICK_SYNC_SECONDS", "900"))
+    workers = max(1, int(env("WORKERS", "3")))
+    db = load_champions()
+    log.info("Reader started, polling %s every %ds, %d VOD(s) at a time", env("APP_URL"), poll, workers)
+    # VODs are read in parallel: each worker thread claims its own VOD (ffmpeg and OpenCV do the heavy work
+    # outside the GIL). The main thread only syncs Kick.
+    for n in range(workers):
+        threading.Thread(target=worker, args=(n + 1, every, poll, auto_accept, db), daemon=True, name=f"worker-{n + 1}").start()
+        time.sleep(2)  # spread the first claims a little
+    try:
+        while True:
+            # Kick VODs: their API blocks Cloudflare, so the reader fetches them and sends them to the app.
+            if kick_every > 0:
+                try:
+                    synced, added = kick.sync(app)
+                    if synced:
+                        log.info("Kick: %d channel(s) checked, %d new VOD(s)", synced, added)
+                except Exception:
+                    log.exception("Kick sync failed")
+            time.sleep(kick_every if kick_every > 0 else 3600)
+    except KeyboardInterrupt:
+        pass
+
+
 def main() -> None:
-    logging.basicConfig(level=os.environ.get("LOG_LEVEL", "INFO"), format="%(asctime)s %(levelname)s %(message)s")
+    logging.basicConfig(level=os.environ.get("LOG_LEVEL", "INFO"), format="%(asctime)s %(threadName)s %(levelname)s %(message)s")
     p = argparse.ArgumentParser(prog="reader", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = p.add_subparsers(dest="cmd")
     sub.add_parser("run")

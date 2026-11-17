@@ -102,14 +102,17 @@ async function route(req: Request, env: Env, url: URL): Promise<Response> {
       }
       results.push(v);
     }
-    if (results.length) {
-      await db.batch(
-        results.map((v) =>
-          db.prepare(`UPDATE vods SET scan_status = 'scanning', scanned_at = datetime('now') WHERE id = ?`).bind(v.id),
-        ),
-      );
-    }
-    return json({ jobs: results });
+    if (!results.length) return json({ jobs: [] });
+    // Several reader workers claim at the same time: take a VOD only if it is still free, so no two read the same one.
+    const claimed = await db.batch(
+      results.map((v) =>
+        db.prepare(
+          `UPDATE vods SET scan_status = 'scanning', scanned_at = datetime('now')
+            WHERE id = ? AND (scan_status = 'pending' OR (scan_status = 'scanning' AND scanned_at < datetime('now', '-6 hours')))`,
+        ).bind(v.id),
+      ),
+    );
+    return json({ jobs: results.filter((_, i) => (claimed[i]?.meta?.changes ?? 0) > 0) });
   }
 
   // --- Kick ------------------------------------------------------------------

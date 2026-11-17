@@ -27,8 +27,8 @@
       <div class="tp-tools">
         <div class="gseg" id="type-filter" role="group" aria-label="Typ her"></div>
         <span class="opgg-team" id="opgg-team"></span>
-        <button class="btn btn-small btn-ghost" id="edit-team">Upravit tým</button>
-        <button class="btn btn-small btn-ghost btn-danger" id="delete-team">Smazat</button>
+        <button class="btn btn-small btn-ghost no-comm" id="edit-team">Upravit tým</button>
+        <button class="btn btn-small btn-ghost btn-danger no-comm" id="delete-team">Smazat</button>
       </div>
     </div>
 
@@ -37,7 +37,7 @@
       <button data-tab="champions">Championi <span class="count" id="champ-count"></span></button>
       <button data-tab="drafts">Hry a drafty <span class="count" id="draft-count"></span></button>
       <button data-tab="vods">VODky</button>
-      <button data-tab="notes">Poznámky</button>
+      <button data-tab="notes" class="no-comm">Poznámky</button>
     </nav>
 
     <section class="tab-panel" data-panel="overview">
@@ -53,7 +53,7 @@
       </section>
 
       <section class="gbox">
-        <h2>Hráči <button class="btn btn-small" id="add-player">+ Přidat hráče</button></h2>
+        <h2>Hráči <button class="btn btn-small no-comm" id="add-player">+ Přidat hráče</button></h2>
         <div class="gscroll"><table class="gtable" id="players"></table></div>
       </section>
 
@@ -406,7 +406,7 @@
             <td class="num strong">${s.kn ? kdaRatio(s.k, s.d, s.a) : '–'}</td>
             <td class="num muted">${s.kn ? `${num(s.k / s.kn)} / ${num(s.d / s.kn)} / ${num(s.a / s.kn)}` : '–'}</td>
             <td><div class="gpools">${champs || '<span class="muted">zatím žádné hry</span>'}${more}</div></td>
-            <td class="num nowrap">
+            <td class="num nowrap no-comm">
               <button class="btn btn-small btn-ghost" data-edit="${p.id}">Upravit</button>
               <button class="btn btn-small btn-ghost btn-danger" data-delete="${p.id}" aria-label="Smazat hráče ${esc(p.nickname)}">✕</button>
             </td>

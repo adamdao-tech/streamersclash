@@ -14,12 +14,14 @@ import { getRuneData } from './runes';
 import { handleQueueApi } from './queue';
 import { handlePlanApi } from './plan';
 import { handleDraftBoardsApi } from './draftboards';
+import { handleCommentatorApi, isCommentator } from './commentator';
 
 const ROLES = ['TOP', 'JUNGLE', 'MID', 'ADC', 'SUPPORT', 'SUB'] as const;
 const REGIONS = ['EUNE', 'EUW'] as const;
 
 export async function handleApi(req: Request, env: Env, url: URL, user: User): Promise<Response> {
   try {
+    if (isCommentator(user)) return await handleCommentatorApi(req, env, url, () => route(req, env, url, user));
     return await route(req, env, url, user);
   } catch (err) {
     if (err instanceof HttpError) return json({ error: err.code, message: err.message }, err.status);
@@ -40,7 +42,7 @@ async function route(req: Request, env: Env, url: URL, user: User): Promise<Resp
   }
 
   // --- me ---------------------------------------------------------------
-  if (path === '/api/me' && method === 'GET') return json({ user: { ...user, is_superadmin: isSuperadmin(env, user), can_plan: canSeePlan(env, user) } });
+  if (path === '/api/me' && method === 'GET') return json({ user: { ...user, is_superadmin: isSuperadmin(env, user), can_plan: canSeePlan(env, user), is_commentator: isCommentator(user) } });
 
   // --- users (allowlist, admin only) -------------------------------------
   if (path === '/api/users') {
@@ -48,7 +50,7 @@ async function route(req: Request, env: Env, url: URL, user: User): Promise<Resp
     if (method === 'GET') {
       const { results } = await db
         .prepare(
-          'SELECT id, twitch_login, display_name, avatar_url, role, can_stream, created_at, last_login_at FROM users ORDER BY role, twitch_login',
+          'SELECT id, twitch_login, display_name, avatar_url, role, can_stream, commentator, created_at, last_login_at FROM users ORDER BY role, commentator, twitch_login',
         )
         .all();
       return json({ users: results });
@@ -58,13 +60,14 @@ async function route(req: Request, env: Env, url: URL, user: User): Promise<Resp
       const login = normalizeChannel(body.twitch_login, 'twitch.tv');
       if (!login) throw new HttpError(400, 'invalid', 'Zadej Twitch login.');
       const role = body.role === 'admin' ? 'admin' : 'member';
+      const commentator = body.role === 'commentator' ? 1 : 0; // Komentátor: a member limited to the opposing teams
       if (role === 'admin' && !isSuperadmin(env, user)) throw new HttpError(403, 'forbidden', 'Admina může přidat jen superadmin.');
       const res = await db
-        .prepare('INSERT INTO users (twitch_login, role, added_by) VALUES (?, ?, ?) ON CONFLICT(twitch_login) DO NOTHING')
-        .bind(login, role, user.id)
+        .prepare('INSERT INTO users (twitch_login, role, commentator, added_by) VALUES (?, ?, ?, ?) ON CONFLICT(twitch_login) DO NOTHING')
+        .bind(login, role, commentator, user.id)
         .run();
       if (!res.meta.changes) throw new HttpError(409, 'exists', 'Tenhle uživatel už v seznamu je.');
-      await logActivity(db, actor, 'user.add', 'user', res.meta.last_row_id, { login, role });
+      await logActivity(db, actor, 'user.add', 'user', res.meta.last_row_id, { login, role: commentator ? 'commentator' : role });
       return json({ ok: true }, 201);
     }
   }

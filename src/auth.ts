@@ -24,7 +24,7 @@ export async function getSessionUser(req: Request, env: Env): Promise<User | nul
   if (!token) return null;
   const hash = await sha256Hex(token);
   return env.DB.prepare(
-    `SELECT u.id, u.twitch_login, u.twitch_id, u.display_name, u.avatar_url, u.role, u.can_stream
+    `SELECT u.id, u.twitch_login, u.twitch_id, u.display_name, u.avatar_url, u.role, u.can_stream, u.commentator
        FROM sessions s JOIN users u ON u.id = s.user_id
       WHERE s.token_hash = ? AND s.expires_at > datetime('now')`,
   )
@@ -172,7 +172,7 @@ async function upsertAllowedUser(env: Env, tw: TwitchUser): Promise<User | null>
   }
 
   return db
-    .prepare('SELECT id, twitch_login, twitch_id, display_name, avatar_url, role FROM users WHERE twitch_id = ?')
+    .prepare('SELECT id, twitch_login, twitch_id, display_name, avatar_url, role, commentator FROM users WHERE twitch_id = ?')
     .bind(tw.id)
     .first<User>();
 }

@@ -4,6 +4,7 @@ import { canSeePlan, ensureSchema } from './db';
 import { json, redirect } from './http';
 import { handleMcp } from './mcp';
 import { handleOAuth, isOAuthPath } from './oauth';
+import { COMMENTATOR_PAGES, isCommentator } from './commentator';
 import { handleReader } from './reader';
 import { syncTwitchVods } from './vods';
 import { syncProfiles, syncQueue } from './queue';
@@ -123,6 +124,8 @@ async function route(req: Request, env: Env, url: URL): Promise<Response> {
 
     // Plán koučování is the coach's private page: not even admins get the HTML.
     if (user && SUPERADMIN_PAGES.has(url.pathname) && !canSeePlan(env, user)) return redirect('/');
+    // Komentátor sees only the team list, team pages and player pages (the API keeps our team out of them).
+    if (user && isCommentator(user) && !COMMENTATOR_PAGES.has(url.pathname) && !url.pathname.endsWith('.js')) return redirect('/');
 
     const res = await env.ASSETS.fetch(req);
     // Pages behind login must not be cached by the browser or shared caches.

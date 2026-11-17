@@ -1225,3 +1225,6 @@ dialog.deck-ed[open] { display: grid; }
 .bk-team.win .bk-name { font-weight: 700; }
 .bk-team.lose { opacity: 0.55; }
 .bk-team.own .bk-name { color: var(--gold-2); }
+
+/* Komentátor: read-only account, sees only the opposing teams – editing controls are hidden */
+.is-commentator .no-comm { display: none !important; }

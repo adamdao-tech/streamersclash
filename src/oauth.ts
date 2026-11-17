@@ -316,7 +316,7 @@ export async function userFromBearer(req: Request, env: Env): Promise<User | nul
   if (!header.startsWith('Bearer ')) return null;
   const hash = await sha256Hex(header.slice(7));
   return env.DB.prepare(
-    `SELECT u.id, u.twitch_login, u.twitch_id, u.display_name, u.avatar_url, u.role, u.can_stream
+    `SELECT u.id, u.twitch_login, u.twitch_id, u.display_name, u.avatar_url, u.role, u.can_stream, u.commentator
        FROM oauth_tokens t JOIN users u ON u.id = t.user_id
       WHERE t.token_hash = ? AND t.kind = 'access' AND t.expires_at > datetime('now')`,
   )

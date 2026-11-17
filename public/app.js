@@ -34,7 +34,8 @@ export const ROLE_LABELS = { TOP: 'TOP', JUNGLE: 'JNG', MID: 'MID', ADC: 'ADC', 
 /** Renders the top bar and returns the logged-in user. */
 export async function initPage(active) {
   const { user } = await api('/api/me');
-  const nav = [
+  if (user.is_commentator) document.body.classList.add('is-commentator');
+  const nav = user.is_commentator ? [['/', 'Týmy', 'teams']] : [
     ['/', 'Týmy', 'teams'],
     ['/schedule', 'Harmonogram', 'schedule'],
     ['/coaching', 'Koučing', 'coaching'],

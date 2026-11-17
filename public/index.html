@@ -14,9 +14,9 @@
     <div class="page-head">
       <div>
         <h1>Týmy</h1>
-        <p>Náš tým a soupeři ze Streamers Clash.</p>
+        <p id="teams-lead">Náš tým a soupeři ze Streamers Clash.</p>
       </div>
-      <button class="btn btn-primary" id="add-team">+ Přidat tým</button>
+      <button class="btn btn-primary no-comm" id="add-team">+ Přidat tým</button>
     </div>
 
     <div id="next-match"></div>
@@ -54,6 +54,7 @@
     import { api, esc, initPage, formDialog, logoHtml, timeAgo, featuredEvent, nextMatchHtml, startCountdowns, seasonRecord } from '/app.js';
 
     const me = await initPage('teams');
+    if (me.is_commentator) document.getElementById('teams-lead').textContent = 'Týmy Streamers Clash.';
     if (!me.is_superadmin) {
       document.querySelector('.layout aside').remove();
       document.querySelector('.layout').classList.add('layout-single');
@@ -92,7 +93,7 @@
     };
 
     async function load() {
-      const [{ teams }, { activity }, { matches }] = await Promise.all([api('/api/teams'), me.is_superadmin ? api('/api/activity') : { activity: [] }, api('/api/schedule')]);
+      const [{ teams }, { activity }, { matches }] = await Promise.all([api('/api/teams'), me.is_superadmin ? api('/api/activity') : { activity: [] }, me.is_commentator ? { matches: [] } : api('/api/schedule')]);
       const next = featuredEvent(matches);
       const own = teams.find((t) => t.is_own_team) || null;
       const rec = seasonRecord(matches).match;

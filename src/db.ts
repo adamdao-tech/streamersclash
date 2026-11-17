@@ -39,6 +39,8 @@ export interface User {
   role: 'admin' | 'member';
   /** 1 = may keep the Queue scouting page visible while live on Twitch */
   can_stream?: number;
+  /** 1 = Komentátor: read-only, sees only the opposing teams (see commentator.ts) */
+  commentator?: number;
 }
 
 /** Superadmins (SUPERADMINS var, Twitch logins) are the only ones who see the activity log, admins included. */

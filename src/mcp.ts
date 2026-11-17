@@ -1,3 +1,4 @@
+import { isCommentator } from './commentator';
 import type { Env } from './index';
 import { insert, parsePlayer, playerFields, teamFields, update } from './api';
 import {
@@ -1413,6 +1414,13 @@ export async function handleMcp(req: Request, env: Env, url: URL): Promise<Respo
         'Content-Type': 'application/json',
         'WWW-Authenticate': `Bearer resource_metadata="${url.origin}/.well-known/oauth-protected-resource"`,
       },
+    });
+  }
+
+  if (isCommentator(user)) {
+    return new Response(JSON.stringify({ error: 'forbidden', message: 'Komentátor nemá přístup ke Claude konektoru.' }), {
+      status: 403,
+      headers: { ...cors, 'Content-Type': 'application/json' },
     });
   }
 

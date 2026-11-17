@@ -721,4 +721,8 @@ CREATE INDEX idx_draft_boards_folder ON draft_boards(folder, updated_at);
   /* 35: team captain – the reader reads captains' VODs first and skips teammates' VODs their games already cover */ `
 ALTER TABLE players ADD COLUMN is_captain INTEGER NOT NULL DEFAULT 0;
 `,
+
+  /* 36: Komentátor – read-only user who sees only the opposing teams (role stays 'member', this flag limits him) */ `
+ALTER TABLE users ADD COLUMN commentator INTEGER NOT NULL DEFAULT 0;
+`,
 ];

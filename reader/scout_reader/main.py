@@ -140,6 +140,9 @@ def cmd_scan(args) -> None:
         print(f"  {S.fmt(ep.start)}–{S.fmt(ep.end)}: " + (summary(res.reading) if res else "could not read"))
         if res:
             print("  " + postgame_summary(res.postgame) if res.postgame_ts else "  no post-game screen (dodge or game not finished in VOD)")
+    for pg_ep in S.unclaimed_postgames(scan):
+        got = S.best_open_postgame(streams, pg_ep, db, None, debug)
+        print(f"  {S.fmt(pg_ep.start)}: post-game without a draft – " + (postgame_summary(got[0]) if got else "unreadable"))
 
 
 def process_job(app: AppClient, db: ChampionDB, job: dict, auto_accept: bool, every: float) -> None:

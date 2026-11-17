@@ -29,6 +29,9 @@ class Episode:
     start: float
     end: float  # last timestamp where the screen was seen
     hits: int
+    best_score: float = 0.0
+    best_ts: float = 0.0
+    rect: tuple[float, float, float, float] | None = None  # client at best_ts, as a fraction of the frame (x, y, w, h)
 
 
 @dataclass
@@ -67,8 +70,12 @@ def find_episodes(streams: video.Streams, every_s: float = 5, start_s: float = 0
     last_log = time.monotonic()
 
     for ts, frame in video.iter_frames(streams.scan_url, every_s, start_s, end_s):
+        fh, fw = frame.shape[:2]
         for name, finder in finders.items():
-            if finder.find(frame).score < finder.threshold:
+            r = finder.find(frame)
+            cand = SCREENS[name].get("candidate_threshold")
+            weak_ok = cand is not None and r.score >= cand and r.w >= SCREENS[name]["candidate_min_frac"] * fw
+            if r.score < finder.threshold and not weak_ok:
                 continue
             # Both screens are the same client window: share where it is.
             for other in finders.values():
@@ -78,8 +85,10 @@ def find_episodes(streams: video.Streams, every_s: float = 5, start_s: float = 0
             if ep and ts - ep.end <= every_s * 3:
                 ep.end, ep.hits = ts, ep.hits + 1
             else:
-                current[name] = Episode(name, ts, ts, 1)
-                episodes[name].append(current[name])
+                ep = current[name] = Episode(name, ts, ts, 1)
+                episodes[name].append(ep)
+            if r.score > ep.best_score:
+                ep.best_score, ep.best_ts, ep.rect = r.score, ts, (r.x / fw, r.y / fh, r.w / fw, r.h / fh)
             break  # one screen per frame
         if time.monotonic() - last_log > 30:
             n = sum(1 for e in episodes["champselect"] if e.hits >= min_hits("champselect", every_s))
@@ -87,7 +96,29 @@ def find_episodes(streams: video.Streams, every_s: float = 5, start_s: float = 0
             last_log = time.monotonic()
 
     keep = {name: [e for e in eps if e.hits >= min_hits(name, every_s)] for name, eps in episodes.items()}
-    return ScanResult(keep["champselect"], keep["postgame"])
+    # weak post-game matches: keep only those whose scoreboard really reads (VICTORY/DEFEAT, K/D/A rows)
+    postgames = [e for e in keep["postgame"] if e.best_score >= SCREENS["postgame"]["threshold"] or _confirm_postgame(streams, e)]
+    return ScanResult(keep["champselect"], postgames)
+
+
+def _client_crop(frame: np.ndarray, rect: tuple[float, float, float, float]) -> np.ndarray:
+    h, w = frame.shape[:2]
+    x, y, rw, rh = rect
+    return frame[max(int(y * h), 0) : int((y + rh) * h), max(int(x * w), 0) : int((x + rw) * w)]
+
+
+def _confirm_postgame(streams: video.Streams, ep: Episode) -> bool:
+    try:
+        frame = video.grab_frame(streams.hires_url, ep.best_ts)
+    except Exception as e:  # noqa: BLE001
+        log.debug("post-game check at %s failed: %s", fmt(ep.best_ts), e)
+        return False
+    pg = read_postgame(_client_crop(frame, ep.rect))
+    rows = sum(1 for r in pg.team1 + pg.team2 if r.kills is not None)
+    ok = pg.result in ("VICTORY", "DEFEAT") and rows >= 5
+    log.info("  %s: possible post-game screen (score %.2f) – %s", fmt(ep.best_ts), ep.best_score,
+             f"confirmed ({pg.result}, {rows} K/D/A rows)" if ok else "not a scoreboard")
+    return ok
 
 
 def postgame_for(draft: Episode, scan: ScanResult) -> Episode | None:
@@ -129,12 +160,16 @@ def read_postgame_at(streams: video.Streams, ts: float, ally: list[str], enemy: 
     return match_to_draft(pg, ally, enemy), crop
 
 
-def read_postgame_open_at(streams: video.Streams, ts: float, names: list[str], ally: list[str] | None, debug_dir: Path | None = None):
+def read_postgame_open_at(streams: video.Streams, ts: float, names: list[str], ally: list[str] | None, debug_dir: Path | None = None,
+                          hint: tuple[float, float, float, float] | None = None):
     frame = video.grab_frame(streams.hires_url, ts)
     ok, rect = is_screen(frame, "postgame", leniency=0.05)
-    if not ok:
+    if ok:
+        crop = rect.crop(frame)
+    elif hint:  # a confirmed weak match: the client is where the scan saw it
+        crop = _client_crop(frame, hint)
+    else:
         return None
-    crop = rect.crop(frame)
     return match_open(read_postgame(crop, debug_dir), names, ally), crop
 
 
@@ -142,9 +177,9 @@ def best_open_postgame(streams: video.Streams, pg_ep: Episode, db: ChampionDB, a
     """Reads a post-game screen without a full draft (blind pick / drafted outside the client): best of a few moments."""
     names = [c.name for c in db.champions]
     best = None
-    for offset in (4, 12, 25):
-        t = min(pg_ep.start + offset, pg_ep.end)
-        got = read_postgame_open_at(streams, t, names, ally, debug_dir)
+    moments = sorted({pg_ep.best_ts, *(min(pg_ep.start + o, pg_ep.end) for o in (4, 12, 25))})
+    for t in moments:
+        got = read_postgame_open_at(streams, t, names, ally, debug_dir, pg_ep.rect)
         if got and got[0] and (best is None or got[0]["fit"] > best[0]["fit"]):
             best = (got[0], t, *_jpeg(got[1]))  # payload, ts, jpeg, width, height
         if best and best[0]["fit"] >= 85:

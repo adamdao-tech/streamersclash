@@ -33,6 +33,10 @@ SCREENS = {
         # in blind-pick customs streamers often click "Play again" within seconds: one sampled frame is enough
         # (the frame is checked again at full resolution and its scoreboard must read before anything is saved)
         "min_seconds": 0,
+        # A client filling the whole stream (fullscreen, webcam over the chat box) scores lower at the scan's
+        # 320 px: such weaker matches count too, but each is confirmed by reading the scoreboard in full resolution.
+        "candidate_threshold": 0.55,
+        "candidate_min_frac": 0.6,
         "regions": [
             (0.030, 0.140, 0.105, 0.166),  # "SCOREBOARD" label
             (0.620, 0.042, 0.800, 0.088),  # "VIEW ADVANCED DETAILS" button

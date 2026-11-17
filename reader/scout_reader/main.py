@@ -72,14 +72,25 @@ def cmd_test(args) -> None:
         # show how close it was, so a layout problem (cam over the client…) can be told from a wrong time
         from .detect import is_screen
 
-        _, rect = is_screen(video.grab_frame(streams.hires_url, parse_time(args.at)), "champselect")
+        import cv2
+
+        from .detect import Finder
+
+        frame = video.grab_frame(streams.hires_url, parse_time(args.at))
+        _, rect = is_screen(frame, "champselect")
         print(f"Champion select not found at this moment (best match {rect.score:.2f}, needed "
               f"{0.74:.2f}). Try a few seconds earlier/later; a low score on a real champ select "
               "means the stream layout hides the client (e.g. a webcam over it).")
+        # the same frame as the scan sees it (320 px) and as a post-game screen
+        small = cv2.resize(frame, (video.SCAN_W, video.SCAN_H), interpolation=cv2.INTER_AREA)
+        for screen in ("champselect", "postgame"):
+            f = Finder(screen, video.SCAN_W)
+            r = f.find(small)
+            print(f"  scan view {screen}: {r.score:.2f} (needed {f.threshold:.2f}) at x={r.x:.0f} y={r.y:.0f} w={r.w:.0f} h={r.h:.0f}")
         debug.mkdir(parents=True, exist_ok=True)
-        import cv2
-
-        cv2.imwrite(str(debug / "frame.jpg"), video.grab_frame(streams.hires_url, parse_time(args.at)))
+        cv2.imwrite(str(debug / "frame.jpg"), frame)
+        cv2.imwrite(str(debug / "scan_view.png"), small)
+        print(f"Frame saved: {debug / 'frame.jpg'}")
         return
     reading, crop = got
     print(summary(reading))

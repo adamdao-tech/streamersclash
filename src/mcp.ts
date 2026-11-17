@@ -411,6 +411,7 @@ const TOOLS: Tool[] = [
         nickname: { type: 'string' },
         role: { type: 'string', enum: ['TOP', 'JUNGLE', 'MID', 'ADC', 'SUPPORT', 'SUB'] },
         riot_id: { type: 'string', description: 'GameName#TAG' },
+        region: { type: 'string', enum: ['EUNE', 'EUW'], description: 'Server of the Riot ID (default: the team region)' },
         twitch_login: { type: 'string' },
         kick_slug: { type: 'string' },
         notes: { type: 'string' },
@@ -664,7 +665,7 @@ const TOOLS: Tool[] = [
   },
   {
     name: 'update_player',
-    description: "Changes a player in the app: team, nickname, role, Riot ID (GameName#TAG, empty to clear), Twitch/Kick channel (name or link – a new Twitch channel fetches its VODs right away), notes. Only the fields given are changed.",
+    description: "Changes a player in the app: team, nickname, role, Riot ID (GameName#TAG, empty to clear) and its server (EUNE/EUW), Twitch/Kick channel (name or link – a new Twitch channel fetches its VODs right away), notes. Only the fields given are changed.",
     inputSchema: {
       type: 'object',
       properties: {
@@ -673,6 +674,7 @@ const TOOLS: Tool[] = [
         nickname: { type: 'string' },
         role: { type: 'string', enum: ['TOP', 'JUNGLE', 'MID', 'ADC', 'SUPPORT', 'SUB'] },
         riot_id: { type: 'string' },
+        region: { type: 'string', enum: ['EUNE', 'EUW'], description: 'Server of the Riot ID' },
         twitch_login: { type: 'string' },
         kick_slug: { type: 'string' },
         notes: { type: 'string' },

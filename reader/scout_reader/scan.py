@@ -32,6 +32,7 @@ class Episode:
     best_score: float = 0.0
     best_ts: float = 0.0
     rect: tuple[float, float, float, float] | None = None  # client at best_ts, as a fraction of the frame (x, y, w, h)
+    top: list = field(default_factory=list)  # best few (score, ts, rect) – weak matches are confirmed from these
 
 
 @dataclass
@@ -87,8 +88,10 @@ def find_episodes(streams: video.Streams, every_s: float = 5, start_s: float = 0
             else:
                 ep = current[name] = Episode(name, ts, ts, 1)
                 episodes[name].append(ep)
+            rect = (r.x / fw, r.y / fh, r.w / fw, r.h / fh)
             if r.score > ep.best_score:
-                ep.best_score, ep.best_ts, ep.rect = r.score, ts, (r.x / fw, r.y / fh, r.w / fw, r.h / fh)
+                ep.best_score, ep.best_ts, ep.rect = r.score, ts, rect
+            ep.top = sorted(ep.top + [(r.score, ts, rect)], key=lambda t: -t[0])[:3]
             break  # one screen per frame
         if time.monotonic() - last_log > 30:
             n = sum(1 for e in episodes["champselect"] if e.hits >= min_hits("champselect", every_s))
@@ -108,17 +111,22 @@ def _client_crop(frame: np.ndarray, rect: tuple[float, float, float, float]) -> 
 
 
 def _confirm_postgame(streams: video.Streams, ep: Episode) -> bool:
-    try:
-        frame = video.grab_frame(streams.hires_url, ep.best_ts)
-    except Exception as e:  # noqa: BLE001
-        log.debug("post-game check at %s failed: %s", fmt(ep.best_ts), e)
-        return False
-    pg = read_postgame(_client_crop(frame, ep.rect))
-    rows = sum(1 for r in pg.team1 + pg.team2 if r.kills is not None)
-    ok = pg.result in ("VICTORY", "DEFEAT") and rows >= 5
-    log.info("  %s: possible post-game screen (score %.2f) – %s", fmt(ep.best_ts), ep.best_score,
-             f"confirmed ({pg.result}, {rows} K/D/A rows)" if ok else "not a scoreboard")
-    return ok
+    """Reads the scoreboard at the episode's best few frames; the first that reads becomes the episode's best."""
+    for score, ts, rect in ep.top or [(ep.best_score, ep.best_ts, ep.rect)]:
+        try:
+            frame = video.grab_frame(streams.hires_url, ts)
+        except Exception as e:  # noqa: BLE001
+            log.debug("post-game check at %s failed: %s", fmt(ts), e)
+            continue
+        pg = read_postgame(_client_crop(frame, rect))
+        rows = sum(1 for r in pg.team1 + pg.team2 if r.kills is not None)
+        ok = pg.result in ("VICTORY", "DEFEAT") and rows >= 5
+        log.info("  %s: possible post-game screen (score %.2f) – %s", fmt(ts), score,
+                 f"confirmed ({pg.result}, {rows} K/D/A rows)" if ok else "not a scoreboard")
+        if ok:
+            ep.best_score, ep.best_ts, ep.rect = score, ts, rect
+            return True
+    return False
 
 
 def postgame_for(draft: Episode, scan: ScanResult) -> Episode | None:

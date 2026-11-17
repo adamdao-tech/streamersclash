@@ -66,7 +66,8 @@ def iter_frames(stream_url: str, every_s: float, start_s: float = 0, end_s: floa
     cmd += ["-i", stream_url]
     if end_s:
         cmd += ["-t", str(end_s - start_s)]
-    cmd += ["-vf", f"fps=1/{every_s},scale={SCAN_W}:{SCAN_H}", "-f", "rawvideo", "-pix_fmt", "bgr24", "pipe:1"]
+    # area averaging keeps the thin UI lines the detector looks for (bicubic aliases them away at 1/6 size)
+    cmd += ["-vf", f"fps=1/{every_s},scale={SCAN_W}:{SCAN_H}:flags=area", "-f", "rawvideo", "-pix_fmt", "bgr24", "pipe:1"]
     frame_bytes = SCAN_W * SCAN_H * 3
     proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, bufsize=frame_bytes * 4)
     i = 0

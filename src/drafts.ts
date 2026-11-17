@@ -286,7 +286,9 @@ interface PlayerNames {
 }
 
 function nameKey(s: string): string {
-  return s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]/g, '');
+  return s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]/g, '')
+    // look-alike characters, in nicknames ("0ri" plays as "Ori") and in OCR reads alike
+    .replace(/0/g, 'o').replace(/[1il]/g, 'i');
 }
 
 function levenshtein(a: string, b: string): number {

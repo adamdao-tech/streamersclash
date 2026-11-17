@@ -134,6 +134,7 @@
         <div><label>Server</label>
           <select name="region"><option value="EUNE">EUNE</option><option value="EUW">EUW</option></select>
         </div>
+        <div class="full"><label>Další účty (jména ve hře, oddělená čárkou – hry na nich se počítají jemu)</label><input name="alt_names" placeholder="např. Hi im Pro Mid1, smurf#EUW"></div>
         <div><label>Twitch</label><input name="twitch_login" placeholder="login nebo odkaz"></div>
         <div><label>Kick</label><input name="kick_slug" placeholder="kanál nebo odkaz"></div>
         <div class="full"><label>Štítky (oddělené čárkou)</label><input name="tags" placeholder="comfort picks, agresivní, tiltuje"></div>
@@ -700,7 +701,7 @@
       if (btn.dataset.edit) {
         editingPlayer = p.id;
         playerDialogEl.querySelector('[data-title]').textContent = `Upravit: ${p.nickname}`;
-        playerDialog.open({ ...p, tags: p.tags.join(', ') });
+        playerDialog.open({ ...p, tags: p.tags.join(', '), alt_names: (p.alt_names || []).join(', ') });
       } else if (confirm(`Smazat hráče ${p.nickname}?`)) {
         await api(`/api/players/${p.id}`, { method: 'DELETE' });
         await load();

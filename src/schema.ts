@@ -738,4 +738,8 @@ DELETE FROM matches WHERE id IN (
   ) t ON t.champs = s.champs AND t.id < s.id AND ABS(t.duration_s - s.duration_s) <= 3
 );
 `,
+
+  /* 38: other accounts of a player (names in game, e.g. a smurf used in scrims) – games on them count for him */ `
+ALTER TABLE players ADD COLUMN alt_names TEXT;
+`,
 ];

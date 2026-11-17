@@ -690,6 +690,11 @@ export function playerFields(body: Record<string, unknown>, partial: boolean): R
     );
   }
   if (has('notes')) out.notes = str(body.notes, 'Poznámky', 5000);
+  if (has('alt_names')) {
+    const list = (Array.isArray(body.alt_names) ? body.alt_names : String(body.alt_names ?? '').split(/[,\n]/))
+      .map((n) => String(n).trim()).filter(Boolean).slice(0, 10).map((n) => n.slice(0, 60));
+    out.alt_names = list.length ? JSON.stringify([...new Set(list)]) : null;
+  }
   return out;
 }
 
@@ -699,7 +704,11 @@ export function parsePlayer(p: Record<string, unknown>) {
     tags = JSON.parse(String(p.tags ?? '[]'));
   } catch {}
   const riot_id = p.riot_game_name && p.riot_tag_line ? `${p.riot_game_name}#${p.riot_tag_line}` : null;
-  return { ...p, tags, riot_id };
+  let alt_names: string[] = [];
+  try {
+    alt_names = JSON.parse(String(p.alt_names ?? '[]')) ?? [];
+  } catch {}
+  return { ...p, tags, riot_id, alt_names };
 }
 
 // Table/column names below come from our own code, never from user input.

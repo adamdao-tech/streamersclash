@@ -666,7 +666,7 @@ const TOOLS: Tool[] = [
   },
   {
     name: 'update_player',
-    description: "Changes a player in the app: team, nickname, role, Riot ID (GameName#TAG, empty to clear) and its server (EUNE/EUW), Twitch/Kick channel (name or link – a new Twitch channel fetches its VODs right away), notes. Only the fields given are changed.",
+    description: "Changes a player in the app: team, nickname, role, Riot ID (GameName#TAG, empty to clear) and its server (EUNE/EUW), other accounts (alt_names), Twitch/Kick channel (name or link – a new Twitch channel fetches its VODs right away), notes. Only the fields given are changed.",
     inputSchema: {
       type: 'object',
       properties: {
@@ -676,6 +676,7 @@ const TOOLS: Tool[] = [
         role: { type: 'string', enum: ['TOP', 'JUNGLE', 'MID', 'ADC', 'SUPPORT', 'SUB'] },
         riot_id: { type: 'string' },
         region: { type: 'string', enum: ['EUNE', 'EUW'], description: 'Server of the Riot ID' },
+        alt_names: { type: 'string', description: 'Other accounts (names in game, comma-separated; replaces the list, empty clears) – games on them count for this player' },
         twitch_login: { type: 'string' },
         kick_slug: { type: 'string' },
         notes: { type: 'string' },
@@ -694,7 +695,7 @@ const TOOLS: Tool[] = [
       if (!Object.keys(fields).length) throw new HttpError(400, 'invalid', 'Nothing to change.');
       await update(env.DB, 'players', id, fields);
       await logActivity(env.DB, { kind: 'claude', userId: user.id }, 'player.update', 'player', id, fields);
-      if ('riot_game_name' in fields || 'nickname' in fields || 'team_id' in fields) await relinkDraftPlayers(env).catch(() => {});
+      if ('riot_game_name' in fields || 'nickname' in fields || 'team_id' in fields || 'alt_names' in fields) await relinkDraftPlayers(env).catch(() => {});
       if (fields.twitch_login) await syncTwitchVods(env, [String(fields.twitch_login)]).catch(() => {});
       return text({ ok: true });
     },

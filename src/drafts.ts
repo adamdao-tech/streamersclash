@@ -147,10 +147,10 @@ interface TeamRoster { id: number; name: string; players: (PlayerNames & { nickn
 async function loadTeamRosters(db: D1Database): Promise<TeamRoster[]> {
   const { results } = await db
     .prepare(
-      `SELECT p.id, p.team_id, t.name AS team_name, p.nickname, p.riot_game_name, q.accounts
+      `SELECT p.id, p.team_id, t.name AS team_name, p.nickname, p.riot_game_name, p.alt_names, q.accounts
          FROM players p JOIN teams t ON t.id = p.team_id LEFT JOIN queue_players q ON q.key = p.queue_key`,
     )
-    .all<{ id: number; team_id: number; team_name: string; nickname: string; riot_game_name: string | null; accounts: string | null }>();
+    .all<{ id: number; team_id: number; team_name: string; nickname: string; riot_game_name: string | null; alt_names: string | null; accounts: string | null }>();
   const teams = new Map<number, TeamRoster>();
   for (const r of results) {
     if (!teams.has(r.team_id)) teams.set(r.team_id, { id: r.team_id, name: r.team_name, players: [] });
@@ -160,8 +160,12 @@ async function loadTeamRosters(db: D1Database): Promise<TeamRoster[]> {
 }
 
 /** Names a player can show up under in a game: nickname, Riot ID and the accounts from his Streamers Clash profile. */
-function playerKeys(r: { nickname: string; riot_game_name: string | null; accounts?: string | null }): string[] {
+function playerKeys(r: { nickname: string; riot_game_name: string | null; alt_names?: string | null; accounts?: string | null }): string[] {
   const names = [r.nickname, r.riot_game_name];
+  // other accounts entered by hand (scrims are often played on smurfs: "Hi im Pro Mid1" = Twight)
+  try {
+    for (const n of JSON.parse(r.alt_names || '[]') as string[]) names.push(String(n).split('#')[0]);
+  } catch { /* ignore */ }
   try {
     for (const a of JSON.parse(r.accounts || '[]') as { riot?: string }[]) if (a.riot) names.push(a.riot.split('#')[0]);
   } catch { /* ignore */ }
@@ -307,8 +311,8 @@ function levenshtein(a: string, b: string): number {
 
 async function loadPlayerNames(db: D1Database): Promise<PlayerNames[]> {
   const { results } = await db
-    .prepare('SELECT p.id, p.nickname, p.riot_game_name, q.accounts FROM players p LEFT JOIN queue_players q ON q.key = p.queue_key')
-    .all<{ id: number; nickname: string; riot_game_name: string | null; accounts: string | null }>();
+    .prepare('SELECT p.id, p.nickname, p.riot_game_name, p.alt_names, q.accounts FROM players p LEFT JOIN queue_players q ON q.key = p.queue_key')
+    .all<{ id: number; nickname: string; riot_game_name: string | null; alt_names: string | null; accounts: string | null }>();
   return results.map((p) => ({ id: p.id, keys: playerKeys(p) }));
 }
 

@@ -52,8 +52,8 @@ async function route(req: Request, env: Env, url: URL, user: User): Promise<Resp
         .prepare(
           'SELECT id, twitch_login, display_name, avatar_url, role, can_stream, commentator, created_at, last_login_at FROM users ORDER BY role, commentator, twitch_login',
         )
-        .all();
-      return json({ users: results });
+        .all<Record<string, unknown> & { twitch_login: string }>();
+      return json({ users: results.map((u) => ({ ...u, is_superadmin: isSuperadmin(env, u) })) });
     }
     if (method === 'POST') {
       const body = await readBody(req);
@@ -71,11 +71,31 @@ async function route(req: Request, env: Env, url: URL, user: User): Promise<Resp
       return json({ ok: true }, 201);
     }
   }
-  // Who may keep Queue scouting visible while live – only a superadmin (the coach) decides.
   if ((m = path.match(/^\/api\/users\/(\d+)$/)) && method === 'PATCH') {
-    if (!isSuperadmin(env, user)) throw new HttpError(403, 'forbidden', 'Streamování povoluje jen superadmin.');
     const body = await readBody(req);
     const id = Number(m[1]);
+    // Role of an existing user: Člen / Komentátor / Admin. Admins switch members and commentators;
+    // making someone admin or taking admin away is up to a superadmin. Nobody changes himself or a superadmin.
+    if ('role' in body) {
+      requireAdmin(user);
+      const next = body.role === 'admin' ? 'admin' : body.role === 'commentator' ? 'commentator' : body.role === 'member' ? 'member' : null;
+      if (!next) throw new HttpError(400, 'invalid', 'Neznámá role.');
+      if (id === user.id) throw new HttpError(400, 'self', 'Svoji roli si změnit nemůžeš.');
+      const target = await db.prepare('SELECT twitch_login, role FROM users WHERE id = ?').bind(id).first<{ twitch_login: string; role: string }>();
+      if (!target) throw new HttpError(404, 'not_found', 'Uživatel neexistuje.');
+      if (isSuperadmin(env, target)) throw new HttpError(403, 'forbidden', 'Superadminovi roli měnit nejde.');
+      if ((next === 'admin' || target.role === 'admin') && !isSuperadmin(env, user)) {
+        throw new HttpError(403, 'forbidden', 'Admina může jmenovat nebo sesadit jen superadmin.');
+      }
+      await db
+        .prepare('UPDATE users SET role = ?, commentator = ? WHERE id = ?')
+        .bind(next === 'admin' ? 'admin' : 'member', next === 'commentator' ? 1 : 0, id)
+        .run();
+      await logActivity(db, actor, 'user.role', 'user', id, { login: target.twitch_login, role: next });
+      return json({ ok: true });
+    }
+    // Who may keep Queue scouting visible while live – only a superadmin (the coach) decides.
+    if (!isSuperadmin(env, user)) throw new HttpError(403, 'forbidden', 'Streamování povoluje jen superadmin.');
     await db.prepare('UPDATE users SET can_stream = ? WHERE id = ?').bind(body.can_stream ? 1 : 0, id).run();
     await logActivity(db, actor, 'user.can_stream', 'user', id, { can_stream: !!body.can_stream });
     return json({ ok: true });

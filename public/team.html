@@ -12,6 +12,8 @@
     .opgg-row { display: flex; gap: 3px; flex-wrap: wrap; margin-top: 3px; }
     .opgg-mini { font: 700 0.66rem var(--display); letter-spacing: .04em; padding: 1px 6px; border-radius: 4px; background: #5c46e8; color: #fff; }
     .opgg-mini:hover { text-decoration: none; filter: brightness(1.15); }
+    .mu-lead { margin: 0 0 10px; font-size: .85rem; }
+    .mu-vs { color: var(--muted); font-size: .78rem; padding: 0 4px; }
     .opgg-team { display: inline-flex; gap: 6px; flex-wrap: wrap; }
     .opgg-team:empty { display: none; }
     .opgg-btn { background: #5c46e8; border-color: #5c46e8; color: #fff; }
@@ -36,6 +38,7 @@
       <button data-tab="overview" class="active">Statistiky</button>
       <button data-tab="champions">Championi <span class="count" id="champ-count"></span></button>
       <button data-tab="drafts">Hry a drafty <span class="count" id="draft-count"></span></button>
+      <button data-tab="matchups">Matchupy <span class="count" id="mu-count"></span></button>
       <button data-tab="vods">VODky</button>
       <button data-tab="notes" class="no-comm">Poznámky</button>
     </nav>
@@ -72,6 +75,18 @@
 
     <section class="tab-panel" data-panel="drafts" hidden>
       <div id="drafts" class="drow-list"></div>
+    </section>
+
+    <section class="tab-panel" data-panel="matchups" hidden>
+      <section class="gbox">
+        <h2>Champion proti championovi <span class="gseg" id="mu-roles" role="group" aria-label="Role"></span></h2>
+        <p class="muted mu-lead" id="mu-lead"></p>
+        <div class="gscroll"><table class="gtable" id="mu-summary"></table></div>
+      </section>
+      <section class="gbox">
+        <h2>Hra po hře</h2>
+        <div class="gscroll"><table class="gtable" id="mu-games"></table></div>
+      </section>
     </section>
 
     <section class="tab-panel" data-panel="vods" hidden>
@@ -142,6 +157,7 @@
     let typeFilter = '';
     let champRole = '';
     let champSort = 'g';
+    let muRole = '';
 
     const ROLE_ORDER = ['TOP', 'JUNGLE', 'MID', 'ADC', 'SUPPORT', 'SUB'];
     const ROLE_NAME = { TOP: 'Top', JUNGLE: 'Jungle', MID: 'Mid', ADC: 'Bot', SUPPORT: 'Support', SUB: 'Náhradník' };
@@ -450,6 +466,104 @@
         : '<div class="empty">Zatím žádné hry. Čtečka je doplní z VODek hráčů, nebo je přidá Claude přes konektor.</div>';
     }
 
+    // --- matchupy: who played which champion against whom in his lane -----------
+    // Lane opponents come from the post-game scoreboard (lane 0–4 = top … support, same lane = opponents).
+    // Games without a post-game screen have no lanes; then the roles from champ select are used when both sides have one.
+    const LANE_ROLE = ['TOP', 'JUNGLE', 'MID', 'ADC', 'SUPPORT'];
+    function laneOf(a) { return a.lane != null ? a.lane : a.role ? LANE_ROLE.indexOf(a.role) : -1; }
+    function matchupRows(list) {
+      const byId = new Map(players.map((p) => [p.id, p]));
+      const rows = [];
+      let noLane = 0;
+      for (const d of list) {
+        const side = ourSide(d);
+        if (!side) continue;
+        const picks = d.actions.filter((a) => a.action === 'PICK');
+        for (const a of picks) {
+          if (a.side !== side || !byId.has(a.player_id)) continue;
+          const p = byId.get(a.player_id);
+          const lane = laneOf(a);
+          const o = lane >= 0 ? picks.find((x) => x.side !== side && laneOf(x) === lane) : null;
+          if (!o) { noLane++; continue; }
+          rows.push({
+            d, p, a, o, lane,
+            role: p.role && p.role !== 'SUB' ? p.role : LANE_ROLE[lane],
+            win: won(d, side),
+            oppName: o.player_nickname || o.player_name || null,
+            oppTeam: o.player_team_id && String(o.player_team_id) !== String(teamId) ? { id: o.player_team_id, name: o.player_team_name } : null,
+          });
+        }
+      }
+      return { rows, noLane };
+    }
+    const kdaText = (k, d, a) => (k == null || d == null || a == null ? '' : `${k}/${d}/${a}`);
+    function renderMatchups(list) {
+      const roles = [['', 'Vše'], ['TOP', 'Top'], ['JUNGLE', 'Jungle'], ['MID', 'Mid'], ['ADC', 'Bot'], ['SUPPORT', 'Support']];
+      document.getElementById('mu-roles').innerHTML = roles.map(([r, label]) =>
+        `<button data-role="${r}" class="${r === muRole ? 'active' : ''}" aria-pressed="${r === muRole}">${label}</button>`).join('');
+      const { rows: all, noLane } = matchupRows(list);
+      const rows = all.filter((r) => !muRole || r.role === muRole);
+      document.getElementById('mu-count').textContent = all.length ? `(${all.length})` : '';
+      document.getElementById('mu-lead').textContent = all.length
+        ? `Proti komu hráči ${team.name} hráli na své lajně, z ${list.length} ${list.length === 1 ? 'hry' : 'her'}.${noLane ? ` ${noLane}× chybí lajna soupeře (hra bez post-game obrazovky).` : ''}`
+        : '';
+
+      // summary: player + champion vs champion
+      const agg = new Map();
+      for (const r of rows) {
+        const key = `${r.p.id}|${r.a.champion}|${r.o.champion}`;
+        const g = agg.get(key) || { p: r.p, role: r.role, champ: r.a.champion, vs: r.o.champion, n: 0, w: 0, l: 0, k: 0, de: 0, as: 0, kn: 0, opp: new Set() };
+        g.n++;
+        if (r.win === true) g.w++;
+        if (r.win === false) g.l++;
+        if (r.a.kills != null && r.a.deaths != null && r.a.assists != null) { g.k += r.a.kills; g.de += r.a.deaths; g.as += r.a.assists; g.kn++; }
+        if (r.oppName) g.opp.add(r.oppName);
+        agg.set(key, g);
+      }
+      const sum = [...agg.values()].sort((x, y) => ROLE_ORDER.indexOf(x.role) - ROLE_ORDER.indexOf(y.role) || y.n - x.n || x.champ.localeCompare(y.champ));
+      document.getElementById('mu-summary').innerHTML = sum.length
+        ? `<thead><tr><th>Role</th><th>Hráč</th><th>Champion</th><th></th><th>Proti</th><th class="num">Hry</th><th class="num">V–P</th><th class="num">WR</th><th class="num">KDA</th><th>Soupeři</th></tr></thead>
+          <tbody>${sum.map((g) => `<tr>
+            <td class="role-cell role-${esc(g.role || '')}">${ROLE_NAME[g.role] || '–'}</td>
+            <td><a class="pname" href="/player?id=${g.p.id}">${esc(g.p.nickname)}</a></td>
+            <td><span class="gchamp">${champIcon(icons, g.champ, 'row')}${esc(g.champ)}</span></td>
+            <td class="mu-vs">vs</td>
+            <td><span class="gchamp">${champIcon(icons, g.vs, 'row')}${esc(g.vs)}</span></td>
+            <td class="num">${g.n}</td>
+            <td class="num muted">${g.w + g.l ? `${g.w}–${g.l}` : '–'}</td>
+            <td class="num">${wrSpan(pct(g.w, g.w + g.l))}</td>
+            <td class="num strong">${g.kn ? kdaRatio(g.k, g.de, g.as) : '–'}</td>
+            <td class="muted">${esc([...g.opp].join(', ')) || '–'}</td>
+          </tr>`).join('')}</tbody>`
+        : `<tr><td class="muted">${all.length ? 'V téhle roli zatím žádné matchupy.' : 'Zatím žádné matchupy – potřebují týmové hry s post-game obrazovkou (lajny) nebo s rolemi z champ selectu.'}</td></tr>`;
+
+      // game by game
+      const sorted = [...rows].sort((x, y) => String(y.d.played_at || '').localeCompare(String(x.d.played_at || '')) || ROLE_ORDER.indexOf(x.role) - ROLE_ORDER.indexOf(y.role));
+      document.getElementById('mu-games').innerHTML = sorted.length
+        ? `<thead><tr><th>Datum</th><th>Role</th><th>Hráč</th><th>Champion</th><th></th><th>Proti</th><th>Soupeř</th><th>Výsledek</th><th></th></tr></thead>
+          <tbody>${sorted.map((r) => {
+            const when = r.d.played_at ? new Date(r.d.played_at).toLocaleDateString('cs-CZ', { day: 'numeric', month: 'numeric' }) : '–';
+            const link = vodLink(r.d.vod_url, r.d.vod_timestamp_s);
+            const ka = kdaText(r.a.kills, r.a.deaths, r.a.assists);
+            const ko = kdaText(r.o.kills, r.o.deaths, r.o.assists);
+            const opp = r.oppName
+              ? `${r.o.player_id ? `<a href="/player?id=${r.o.player_id}">${esc(r.oppName)}</a>` : esc(r.oppName)}${r.oppTeam ? ` <span class="muted">· <a href="/team?id=${r.oppTeam.id}">${esc(r.oppTeam.name)}</a></span>` : ''}`
+              : '<span class="muted">–</span>';
+            return `<tr>
+              <td class="muted">${when}</td>
+              <td class="role-cell role-${esc(r.role || '')}">${ROLE_NAME[r.role] || '–'}</td>
+              <td><a class="pname" href="/player?id=${r.p.id}">${esc(r.p.nickname)}</a></td>
+              <td><span class="gchamp">${champIcon(icons, r.a.champion, 'row')}${esc(r.a.champion)}${ka ? ` <span class="muted">${ka}</span>` : ''}</span></td>
+              <td class="mu-vs">vs</td>
+              <td><span class="gchamp">${champIcon(icons, r.o.champion, 'row')}${esc(r.o.champion)}${ko ? ` <span class="muted">${ko}</span>` : ''}</span></td>
+              <td>${opp}</td>
+              <td>${r.win === null ? '<span class="muted">–</span>' : r.win ? '<span class="wrv good">Výhra</span>' : '<span class="wrv bad">Prohra</span>'}</td>
+              <td class="num">${link ? `<a href="${esc(link)}" target="_blank" rel="noopener" title="Champ select ve VODce">VOD ▶</a>` : ''}</td>
+            </tr>`;
+          }).join('')}</tbody>`
+        : '<tr><td class="muted">Zatím nic.</td></tr>';
+    }
+
     function renderNotes() {
       document.getElementById('team-notes').textContent = team.notes || 'Žádné poznámky. Přidáš je přes „Upravit tým“.';
     }
@@ -483,6 +597,7 @@
       renderRecent(list);
       renderChampions(list);
       renderDrafts(list);
+      renderMatchups(list);
     }
 
     let vodsLoaded = false;
@@ -528,6 +643,10 @@
       renderStats();
     }
 
+    document.getElementById('mu-roles').addEventListener('click', (e) => {
+      const b = e.target.closest('[data-role]'); if (!b) return;
+      muRole = b.dataset.role; renderMatchups(drafts());
+    });
     document.getElementById('champ-roles').addEventListener('click', (e) => {
       const b = e.target.closest('[data-role]'); if (!b) return;
       champRole = b.dataset.role; renderChampions(drafts());

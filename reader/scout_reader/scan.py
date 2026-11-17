@@ -16,7 +16,7 @@ from .champions import ChampionDB
 from .detect import Finder, is_screen
 from .layout import SCREENS
 from .ocr import DraftReading, read_draft
-from .postgame import match_to_draft, read_postgame
+from .postgame import match_open, match_to_draft, read_postgame
 
 log = logging.getLogger(__name__)
 
@@ -124,6 +124,35 @@ def read_postgame_at(streams: video.Streams, ts: float, ally: list[str], enemy: 
     return match_to_draft(pg, ally, enemy), crop
 
 
+def read_postgame_open_at(streams: video.Streams, ts: float, names: list[str], ally: list[str] | None, debug_dir: Path | None = None):
+    frame = video.grab_frame(streams.hires_url, ts)
+    ok, rect = is_screen(frame, "postgame")
+    if not ok:
+        return None
+    crop = rect.crop(frame)
+    return match_open(read_postgame(crop, debug_dir), names, ally), crop
+
+
+def best_open_postgame(streams: video.Streams, pg_ep: Episode, db: ChampionDB, ally: list[str] | None, debug_dir: Path | None = None):
+    """Reads a post-game screen without a full draft (blind pick / drafted outside the client): best of a few moments."""
+    names = [c.name for c in db.champions]
+    best = None
+    for offset in (4, 12, 25):
+        t = min(pg_ep.start + offset, pg_ep.end)
+        got = read_postgame_open_at(streams, t, names, ally, debug_dir)
+        if got and got[0] and (best is None or got[0]["fit"] > best[0]["fit"]):
+            best = (got[0], t, *_jpeg(got[1]))  # payload, ts, jpeg, width, height
+        if best and best[0]["fit"] >= 85:
+            break
+    return best
+
+
+def unclaimed_postgames(scan: ScanResult) -> list[Episode]:
+    """Post-game screens that don't follow any champ select found – games whose draft the scan never saw."""
+    claimed = {id(p) for d in scan.drafts if (p := postgame_for(d, scan))}
+    return [p for p in scan.postgames if id(p) not in claimed]
+
+
 def read_episode(streams: video.Streams, ep: Episode, db: ChampionDB, scan: ScanResult | None = None, debug_root: Path | None = None) -> DraftResult | None:
     """Reads the finished draft (a few moments before champ select ended), then the game's post-game screen."""
     debug_dir = debug_root / f"draft_{int(ep.end)}" if debug_root else None
@@ -147,7 +176,12 @@ def read_episode(streams: video.Streams, ep: Episode, db: ChampionDB, scan: Scan
     pg_ep = postgame_for(ep, scan) if scan else None
     ally = [s.champion for s in reading.ally if s.champion]
     enemy = [s.champion for s in reading.enemy if s.champion]
-    if pg_ep and len(ally) == 5 and len(enemy) == 5:
+    if pg_ep and len(ally) == 5 and len(enemy) < 5:
+        # Blind pick: the enemy team isn't shown in champ select – take it from the scoreboard.
+        got = best_open_postgame(streams, pg_ep, db, ally, debug_dir)
+        if got:
+            res.postgame, res.postgame_ts, res.postgame_jpeg = got[:3]
+    elif pg_ep and len(ally) == 5 and len(enemy) == 5:
         # The scoreboard animates in; read a few seconds after it appears, keep the best fit.
         for offset in (4, 12, 25):
             t = min(pg_ep.start + offset, pg_ep.end)

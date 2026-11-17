@@ -146,11 +146,22 @@ def process_job(app: AppClient, db: ChampionDB, job: dict, auto_accept: bool, ev
     found = 0
     for ep in scan.drafts:
         res = S.read_episode(streams, ep, db, scan)
-        if not res or res.reading.picks_found < 6:
-            log.info("  %s: no full draft (dodge or unreadable), skipped", S.fmt(ep.end))
+        if not res:
+            log.info("  %s: champ select couldn't be read, skipped", S.fmt(ep.end))
             continue
-        auto = auto_accept and res.reading.picks_confident
         payload = res.reading.to_payload()
+        auto = auto_accept and res.reading.picks_confident
+        if res.postgame and res.postgame.get("open"):
+            # Blind pick: the enemy team comes from the scoreboard. Saved right away only when every champion is clear.
+            payload["enemy"] = [{"champion": r["champion"] or "?"} for r in res.postgame["enemy"]]
+            ally_ok = all(s.champion and s.score >= 90 for s in res.reading.ally)
+            enemy_ok = all(r["champion"] and r.get("score", 0) >= 90 for r in res.postgame["enemy"])
+            auto = auto_accept and ally_ok and enemy_ok
+            log.info("  %s: blind pick – enemy team read from the post-game screen", S.fmt(ep.end))
+        picks = sum(1 for side in ("ally", "enemy") for s in payload[side] if s["champion"] != "?")
+        if picks < 6:
+            log.info("  %s: no full draft (dodge, blind pick without a post-game screen, or unreadable), skipped", S.fmt(ep.end))
+            continue
         if res.postgame:
             payload["postgame"] = {**res.postgame, "ts_s": int(res.postgame_ts or 0)}
         r = app.upload_frame(
@@ -165,6 +176,31 @@ def process_job(app: AppClient, db: ChampionDB, job: dict, auto_accept: bool, ev
         log.info("  %s: %s → %s", S.fmt(res.ts), summary(res.reading), state)
         if res.postgame:
             log.info("  %s", postgame_summary(res.postgame))
+
+    # Games whose draft never showed up in the client (drafted on drafter.lol and so on): the post-game
+    # screen alone gives all ten champions, names, K/D/A and the result (no bans). The app keeps only team
+    # games and works out which scoreboard team is the streamer's; saved right away when every champion is clear.
+    for pg_ep in S.unclaimed_postgames(scan):
+        got = S.best_open_postgame(streams, pg_ep, db, None)
+        if not got:
+            log.info("  %s: post-game screen without a draft, unreadable – skipped", S.fmt(pg_ep.start))
+            continue
+        pg, ts, jpg, w, h = got
+        payload = {
+            "ally": [{"champion": r["champion"] or "?", "player_name": r["player_name"], "role": r["role"]} for r in pg["ally"]],
+            "enemy": [{"champion": r["champion"] or "?"} for r in pg["enemy"]],
+            "ally_bans": [],
+            "enemy_bans": [],
+            "postgame": {**pg, "ts_s": int(ts)},
+            "source": "postgame",
+        }
+        clear = all(r["champion"] and r.get("score", 0) >= 90 for r in pg["ally"] + pg["enemy"])
+        r = app.upload_frame(vod_id, ts, jpg, w, h, payload, round(pg["fit"] / 100, 3), auto_accept and clear, postgame_jpeg=jpg)
+        found += 1
+        state = ("already saved" if r.get("duplicate") else "saved" if r.get("match_id")
+                 else "not a team game, skipped" if r.get("skipped") else f"for review ({r.get('reason')})")
+        log.info("  %s: game from the post-game screen only → %s", S.fmt(ts), state)
+        log.info("  %s", postgame_summary(pg))
     app.finish_job(vod_id, "done" if found else "skipped", drafts_found=found)
 
 

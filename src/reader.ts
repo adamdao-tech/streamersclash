@@ -1,5 +1,5 @@
 import type { Env } from './index';
-import { applyPostgame, saveDraft, teamGameCheck, validateDraft, type DraftInput } from './drafts';
+import { applyPostgame, saveDraft, teamGameCheck, validateDraft, type DraftInput, type DraftSlot } from './drafts';
 import { logActivity } from './db';
 import { assertBodySize, HttpError, json, sha256Hex } from './http';
 import { getStreams } from './twitch';
@@ -280,6 +280,31 @@ async function route(req: Request, env: Env, url: URL): Promise<Response> {
         const note = `Hra před začátkem sběru dat (${new Date(fromMs).toLocaleString('cs-CZ', { timeZone: 'Europe/Prague' })})`;
         await db.prepare(`UPDATE draft_frames SET status = 'discarded', note = ? WHERE id = ?`).bind(note, frameId).run();
         return json({ ok: true, frame_id: frameId, match_id: null, review: false, skipped: 'before_scan_from', reason: note }, 201);
+      }
+    }
+
+    // Games read (partly) from the post-game screen – blind pick, or drafted outside the client (drafter.lol):
+    // only team games are kept, also those going to review, so solo queue scoreboards don't flood the queue.
+    // Without a champ select (source "postgame") the scoreboard doesn't say which team is the streamer's:
+    // the one with his teammates is.
+    const rd = body.reading as (DraftInput & { source?: string; postgame?: { open?: boolean; ally?: DraftSlot[]; enemy?: DraftSlot[] } }) | undefined;
+    if (rd?.postgame?.open) {
+      const pg = rd.postgame;
+      const side = (rows?: DraftSlot[]) => (rows ?? []).map((r) => ({ champion: r.champion ?? '?', player_name: r.player_name ?? null }));
+      const a = await teamGameCheck(env, { vod_id: vodId, ally: rd.source === 'postgame' ? side(pg.ally) : rd.ally });
+      const e = rd.source === 'postgame' ? await teamGameCheck(env, { vod_id: vodId, ally: side(pg.enemy) }) : null;
+      if (!a.ok && !e?.ok) {
+        const note = `Není týmová hra: ze soupisky ${a.team ?? 'týmu'} jen ${a.matched} z ${a.need} (${a.names.join(', ') || '–'})`;
+        await db.prepare(`UPDATE draft_frames SET status = 'discarded', note = ? WHERE id = ?`).bind(note.slice(0, 500), frameId).run();
+        await logActivity(db, { kind: 'sync' }, 'frame.not_team', 'frame', frameId, { vod_id: vodId, matched: a.matched, need: a.need });
+        return json({ ok: true, frame_id: frameId, match_id: null, review: false, skipped: 'not_team_game', reason: note }, 201);
+      }
+      if (e?.ok && (!a.ok || e.matched > a.matched)) {
+        // the streamer's team is the second one on the scoreboard: swap the sides
+        [pg.ally, pg.enemy] = [pg.enemy, pg.ally];
+        rd.ally = (pg.ally ?? []).map((r) => ({ champion: r.champion ?? '?', player_name: r.player_name ?? null, role: r.role ?? null }));
+        rd.enemy = (pg.enemy ?? []).map((r) => ({ champion: r.champion ?? '?' }));
+        await db.prepare('UPDATE draft_frames SET reading = ? WHERE id = ?').bind(JSON.stringify(rd), frameId).run();
       }
     }
 

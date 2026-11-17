@@ -239,3 +239,69 @@ def match_to_draft(pg: PostGame, ally: list[str], enemy: list[str]) -> dict | No
         "ally": side(ally_rows, ally_ch),
         "enemy": side(enemy_rows, enemy_ch),
     }
+
+
+# --- games where the draft didn't show both teams ---------------------------------------------
+# Scrims are often drafted outside the client (drafter.lol) and then played as a blind-pick custom:
+# the client's champ select shows only the streamer's team, or flashes by too fast to be caught.
+# The post-game scoreboard still lists all ten champions, so the missing side is read from it,
+# matching each row's champion line against the whole champion list.
+
+OPEN_OK = 75  # fuzzy score needed to accept a champion read from the scoreboard alone
+
+
+def _open_row(row: ScoreRow, names: list[str]) -> tuple[str | None, float]:
+    best, best_s = None, 0.0
+    for r in row.champ_raw:
+        key = letters(r)
+        if len(key) < 2:
+            continue
+        for n in names:
+            nk = letters(n)
+            # very short names (Vi) only on an exact read – fuzzy scores on two letters mean nothing
+            s = (100.0 if key == nk else 0.0) if min(len(key), len(nk)) <= 2 else fuzz.ratio(key, nk)
+            if s > best_s:
+                best, best_s = n, s
+    return (best, best_s) if best_s >= OPEN_OK else (None, best_s)
+
+
+def _side_rows(rows: list[ScoreRow], champs: list[str | None], scores: list[float] | None = None) -> list[dict]:
+    return [
+        {"champion": c, "player_name": r.name, "role": r.role, "kills": r.kills, "deaths": r.deaths, "assists": r.assists, "lane": i,
+         **({"score": round(scores[i], 1)} if scores else {})}
+        for i, (r, c) in enumerate(zip(rows, champs))
+    ]
+
+
+def match_open(pg: PostGame, names: list[str], ally: list[str] | None = None) -> dict | None:
+    """Reads the scoreboard without a full draft. With the streamer's five champions (`ally`, blind pick)
+    their team is found by them and only the other team is read openly; without them (no champ select
+    seen at all) the first scoreboard team is taken as the streamer's – such games always go to review."""
+    if len(pg.team1) != 5 or len(pg.team2) != 5:
+        return None
+    if ally and len(ally) == 5:
+        a1, s1 = _best_assignment(pg.team1, ally)
+        a2, s2 = _best_assignment(pg.team2, ally)
+        ally_rows, enemy_rows, ally_ch, fit_a = (pg.team1, pg.team2, a1, s1) if s1 >= s2 else (pg.team2, pg.team1, a2, s2)
+        if fit_a < 45:
+            return None
+        ally_scores = None
+    else:
+        ally_rows, enemy_rows = pg.team1, pg.team2
+        read = [_open_row(r, names) for r in ally_rows]
+        ally_ch, ally_scores = [c for c, _ in read], [s for _, s in read]
+        fit_a = sum(ally_scores) / 5
+    read = [_open_row(r, names) for r in enemy_rows]
+    enemy_ch, enemy_scores = [c for c, _ in read], [s for _, s in read]
+    fit = (fit_a + sum(enemy_scores) / 5) / 2
+    if sum(1 for c in enemy_ch if c) < 3:  # not a readable scoreboard
+        return None
+    return {
+        "result": {"VICTORY": "WIN", "DEFEAT": "LOSS"}.get(pg.result or ""),
+        "game_type": pg.game_type,
+        "duration_s": pg.duration_s,
+        "fit": round(fit, 1),
+        "open": True,  # champions of at least one side read from the scoreboard alone
+        "ally": _side_rows(ally_rows, ally_ch, ally_scores),
+        "enemy": _side_rows(enemy_rows, enemy_ch, enemy_scores),
+    }

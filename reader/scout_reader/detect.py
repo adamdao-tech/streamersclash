@@ -146,7 +146,7 @@ def is_screen(frame: np.ndarray, screen: str, work_width: int = 640, leniency: f
     """`leniency` lowers the threshold – for reading a frame at a moment the scan already found the screen."""
     f = Finder(screen, work_width)
     rect = f.find(frame)
-    if rect.score < f.threshold - leniency and work_width != 320:
+    if leniency > 0 and rect.score < f.threshold - leniency and work_width != 320:
         # the scan finds screens at 320 px; at higher resolution webcams and overlays can weigh more
         alt = Finder(screen, 320).find(frame)
         if alt.score > rect.score:

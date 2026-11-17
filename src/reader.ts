@@ -64,7 +64,7 @@ async function route(req: Request, env: Env, url: URL): Promise<Response> {
   const path = url.pathname.replace(/\/+$/, '');
   let m: RegExpMatchArray | null;
 
-  // Claim finished VODs waiting for a scan. A claim expires after 6 h so a crashed reader doesn't block a VOD forever.
+  // Claim finished VODs waiting for a scan. A claim expires after 1 h (a VOD takes minutes to read now) so a restarted or crashed reader doesn't block it for long.
   if (path === '/api/reader/jobs' && req.method === 'GET') {
     const limit = Math.min(Math.max(Number(url.searchParams.get('limit')) || 1, 1), 5);
     const { results: candidates } = await db
@@ -72,7 +72,7 @@ async function route(req: Request, env: Env, url: URL): Promise<Response> {
         `SELECT v.id, v.platform, v.url, v.stream_url, v.title, v.channel_login, v.started_at, v.duration_s, v.player_id,
                 COALESCE(p.is_captain, 0) AS is_captain, p.team_id
            FROM vods v LEFT JOIN players p ON p.id = v.player_id
-          WHERE (v.scan_status = 'pending' OR (v.scan_status = 'scanning' AND v.scanned_at < datetime('now', '-6 hours')))
+          WHERE (v.scan_status = 'pending' OR (v.scan_status = 'scanning' AND v.scanned_at < datetime('now', '-1 hours')))
             AND v.platform IN ('twitch', 'kick')
             -- skip VODs of streams still running: their duration keeps growing
             AND datetime(v.started_at, '+' || COALESCE(v.duration_s, 0) || ' seconds') < datetime('now', '-20 minutes')
@@ -108,7 +108,7 @@ async function route(req: Request, env: Env, url: URL): Promise<Response> {
       results.map((v) =>
         db.prepare(
           `UPDATE vods SET scan_status = 'scanning', scanned_at = datetime('now')
-            WHERE id = ? AND (scan_status = 'pending' OR (scan_status = 'scanning' AND scanned_at < datetime('now', '-6 hours')))`,
+            WHERE id = ? AND (scan_status = 'pending' OR (scan_status = 'scanning' AND scanned_at < datetime('now', '-1 hours')))`,
         ).bind(v.id),
       ),
     );

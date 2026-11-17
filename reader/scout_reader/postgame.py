@@ -160,6 +160,13 @@ def _read_row(client: np.ndarray, y: float) -> ScoreRow:
     return row
 
 
+def kda_rows(client_crop: np.ndarray) -> int:
+    """How many of the ten scoreboard rows have a readable K/D/A – cheap (no OCR), used to check
+    that a crop really is the scoreboard and that it's aligned."""
+    client = cv2.resize(client_crop, (L.CANON_W, L.CANON_H), interpolation=cv2.INTER_CUBIC)
+    return sum(1 for y in L.TEAM1_NAME_Y + L.TEAM2_NAME_Y if read_kda(_box(client, L.SB_KDA_X, y, L.SB_LINE_H / 2)))
+
+
 def read_postgame(client_crop: np.ndarray, debug_dir: Path | None = None) -> PostGame:
     client = cv2.resize(client_crop, (L.CANON_W, L.CANON_H), interpolation=cv2.INTER_CUBIC)
     if debug_dir:
@@ -167,12 +174,18 @@ def read_postgame(client_crop: np.ndarray, debug_dir: Path | None = None) -> Pos
         cv2.imwrite(str(debug_dir / "postgame.png"), client)
     h, w = client.shape[:2]
 
-    x0, y0, x1, y1 = L.px(L.RESULT_BOX, w, h)
-    result_raw = letters(_ocr(_prep(client[y0:y1, x0:x1], 80)))
     result = None
-    for word in ("VICTORY", "DEFEAT"):
-        if word in result_raw or fuzz.ratio(result_raw, word) >= 70:
-            result = word
+    for box in (L.RESULT_BOX, L.RESULT_BOX_TIGHT):
+        x0, y0, x1, y1 = L.px(box, w, h)
+        for floor in (0, 120):
+            result_raw = letters(_ocr(_prep(client[y0:y1, x0:x1], 80, floor=floor)))
+            for word in ("VICTORY", "DEFEAT"):
+                if word in result_raw or fuzz.ratio(result_raw, word) >= 70:
+                    result = word
+            if result:
+                break
+        if result:
+            break
 
     x0, y0, x1, y1 = L.px(L.SUBTITLE_BOX, w, h)
     sub = _ocr(_prep(client[y0:y1, x0:x1], 60))

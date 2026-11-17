@@ -75,6 +75,7 @@ def px(rect, w, h):
 
 # --- post-game scoreboard ---------------------------------------------------------
 RESULT_BOX = (0.050, 0.022, 0.215, 0.088)  # "VICTORY" / "DEFEAT"
+RESULT_BOX_TIGHT = (0.055, 0.022, 0.200, 0.075)  # without the subtitle line below (streams scaled a bit differently)
 SUBTITLE_BOX = (0.050, 0.072, 0.320, 0.102)  # "Custom · W:0 - L:0 · 31:01 · GameID"
 # Centre of the player-name line in each scoreboard row; the champion name is just below.
 TEAM1_NAME_Y = [0.239 + 0.0565 * i for i in range(5)]

@@ -16,7 +16,7 @@ from .champions import ChampionDB
 from .detect import Finder, is_screen
 from .layout import SCREENS
 from .ocr import DraftReading, read_draft
-from .postgame import match_open, match_to_draft, read_postgame
+from .postgame import kda_rows, match_open, match_to_draft, read_postgame
 
 log = logging.getLogger(__name__)
 
@@ -118,15 +118,27 @@ def _confirm_postgame(streams: video.Streams, ep: Episode) -> bool:
         except Exception as e:  # noqa: BLE001
             log.debug("post-game check at %s failed: %s", fmt(ts), e)
             continue
-        pg = read_postgame(_client_crop(frame, rect))
-        rows = sum(1 for r in pg.team1 + pg.team2 if r.kills is not None)
-        ok = pg.result in ("VICTORY", "DEFEAT") and rows >= 5
+        # The scan's 320 px rectangle is a few pixels off at 1080p: nudge it to where the K/D/A column reads best.
+        rows, rect = max(((kda_rows(_client_crop(frame, r)), r) for r in _nudges(rect)), key=lambda t: t[0])
+        # Six or more rows of "K / D / A" at the scoreboard's positions don't happen by chance.
+        ok = rows >= 6
         log.info("  %s: possible post-game screen (score %.2f) – %s", fmt(ts), score,
-                 f"confirmed ({pg.result}, {rows} K/D/A rows)" if ok else "not a scoreboard")
+                 f"confirmed ({rows} K/D/A rows)" if ok else f"not a scoreboard ({rows} K/D/A rows)")
         if ok:
             ep.best_score, ep.best_ts, ep.rect = score, ts, rect
             return True
     return False
+
+
+def _nudges(rect: tuple[float, float, float, float]) -> list[tuple[float, float, float, float]]:
+    x, y, w, h = rect
+    out = []
+    for s in (1.0, 0.985, 1.015):
+        for dx in (0.0, -0.004, 0.004):
+            for dy in (0.0, -0.006, 0.006):
+                nw, nh = w * s, h * s
+                out.append((x + (w - nw) / 2 + dx, y + (h - nh) / 2 + dy, nw, nh))
+    return out
 
 
 def postgame_for(draft: Episode, scan: ScanResult) -> Episode | None:

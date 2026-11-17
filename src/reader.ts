@@ -2,6 +2,7 @@ import type { Env } from './index';
 import { applyPostgame, saveDraft, teamGameCheck, validateDraft, type DraftInput } from './drafts';
 import { logActivity } from './db';
 import { assertBodySize, HttpError, json, sha256Hex } from './http';
+import { getStreams } from './twitch';
 
 // API for the draft reader running on Dao's PC (reader/ in this repo).
 // Authenticated with a shared secret: Authorization: Bearer <READER_TOKEN>.
@@ -28,6 +29,30 @@ export async function handleReader(req: Request, env: Env, url: URL): Promise<Re
   }
 }
 
+/** Read VODs of the same team that cover ≥ 80 % of this VOD's time and had team games in them (null = not covered). */
+async function coveredBy(db: D1Database, v: { id: number; team_id: number | null; started_at: string; duration_s: number | null }): Promise<string[] | null> {
+  const start = new Date(v.started_at).getTime(), end = start + (v.duration_s || 0) * 1000;
+  if (!(end > start)) return null;
+  const { results } = await db
+    .prepare(
+      `SELECT o.started_at, o.duration_s, p.nickname FROM vods o JOIN players p ON p.id = o.player_id
+        WHERE p.team_id = ? AND o.id <> ? AND o.scan_status = 'done'
+          AND EXISTS (SELECT 1 FROM matches m WHERE m.vod_id = o.id)`,
+    )
+    .bind(v.team_id, v.id)
+    .all<{ started_at: string; duration_s: number | null; nickname: string }>();
+  const parts = results
+    .map((o) => { const s = new Date(o.started_at).getTime(); return { s: Math.max(s, start), e: Math.min(s + (o.duration_s || 0) * 1000, end), who: o.nickname }; })
+    .filter((x) => x.e > x.s)
+    .sort((a, b) => a.s - b.s);
+  let covered = 0, curS = -1, curE = -1;
+  for (const x of parts) {
+    if (x.s > curE) { if (curE > curS) covered += curE - curS; curS = x.s; curE = x.e; } else curE = Math.max(curE, x.e);
+  }
+  if (curE > curS) covered += curE - curS;
+  return covered >= 0.8 * (end - start) ? [...new Set(parts.map((x) => x.who))] : null;
+}
+
 /** Start of data collection (env SCAN_FROM, ISO time): VODs and games before it are not read. */
 function scanFrom(env: Env): string | null {
   const v = String(env.SCAN_FROM ?? '').trim();
@@ -42,20 +67,41 @@ async function route(req: Request, env: Env, url: URL): Promise<Response> {
   // Claim finished VODs waiting for a scan. A claim expires after 6 h so a crashed reader doesn't block a VOD forever.
   if (path === '/api/reader/jobs' && req.method === 'GET') {
     const limit = Math.min(Math.max(Number(url.searchParams.get('limit')) || 1, 1), 5);
-    const { results } = await db
+    const { results: candidates } = await db
       .prepare(
-        `SELECT v.id, v.platform, v.url, v.stream_url, v.title, v.channel_login, v.started_at, v.duration_s, v.player_id
-           FROM vods v
+        `SELECT v.id, v.platform, v.url, v.stream_url, v.title, v.channel_login, v.started_at, v.duration_s, v.player_id,
+                COALESCE(p.is_captain, 0) AS is_captain, p.team_id
+           FROM vods v LEFT JOIN players p ON p.id = v.player_id
           WHERE (v.scan_status = 'pending' OR (v.scan_status = 'scanning' AND v.scanned_at < datetime('now', '-6 hours')))
             AND v.platform IN ('twitch', 'kick')
             -- skip VODs of streams still running: their duration keeps growing
             AND datetime(v.started_at, '+' || COALESCE(v.duration_s, 0) || ' seconds') < datetime('now', '-20 minutes')
             -- only VODs that run past the start of data collection (SCAN_FROM); older ones are left alone
             AND (? IS NULL OR datetime(v.started_at, '+' || COALESCE(v.duration_s, 0) || ' seconds') > datetime(?))
-          ORDER BY v.started_at DESC LIMIT ?`,
+          -- captains first: their team games then cover the same games on the teammates' VODs
+          ORDER BY COALESCE(p.is_captain, 0) DESC, v.started_at DESC LIMIT ?`,
       )
-      .bind(scanFrom(env), scanFrom(env), limit)
-      .all<{ id: number }>();
+      .bind(scanFrom(env), scanFrom(env), limit * 8)
+      .all<{ id: number; platform: string; channel_login: string | null; started_at: string; duration_s: number | null; is_captain: number; team_id: number | null }>();
+    // A Twitch VOD of a stream that is still running (e.g. a 24/7 subathon) can't be read yet: its stored
+    // duration is from the last sync and the reader would crawl through it in real time. Leave it for later.
+    const logins = [...new Set(candidates.filter((v) => v.platform === 'twitch' && v.channel_login).map((v) => v.channel_login!))];
+    const live = logins.length ? await getStreams(env, logins).catch(() => []) : [];
+    const notLive = candidates.filter((v) => !live.some((st) => st.user_login.toLowerCase() === String(v.channel_login).toLowerCase()
+      && Math.abs(new Date(st.started_at).getTime() - new Date(v.started_at).getTime()) < 30 * 60_000));
+    // A teammate's VOD whose time is already covered by read VODs of his team with team games in them
+    // (usually the captain's) has the same games from another POV: skip it instead of reading it again.
+    const results: typeof candidates = [];
+    for (const v of notLive) {
+      if (results.length >= limit) break;
+      const cover = !v.is_captain && v.team_id ? await coveredBy(db, v) : null;
+      if (cover) {
+        await db.prepare(`UPDATE vods SET scan_status = 'skipped', scanned_at = datetime('now') WHERE id = ?`).bind(v.id).run();
+        await logActivity(db, { kind: 'sync' }, 'vod.skip_covered', 'vod', v.id, { covered_by: cover });
+        continue;
+      }
+      results.push(v);
+    }
     if (results.length) {
       await db.batch(
         results.map((v) =>

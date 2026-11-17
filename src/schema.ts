@@ -717,4 +717,8 @@ CREATE TABLE draft_boards (
 );
 CREATE INDEX idx_draft_boards_folder ON draft_boards(folder, updated_at);
 `,
+
+  /* 35: team captain – the reader reads captains' VODs first and skips teammates' VODs their games already cover */ `
+ALTER TABLE players ADD COLUMN is_captain INTEGER NOT NULL DEFAULT 0;
+`,
 ];

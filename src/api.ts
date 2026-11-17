@@ -655,6 +655,7 @@ export function playerFields(body: Record<string, unknown>, partial: boolean): R
   if ('region' in body) out.region = oneOf(body.region, REGIONS, 'Region') ?? 'EUNE';
   if (has('twitch_login')) out.twitch_login = normalizeChannel(body.twitch_login, 'twitch.tv');
   if (has('kick_slug')) out.kick_slug = normalizeChannel(body.kick_slug, 'kick.com');
+  if ('is_captain' in body) out.is_captain = body.is_captain ? 1 : 0;
   if (has('tags')) {
     const tags = Array.isArray(body.tags) ? body.tags : String(body.tags ?? '').split(',');
     out.tags = JSON.stringify(

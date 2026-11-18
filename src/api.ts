@@ -263,7 +263,7 @@ async function route(req: Request, env: Env, url: URL, user: User): Promise<Resp
 
   if (path === '/api/drafter/import' && method === 'POST') {
     const body = await readBody(req);
-    const res = await importDrafterSeries(env, String(body.url ?? ''));
+    const res = await importDrafterSeries(env, String(body.url ?? ''), body.data);
     await logActivity(db, actor, 'drafter.import', null, null, {
       series: res.series, games: res.games.length, updated: res.games.filter((g) => g.status === 'updated').map((g) => g.match_id),
     });

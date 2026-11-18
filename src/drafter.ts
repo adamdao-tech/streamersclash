@@ -44,10 +44,19 @@ async function fetchSeries(seriesId: string): Promise<DrafterGame[]> {
   const res = await fetch(`https://drafter.lol/api/draft-view/${encodeURIComponent(seriesId)}`, {
     headers: { Accept: 'application/json', 'User-Agent': 'sc-scouting (sc.daotech.dev)' },
   });
+  // drafter.lol lets only browsers in (servers get 428/403) – then the page sends the data itself (bookmarklet).
+  if (res.status === 428 || res.status === 403 || res.status === 429) {
+    throw new HttpError(502, 'drafter_blocked', 'drafter.lol nepustí server. Otevři draft na drafter.lol a klikni na záložku „SC bany“.');
+  }
   if (!res.ok) throw new HttpError(502, 'drafter_unavailable', `drafter.lol odpověděl ${res.status}`);
-  const body = (await res.json()) as { status?: string; drafts?: DrafterGame[] };
-  if (body.status !== 'ok' || !Array.isArray(body.drafts)) throw new HttpError(404, 'drafter_not_found', 'Tahle série na drafter.lol není.');
-  return body.drafts;
+  return seriesDrafts(await res.json());
+}
+
+/** The drafts of a series response ({status: 'ok', drafts: [...]}) – checked, at most 10 games. */
+function seriesDrafts(body: unknown): DrafterGame[] {
+  const b = body as { status?: string; drafts?: unknown };
+  if (!b || b.status !== 'ok' || !Array.isArray(b.drafts)) throw new HttpError(404, 'drafter_not_found', 'Tahle série na drafter.lol není.');
+  return b.drafts.filter((d): d is DrafterGame => !!d && typeof d === 'object').slice(0, 10);
 }
 
 const EMPTY = new Set(['', 'none', 'null', 'undefined']);
@@ -57,9 +66,23 @@ const EMPTY = new Set(['', 'none', 'null', 'undefined']);
  * ten champions (at least 9 must agree); the POV team's picks decide which drafter side is "ally".
  * Empty ban slots ("None") are skipped, and a game with no bans on drafter.lol keeps whatever it had.
  */
-export async function importDrafterSeries(env: Env, input: string): Promise<{ series: string; games: DrafterImportGame[] }> {
-  const seriesId = parseDrafterSeries(input);
-  const drafts = await fetchSeries(seriesId);
+export async function importDrafterSeries(
+  env: Env,
+  input: string,
+  data?: unknown,
+): Promise<{ series: string; games: DrafterImportGame[] }> {
+  let drafts: DrafterGame[];
+  let seriesId: string;
+  if (data) {
+    // Sent by the user's browser from the drafter.lol page (the site doesn't let servers in).
+    drafts = seriesDrafts(data);
+    const first = drafts[0] as { seriesId?: unknown; draftId?: unknown } | undefined;
+    const fromData = String(first?.seriesId ?? first?.draftId ?? '');
+    seriesId = parseDrafterSeries(input || fromData);
+  } else {
+    seriesId = parseDrafterSeries(input);
+    drafts = await fetchSeries(seriesId);
+  }
   const champions = await getChampions(env);
   const champ = (v: unknown) => {
     const s = String(v ?? '').trim();

@@ -766,9 +766,16 @@ const TOOLS: Tool[] = [
       'Imports bans from a drafter.lol series link (https://drafter.lol/draft/…). Each game of the series is matched to a saved game by its ten ' +
       'champions; its bans replace the saved ones (empty slots are skipped, a game with no bans keeps what it had) and a note records which side ' +
       '(blue/red) the POV team was on. Games not saved yet come back as not_found – import again after the reader saves them.',
-    inputSchema: { type: 'object', properties: { url: { type: 'string', description: 'drafter.lol link or series id' } }, required: ['url'] },
+    inputSchema: {
+      type: 'object',
+      properties: {
+        url: { type: 'string', description: 'drafter.lol link or series id' },
+        data: { type: 'object', description: "Optional: the series JSON from https://drafter.lol/api/draft-view/<id>, when the server can't fetch it itself (drafter.lol blocks servers)" },
+      },
+      required: ['url'],
+    },
     async run(a, { env, user }) {
-      const res = await importDrafterSeries(env, String(a.url ?? ''));
+      const res = await importDrafterSeries(env, String(a.url ?? ''), a.data);
       const updated = res.games.filter((g) => g.status === 'updated');
       await logActivity(env.DB, { kind: 'claude', userId: user.id }, 'drafter.import', null, null, {
         series: res.series, games: res.games.length, updated: updated.map((g) => g.match_id),

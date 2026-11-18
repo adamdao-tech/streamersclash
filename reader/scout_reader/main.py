@@ -135,12 +135,19 @@ def cmd_scan(args) -> None:
     scan = S.find_episodes(streams, every, parse_time(args.start) if args.start else 0, parse_time(args.end) if args.end else None)
     print(f"Found {len(scan.drafts)} champion select(s), {len(scan.postgames)} post-game screen(s)")
     debug = Path(env("DEBUG_DIR", "/debug"))
+    used: set[int] = set()
+    read = {id(ep): S.read_draft_episode(streams, ep, db, debug) for ep in scan.drafts}
+    real = S.real_drafts(scan, [r for r in read.values() if r])
     for ep in scan.drafts:
-        res = S.read_episode(streams, ep, db, scan, debug)
-        print(f"  {S.fmt(ep.start)}–{S.fmt(ep.end)}: " + (summary(res.reading) if res else "could not read"))
+        res = read[id(ep)]
+        if res:
+            S.attach_postgame(streams, res, db, real, debug)
+        print(f"  {S.fmt(ep.start)}–{S.fmt(ep.end)}: " + (summary(res.reading) if res else "could not read (false find or unreadable)"))
         if res:
             print("  " + postgame_summary(res.postgame) if res.postgame_ts else "  no post-game screen (dodge or game not finished in VOD)")
-    for pg_ep in S.unclaimed_postgames(scan):
+            if res.postgame_ep and res.postgame:
+                used.add(id(res.postgame_ep))
+    for pg_ep in S.unused_postgames(scan, used):
         got = S.best_open_postgame(streams, pg_ep, db, None, debug)
         print(f"  {S.fmt(pg_ep.start)}: post-game without a draft – " + (postgame_summary(got[0]) if got else "unreadable"))
 
@@ -158,11 +165,19 @@ def process_job(app: AppClient, db: ChampionDB, job: dict, auto_accept: bool, ev
     scan = S.find_episodes(streams, every)
     log.info("  %d champion select(s), %d post-game screen(s) found", len(scan.drafts), len(scan.postgames))
     found = 0
+    used: set[int] = set()  # post-game screens a saved draft took; every other one is read on its own below
+    read = {id(ep): S.read_draft_episode(streams, ep, db) for ep in scan.drafts}
+    real = S.real_drafts(scan, [r for r in read.values() if r])
+    rejected = len(scan.drafts) - len(real.drafts)
+    if rejected:
+        # mostly in-game frames the low-res scan took for a champ select; the full-resolution check throws them out
+        log.info("  %d champ select find(s) rejected at full resolution (in-game frames or unreadable)", rejected)
     for ep in scan.drafts:
-        res = S.read_episode(streams, ep, db, scan)
+        res = read[id(ep)]
         if not res:
-            log.info("  %s: champ select couldn't be read, skipped", S.fmt(ep.end))
+            log.debug("  %s: champ select couldn't be read, skipped", S.fmt(ep.end))
             continue
+        S.attach_postgame(streams, res, db, real)
         payload = res.reading.to_payload()
         auto = auto_accept and res.reading.picks_confident
         if res.postgame and res.postgame.get("open"):
@@ -183,6 +198,8 @@ def process_job(app: AppClient, db: ChampionDB, job: dict, auto_accept: bool, ev
             postgame_jpeg=res.postgame_jpeg,
         )
         found += 1
+        if res.postgame and res.postgame_ep:
+            used.add(id(res.postgame_ep))
         if r.get("duplicate"):
             state = "already saved, updated" if r.get("updated") else "already saved"
         else:
@@ -191,11 +208,12 @@ def process_job(app: AppClient, db: ChampionDB, job: dict, auto_accept: bool, ev
         if res.postgame:
             log.info("  %s", postgame_summary(res.postgame))
 
-    # Games whose draft never showed up in the client (drafted on drafter.lol and so on): the post-game
-    # screen alone gives all ten champions, names, K/D/A and the result (no bans). The app keeps only team
-    # games and works out which scoreboard team is the streamer's; saved right away when every champion is clear.
+    # Games whose draft never showed up in the client (drafted on drafter.lol and so on), whose champ select
+    # couldn't be read, or that a false champ-select find sat in front of: the post-game screen alone gives all
+    # ten champions, names, K/D/A and the result (no bans). The app keeps only team games and works out which
+    # scoreboard team is the streamer's; saved right away when every champion is clear.
     seen: set[tuple] = set()
-    for pg_ep in S.unclaimed_postgames(scan):
+    for pg_ep in S.unused_postgames(scan, used):
         got = S.best_open_postgame(streams, pg_ep, db, None)
         if got:
             sig = tuple(sorted(f"{r['champion']}:{r['kills']}/{r['deaths']}/{r['assists']}" for r in got[0]["ally"] + got[0]["enemy"]))

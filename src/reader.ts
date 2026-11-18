@@ -307,6 +307,10 @@ async function route(req: Request, env: Env, url: URL): Promise<Response> {
       if (a.ok || e?.ok) swap = !!e?.ok && (!a.ok || e.matched > a.matched);
       else if (scrimVsT2) swap = false;
       else if (scrimVsT1) swap = true;
+      // 3 of the team recognised and the rest unreadable on the scoreboard (OCR noise, a name cut off): may well be
+      // a team game – a person decides instead of it being dropped
+      else if (mayBeTeamGame(a, t1)) swap = false;
+      else if (e && mayBeTeamGame(e, t2)) swap = true;
       else {
         const note = `Není týmová hra: ze soupisky ${a.team ?? 'týmu'} jen ${a.matched} z ${a.need} (${a.names.join(', ') || '–'}), soupeř není tým z appky`;
         await db.prepare(`UPDATE draft_frames SET status = 'discarded', note = ? WHERE id = ?`).bind(note.slice(0, 500), frameId).run();
@@ -328,7 +332,7 @@ async function route(req: Request, env: Env, url: URL): Promise<Response> {
     // The same game already saved (scoreboard left on screen for minutes, or the game read on another stream):
     // add what this read knows to it instead of saving it twice.
     const pgDur = (rd?.postgame as { duration_s?: number | null } | undefined)?.duration_s;
-    const same = rd ? await findSameGame(env, [...(rd.ally ?? []), ...(rd.enemy ?? [])].map((s) => s.champion), pgDur) : null;
+    const same = rd ? await findSameGame(env, [...(rd.ally ?? []), ...(rd.enemy ?? [])].map((s) => s.champion), pgDur, vodId) : null;
     if (same) {
       if (rd?.postgame) await applyPostgame(env, same, rd.postgame as Parameters<typeof applyPostgame>[2]);
       await db.prepare(`UPDATE draft_frames SET status = 'accepted', match_id = ?, note = ? WHERE id = ?`)
@@ -343,6 +347,10 @@ async function route(req: Request, env: Env, url: URL): Promise<Response> {
         const draft = await validateDraft(env, { ...body.reading, vod_id: vodId, ts_s: Math.round(body.ts_s) });
         // Only games of the streamer's team (at least 4 of its players on his side) are saved – no solo queue / Streamers Queue.
         const tg = await teamGameCheck(env, draft);
+        if (!tg.ok && mayBeTeamGame(tg, draft.ally)) {
+          // not enough names recognised, but the missing ones didn't read at all: review instead of discarding
+          throw new Error(`Možná týmová hra: ze soupisky ${tg.team ?? 'týmu'} ${tg.matched} z ${tg.need} (${tg.names.join(', ') || '–'}), ostatní jména nečitelná`);
+        }
         if (!tg.ok) {
           const note = `Není týmová hra: ze soupisky ${tg.team ?? 'týmu'} jen ${tg.matched} z ${tg.need} (${tg.names.join(', ') || '–'})`;
           await db.prepare(`UPDATE draft_frames SET status = 'discarded', note = ? WHERE id = ?`).bind(note.slice(0, 500), frameId).run();
@@ -366,4 +374,17 @@ async function route(req: Request, env: Env, url: URL): Promise<Response> {
   }
 
   throw new HttpError(404, 'not_found', 'Unknown endpoint');
+}
+
+/**
+ * A game that failed the team check only because names didn't read: at least TEAM_GAME_MIN - 1 of the team are
+ * recognised and enough of the other slots have no readable name to make up the rest. Such games go to review.
+ */
+function mayBeTeamGame(chk: { ok: boolean; matched: number; need: number }, slots: { player_name?: string | null }[] | undefined): boolean {
+  if (chk.ok || chk.matched < chk.need - 1) return false;
+  const unreadable = (slots ?? []).filter((s) => {
+    const n = (s.player_name ?? '').replace(/[^\p{L}\p{N}]/gu, '');
+    return n.length < 3;
+  }).length;
+  return chk.matched + unreadable >= chk.need;
 }

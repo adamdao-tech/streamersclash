@@ -15,6 +15,9 @@ import yt_dlp
 log = logging.getLogger(__name__)
 
 SCAN_W, SCAN_H = 320, 180  # scanning resolution; 16:9 like Twitch/Kick streams
+# Lowest stream height used for scanning (160p by default). 360 makes small/briefly shown screens easier to find
+# at ~2–3× the download per VOD.
+SCAN_MIN_HEIGHT = int(os.environ.get("SCAN_MIN_HEIGHT", "150"))
 
 
 @dataclass
@@ -36,7 +39,7 @@ def resolve(url: str, stream_url: str | None = None, duration: float | None = No
         from . import kick
 
         vs = kick.variants(stream_url)
-        scan = next((v for v in vs if v["height"] >= 150), vs[0])
+        scan = next((v for v in vs if v["height"] >= SCAN_MIN_HEIGHT), vs[0])
         hires_candidates = [v for v in vs if v["height"] <= 1080]
         hires = hires_candidates[-1] if hires_candidates else vs[-1]
         log.info("Streams (HLS): scan %sp, read %sp", scan["height"] or "?", hires["height"] or "?")
@@ -47,7 +50,7 @@ def resolve(url: str, stream_url: str | None = None, duration: float | None = No
     if not formats:
         raise RuntimeError("No video formats found (sub-only or deleted VOD?)")
     by_height = sorted(formats, key=lambda f: (f.get("height") or 0, f.get("tbr") or 0))
-    scan = next((f for f in by_height if (f.get("height") or 0) >= 150), by_height[0])
+    scan = next((f for f in by_height if (f.get("height") or 0) >= SCAN_MIN_HEIGHT), by_height[0])
     hires_candidates = [f for f in by_height if (f.get("height") or 0) <= 1080]
     hires = hires_candidates[-1] if hires_candidates else by_height[-1]
     log.info("Streams: scan %sp, read %sp", scan.get("height"), hires.get("height"))

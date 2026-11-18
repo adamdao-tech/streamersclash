@@ -37,8 +37,11 @@ SCREENS = {
         # 320 px: such weaker matches count too, but each is confirmed by reading the scoreboard in full resolution.
         # a scoreboard left on screen for minutes is one game: sightings up to this far apart are merged
         "merge_gap_s": 180,
-        "candidate_threshold": 0.55,
-        "candidate_min_frac": 0.6,
+        # A weak match must also be a big window: false ones (Discord, lobby, mode select, in-game menus) come out
+        # at the smallest searched size (~35 % of the stream), real scoreboards at the client's size. 0.5 lets in a
+        # client beside a webcam/chat column (~55–60 % of the stream), which 0.6 used to drop.
+        "candidate_threshold": 0.52,
+        "candidate_min_frac": 0.5,
         "regions": [
             (0.030, 0.140, 0.105, 0.166),  # "SCOREBOARD" label
             (0.620, 0.042, 0.800, 0.088),  # "VIEW ADVANCED DETAILS" button

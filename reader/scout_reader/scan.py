@@ -46,6 +46,7 @@ class DraftResult:
     postgame: dict | None = None
     postgame_ts: float | None = None
     postgame_jpeg: bytes | None = None
+    postgame_ep: Episode | None = None  # the post-game screen this draft used (others stay free for the post-game-only pass)
 
 
 @dataclass
@@ -207,14 +208,19 @@ def best_open_postgame(streams: video.Streams, pg_ep: Episode, db: ChampionDB, a
     return best
 
 
-def unclaimed_postgames(scan: ScanResult) -> list[Episode]:
-    """Post-game screens that don't follow any champ select found – games whose draft the scan never saw."""
-    claimed = {id(p) for d in scan.drafts if (p := postgame_for(d, scan))}
-    return [p for p in scan.postgames if id(p) not in claimed]
+def unused_postgames(scan: ScanResult, used: set[int]) -> list[Episode]:
+    """Post-game screens no saved draft took (`used` = ids of the episodes drafts read their scoreboard from).
+
+    A post-game screen counts as taken only when a draft really used it. The scan also "finds" champ selects in
+    in-game frames that the full-resolution check then rejects, and real champ selects can fail to read: before,
+    such a draft still claimed the next post-game screen and the whole game was lost. Now every scoreboard no
+    draft used is read on its own (the app merges it into the draft's game when both got saved)."""
+    return [p for p in scan.postgames if id(p) not in used]
 
 
-def read_episode(streams: video.Streams, ep: Episode, db: ChampionDB, scan: ScanResult | None = None, debug_root: Path | None = None) -> DraftResult | None:
-    """Reads the finished draft (a few moments before champ select ended), then the game's post-game screen."""
+def read_draft_episode(streams: video.Streams, ep: Episode, db: ChampionDB, debug_root: Path | None = None) -> DraftResult | None:
+    """Reads the finished draft of a champ select episode (a few moments before it ended); None when the
+    full-resolution check rejects it (a false find in an in-game frame) or nothing reads."""
     debug_dir = debug_root / f"draft_{int(ep.end)}" if debug_root else None
     best: tuple[float, DraftReading, np.ndarray] | None = None
     for back in (1, 4, 8, 13):
@@ -231,9 +237,20 @@ def read_episode(streams: video.Streams, ep: Episode, db: ChampionDB, scan: Scan
         return None
     ts, reading, crop = best
     jpg, w, h = _jpeg(crop)
-    res = DraftResult(ep, ts, reading, jpg, w, h)
+    return DraftResult(ep, ts, reading, jpg, w, h)
 
-    pg_ep = postgame_for(ep, scan) if scan else None
+
+def real_drafts(scan: ScanResult, results: list[DraftResult]) -> ScanResult:
+    """The scan with only the champ selects that really read: a false find (in-game frame) must not stand between
+    a draft and its post-game screen."""
+    return ScanResult([r.episode for r in results], scan.postgames)
+
+
+def attach_postgame(streams: video.Streams, res: DraftResult, db: ChampionDB, scan: ScanResult, debug_root: Path | None = None) -> DraftResult:
+    """Reads the post-game screen of the draft's game (the first one after it and before the next real draft)."""
+    debug_dir = debug_root / f"draft_{int(res.episode.end)}" if debug_root else None
+    reading = res.reading
+    pg_ep = postgame_for(res.episode, scan)
     ally = [s.champion for s in reading.ally if s.champion]
     enemy = [s.champion for s in reading.enemy if s.champion]
     if pg_ep and len(ally) == 5 and len(enemy) < 5:
@@ -241,6 +258,7 @@ def read_episode(streams: video.Streams, ep: Episode, db: ChampionDB, scan: Scan
         got = best_open_postgame(streams, pg_ep, db, ally, debug_dir)
         if got:
             res.postgame, res.postgame_ts, res.postgame_jpeg = got[:3]
+            res.postgame_ep = pg_ep
     elif pg_ep and len(ally) == 5 and len(enemy) == 5:
         # The scoreboard animates in; read a few seconds after it appears, keep the best fit.
         for offset in (4, 12, 25):
@@ -249,6 +267,15 @@ def read_episode(streams: video.Streams, ep: Episode, db: ChampionDB, scan: Scan
             if got and got[0] and (res.postgame is None or got[0]["fit"] > res.postgame["fit"]):
                 res.postgame, res.postgame_ts = got[0], t
                 res.postgame_jpeg = _jpeg(got[1])[0]
+                res.postgame_ep = pg_ep
             if res.postgame and res.postgame["fit"] >= 70:
                 break
+    return res
+
+
+def read_episode(streams: video.Streams, ep: Episode, db: ChampionDB, scan: ScanResult | None = None, debug_root: Path | None = None) -> DraftResult | None:
+    """Reads the finished draft, then the game's post-game screen (`test`-style one-off use)."""
+    res = read_draft_episode(streams, ep, db, debug_root)
+    if res and scan:
+        attach_postgame(streams, res, db, scan, debug_root)
     return res

@@ -489,23 +489,38 @@ export async function applyPostgame(env: Env, matchId: number, pg: PostGameInput
 
 /** A saved game with the same ten champions and (almost) the same length: the same game read again – a long
  *  post-game screen, or the same game on a teammate's or an opponent's stream. */
-export async function findSameGame(env: Env, champions: string[], durationS: number | null | undefined): Promise<number | null> {
+export async function findSameGame(env: Env, champions: string[], durationS: number | null | undefined, vodId?: number | null): Promise<number | null> {
   const known = champions.filter((c) => c && c !== '?');
-  if (known.length < 8 || !durationS) return null;
+  if (known.length < 8) return null;
   const all = await getChampions(env);
   const want = new Set(known.map((c) => resolveChampion(all, c)).filter(Boolean) as string[]);
-  const { results } = await env.DB.prepare(
-    `SELECT m.id, group_concat(a.champion, '|') AS champs FROM matches m
-       JOIN draft_actions a ON a.match_id = m.id AND a.action = 'PICK'
-      WHERE m.duration_s BETWEEN ? AND ? GROUP BY m.id ORDER BY m.id`,
-  )
-    .bind(durationS - 3, durationS + 3)
-    .all<{ id: number; champs: string }>();
-  for (const r of results) {
-    const have = new Set(String(r.champs).split('|'));
+  const sameChamps = (champs: string) => {
+    const have = new Set(String(champs).split('|'));
     let same = 0;
     for (const c of want) if (have.has(c)) same++;
-    if (same >= Math.min(8, want.size)) return r.id;
+    return same >= Math.min(8, want.size);
+  };
+  if (durationS) {
+    const { results } = await env.DB.prepare(
+      `SELECT m.id, group_concat(a.champion, '|') AS champs FROM matches m
+         JOIN draft_actions a ON a.match_id = m.id AND a.action = 'PICK'
+        WHERE m.duration_s BETWEEN ? AND ? GROUP BY m.id ORDER BY m.id`,
+    )
+      .bind(durationS - 3, durationS + 3)
+      .all<{ id: number; champs: string }>();
+    for (const r of results) if (sameChamps(r.champs)) return r.id;
+  }
+  // A draft saved from champ select without its scoreboard has no duration yet: when the scoreboard of that game
+  // is read on its own later (same VOD), it belongs to that game.
+  if (vodId) {
+    const { results } = await env.DB.prepare(
+      `SELECT m.id, group_concat(a.champion, '|') AS champs FROM matches m
+         JOIN draft_actions a ON a.match_id = m.id AND a.action = 'PICK'
+        WHERE m.vod_id = ? AND m.duration_s IS NULL GROUP BY m.id ORDER BY m.id`,
+    )
+      .bind(vodId)
+      .all<{ id: number; champs: string }>();
+    for (const r of results) if (sameChamps(r.champs)) return r.id;
   }
   return null;
 }

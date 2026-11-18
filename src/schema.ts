@@ -746,4 +746,9 @@ ALTER TABLE players ADD COLUMN alt_names TEXT;
   /* 39: each user's own look of the web (theme picker in the top bar); NULL = the default navy + gold */ `
 ALTER TABLE users ADD COLUMN theme TEXT;
 `,
+
+  /* 40: a VOD queued again by hand is read even when teammates' VODs cover its time (their POV may lack
+         what this one shows, e.g. the drafter.lol page with the bans) */ `
+ALTER TABLE vods ADD COLUMN force_scan INTEGER NOT NULL DEFAULT 0;
+`,
 ];

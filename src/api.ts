@@ -430,7 +430,7 @@ async function route(req: Request, env: Env, url: URL, user: User): Promise<Resp
 
   if ((m = path.match(/^\/api\/vods\/(\d+)\/rescan$/)) && method === 'POST') {
     const id = Number(m[1]);
-    await db.prepare(`UPDATE vods SET scan_status = 'pending', scanned_at = NULL WHERE id = ?`).bind(id).run();
+    await db.prepare(`UPDATE vods SET scan_status = 'pending', scanned_at = NULL, force_scan = 1 WHERE id = ?`).bind(id).run();
     await logActivity(db, actor, 'vod.rescan', 'vod', id);
     return json({ ok: true });
   }

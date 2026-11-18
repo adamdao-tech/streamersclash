@@ -71,7 +71,7 @@ async function route(req: Request, env: Env, url: URL): Promise<Response> {
     const { results: candidates } = await db
       .prepare(
         `SELECT v.id, v.platform, v.url, v.stream_url, v.title, v.channel_login, v.started_at, v.duration_s, v.player_id,
-                COALESCE(p.is_captain, 0) AS is_captain, p.team_id
+                COALESCE(p.is_captain, 0) AS is_captain, p.team_id, v.force_scan
            FROM vods v LEFT JOIN players p ON p.id = v.player_id
           WHERE (v.scan_status = 'pending' OR (v.scan_status = 'scanning' AND v.scanned_at < datetime('now', '-1 hours')))
             AND v.platform IN ('twitch', 'kick')
@@ -83,7 +83,7 @@ async function route(req: Request, env: Env, url: URL): Promise<Response> {
           ORDER BY COALESCE(p.is_captain, 0) DESC, v.started_at DESC LIMIT ?`,
       )
       .bind(scanFrom(env), scanFrom(env), limit * 8)
-      .all<{ id: number; platform: string; channel_login: string | null; started_at: string; duration_s: number | null; is_captain: number; team_id: number | null }>();
+      .all<{ id: number; platform: string; channel_login: string | null; started_at: string; duration_s: number | null; is_captain: number; team_id: number | null; force_scan: number }>();
     // A Twitch VOD of a stream that is still running (e.g. a 24/7 subathon) can't be read yet: its stored
     // duration is from the last sync and the reader would crawl through it in real time. Leave it for later.
     const logins = [...new Set(candidates.filter((v) => v.platform === 'twitch' && v.channel_login).map((v) => v.channel_login!))];
@@ -95,7 +95,7 @@ async function route(req: Request, env: Env, url: URL): Promise<Response> {
     const results: typeof candidates = [];
     for (const v of notLive) {
       if (results.length >= limit) break;
-      const cover = !v.is_captain && v.team_id ? await coveredBy(db, v) : null;
+      const cover = !v.is_captain && v.team_id && !v.force_scan ? await coveredBy(db, v) : null;
       if (cover) {
         await db.prepare(`UPDATE vods SET scan_status = 'skipped', scanned_at = datetime('now') WHERE id = ?`).bind(v.id).run();
         await logActivity(db, { kind: 'sync' }, 'vod.skip_covered', 'vod', v.id, { covered_by: cover });
@@ -182,7 +182,7 @@ async function route(req: Request, env: Env, url: URL): Promise<Response> {
     const body = (await req.json()) as { status?: string; drafts_found?: number; error?: string };
     const status = ['done', 'skipped', 'failed'].includes(String(body.status)) ? String(body.status) : 'failed';
     await db
-      .prepare(`UPDATE vods SET scan_status = ?, scanned_at = datetime('now') WHERE id = ?`)
+      .prepare(`UPDATE vods SET scan_status = ?, scanned_at = datetime('now'), force_scan = 0 WHERE id = ?`)
       .bind(status, Number(m[1]))
       .run();
     if (status === 'failed' && body.error) console.warn('reader failed on VOD', m[1], body.error);

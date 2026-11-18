@@ -789,7 +789,7 @@ const TOOLS: Tool[] = [
     inputSchema: { type: 'object', properties: { vod_id: { type: 'integer' } }, required: ['vod_id'] },
     async run(a, { env, user }) {
       const id = int(a.vod_id, 'vod_id');
-      const res = await env.DB.prepare(`UPDATE vods SET scan_status = 'pending', scanned_at = NULL WHERE id = ?`).bind(id).run();
+      const res = await env.DB.prepare(`UPDATE vods SET scan_status = 'pending', scanned_at = NULL, force_scan = 1 WHERE id = ?`).bind(id).run();
       if (!res.meta.changes) throw new HttpError(404, 'not_found', 'VOD not found');
       await logActivity(env.DB, { kind: 'claude', userId: user.id }, 'vod.rescan', 'vod', id);
       return text({ ok: true });

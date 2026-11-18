@@ -31,6 +31,13 @@ Dark navy + gold, Rajdhani for headings, Inter for text. Colours and event-type 
 for the next match (`nextMatchHtml` in `app.js`, also used compact on the home page), grouped rows (`.srow`) and an event
 dialog with type cards and segmented format picker. Reuse these classes for new pages.
 
+**Vzhled (themes):** every user picks his own look with the palette button in the top bar – Klasika (default navy + gold),
+Růžová, Dark premium, Minimal editorial, Bold & playful. It's saved on the account (`users.theme`, `PUT /api/me/theme`)
+and in localStorage; an inline script in each page's `<head>` sets `<html data-theme>` before the first paint. Themes are
+`[data-theme]` blocks at the end of `app.css` that override the colour variables, so **new styles must use the variables**
+(`--panel`, `--sunken`, `--soft`, `--red-text`, `--green-text`, …) instead of hard-coded dark colours, or they'll break the
+light themes. New pages need the same inline theme script in `<head>` before `app.css`.
+
 ## Streamers Queue API (Candi)
 Queue scouting takes ELO, W/L and the full game history from `https://sq.candycz01.xyz` (`src/sq.ts`).
 The key is a **secret** `SQ_API_KEY` (Cloudflare → Worker → Settings → Variables and Secrets) – never put it in the code.

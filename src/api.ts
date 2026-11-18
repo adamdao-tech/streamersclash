@@ -1,5 +1,5 @@
 import type { Env } from './index';
-import { canSeePlan, isSuperadmin, logActivity, type User } from './db';
+import { canSeePlan, isSuperadmin, logActivity, THEMES, type User } from './db';
 import { HttpError, json, assertBodySize } from './http';
 import { getLiveChannels, syncTwitchVods } from './vods';
 import { listDrafts, playerGames, relinkDraftPlayers, saveDraft, summarizeGames, teamGameCheck, validateDraft, type DraftInput } from './drafts';
@@ -22,6 +22,8 @@ const REGIONS = ['EUNE', 'EUW'] as const;
 
 export async function handleApi(req: Request, env: Env, url: URL, user: User): Promise<Response> {
   try {
+    // Everyone picks his own look of the web, commentators included (their API is otherwise read-only).
+    if (url.pathname === '/api/me/theme' && req.method === 'PUT') return await setTheme(req, env, user);
     if (isCommentator(user)) return await handleCommentatorApi(req, env, url, () => route(req, env, url, user));
     return await route(req, env, url, user);
   } catch (err) {
@@ -29,6 +31,15 @@ export async function handleApi(req: Request, env: Env, url: URL, user: User): P
     console.error('API error', err);
     return json({ error: 'internal_error' }, 500);
   }
+}
+
+async function setTheme(req: Request, env: Env, user: User): Promise<Response> {
+  if (!req.headers.get('Content-Type')?.includes('application/json')) throw new HttpError(415, 'json_required', 'Expected application/json');
+  const body = await readBody(req);
+  const theme = String(body.theme ?? '');
+  if (!(THEMES as readonly string[]).includes(theme)) throw new HttpError(400, 'invalid', 'Neznámý vzhled.');
+  await env.DB.prepare('UPDATE users SET theme = ? WHERE id = ?').bind(theme === 'default' ? null : theme, user.id).run();
+  return json({ ok: true, theme });
 }
 
 async function route(req: Request, env: Env, url: URL, user: User): Promise<Response> {

@@ -7,6 +7,7 @@
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
   <link rel="preload" href="/fonts/inter-var.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="preload" href="/fonts/rajdhani-700.woff2" as="font" type="font/woff2" crossorigin>
+  <script>try{var t=localStorage.getItem('sc-theme');if(t&&t!=='default')document.documentElement.dataset.theme=t}catch(e){}</script>
   <link rel="stylesheet" href="/app.css">
   <style>
     .sim-tools { display: flex; gap: 12px 16px; align-items: center; flex-wrap: wrap; margin-bottom: 14px; padding: 12px 14px; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); }
@@ -14,13 +15,13 @@
     .sim-tools label.f input[type=number] { width: 86px; min-height: 32px; padding: 2px 8px; text-align: right; font-variant-numeric: tabular-nums; }
     .sim-tools .sp { flex: 1; }
     .status { display: flex; gap: 10px 18px; flex-wrap: wrap; align-items: baseline; margin: 0 0 14px; font-size: 0.88rem; color: var(--text-2); }
-    .status b.ok { color: var(--green); } .status b.bad { color: #ff7a7e; }
-    .status .probs { color: #ff9a9d; }
+    .status b.ok { color: var(--green); } .status b.bad { color: var(--red-text); }
+    .status .probs { color: var(--red-text); }
     .board { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 14px; align-items: start; }
     .teams { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 10px; }
     .team { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
     .team.own { border-color: var(--gold); box-shadow: 0 0 0 1px var(--gold) inset; }
-    .team.done { border-color: rgba(47,191,113,.6); }
+    .team.done { border-color: color-mix(in srgb, var(--green) 60%, transparent); }
     .team.own.done { border-color: var(--gold); }
     .team header { display: flex; align-items: baseline; gap: 8px; padding: 9px 12px; border-bottom: 1px solid var(--line); }
     .team header b { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 700 1.08rem var(--display); }
@@ -28,7 +29,7 @@
     .team header .ok { color: var(--green); font-weight: 700; }
     .team header i { font: 700 1.05rem var(--display); font-style: normal; color: var(--gold-2); white-space: nowrap; }
     .team header i small { color: var(--muted); font: 500 0.7rem var(--font); margin-left: 3px; }
-    .team header i.neg { color: #ff7a7e; }
+    .team header i.neg { color: var(--red-text); }
     .slot { display: grid; grid-template-columns: 34px minmax(0, 1fr) auto auto; gap: 6px; align-items: center; min-height: 40px; padding: 4px 8px 4px 12px; border-bottom: 1px solid var(--line); font-size: 0.9rem; cursor: pointer; }
     .slot:last-child { border-bottom: 0; }
     .slot:hover { background: var(--panel-2); }
@@ -37,15 +38,15 @@
     .slot input { width: 64px; min-height: 28px; padding: 1px 6px; text-align: right; font-variant-numeric: tabular-nums; font-weight: 700; color: var(--gold-2); }
     .slot input.over { color: #ffb36b; }
     .slot .rm { border: 0; background: none; color: var(--muted); cursor: pointer; padding: 0 4px; font-size: 0.95rem; }
-    .slot .rm:hover { color: #ff7a7e; }
+    .slot .rm:hover { color: var(--red-text); }
     .slot.cap { cursor: default; }
     .slot.cap:hover { background: none; }
     .slot.cap .n { font-weight: 700; }
     .slot.cap select { min-height: 28px; padding: 1px 4px; font-size: 0.78rem; }
     .slot.cap .cp { color: var(--muted); font-variant-numeric: tabular-nums; }
     .slot.empty .n { color: var(--muted); font-style: italic; }
-    .slot.empty.miss .n { color: #ff9a9d; }
-    .slot.active { background: rgba(232,184,74,.16); box-shadow: inset 3px 0 0 var(--gold); }
+    .slot.empty.miss .n { color: var(--red-text); }
+    .slot.active { background: color-mix(in srgb, var(--gold) 16%, transparent); box-shadow: inset 3px 0 0 var(--gold); }
     .slot.active .n { color: var(--gold-2); font-style: normal; }
     .slot.blocked { background: rgba(229,56,59,.12); box-shadow: inset 3px 0 0 #e5383b; }
     .ctag { display: inline-block; font: 700 0.64rem var(--display); letter-spacing: .05em; padding: 1px 5px; border-radius: 5px; background: var(--bg-2); border: 1px solid var(--line); color: var(--muted); }
@@ -68,7 +69,7 @@
     .pl .n { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .pl .c { font-weight: 700; color: var(--gold-2); font-variant-numeric: tabular-nums; }
     .pl .wl { color: var(--muted); font-size: 0.76rem; font-variant-numeric: tabular-nums; }
-    .pl.over .c { color: #ff7a7e; }
+    .pl.over .c { color: var(--red-text); }
     .pl.taken { opacity: .45; }
     .pl.taken .c { color: var(--muted); }
     .pl .in { font-size: 0.72rem; color: var(--muted); max-width: 90px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -120,10 +121,10 @@
     .bidder .n { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
     .bidder .n small { display: block; color: var(--muted); font: 500 0.74rem var(--font); }
     .bidder .mx { color: var(--muted); font-size: 0.8rem; font-variant-numeric: tabular-nums; text-align: right; }
-    .bidder.lead { background: rgba(232,184,74,.14); box-shadow: inset 3px 0 0 var(--gold); }
+    .bidder.lead { background: color-mix(in srgb, var(--gold) 14%, transparent); box-shadow: inset 3px 0 0 var(--gold); }
     .bidder.own .n { color: var(--gold-2); }
     .bidder.out { opacity: .45; }
-    .bidder.out .n small { color: #ff9a9d; }
+    .bidder.out .n small { color: var(--red-text); }
     .bidder .btn { min-width: 64px; }
     .queue-next { color: var(--muted); font-size: 0.82rem; }
     .big-tools { display: flex; gap: 12px 16px; align-items: center; flex-wrap: wrap; margin-bottom: 12px; }

@@ -7,6 +7,7 @@
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
   <link rel="preload" href="/fonts/inter-var.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="preload" href="/fonts/rajdhani-700.woff2" as="font" type="font/woff2" crossorigin>
+  <script>try{var t=localStorage.getItem('sc-theme');if(t&&t!=='default')document.documentElement.dataset.theme=t}catch(e){}</script>
   <link rel="stylesheet" href="/app.css">
   <style>
     html, body { height: 100%; }
@@ -14,7 +15,7 @@
     .top { display: flex; gap: 22px; align-items: center; flex-wrap: wrap; padding: 14px 18px; background: var(--panel); border-bottom: 1px solid var(--line); }
     .left span { display: block; color: var(--muted); font-size: 0.74rem; text-transform: uppercase; letter-spacing: .05em; }
     .left b { font: 700 3rem/1 var(--display); color: var(--gold-2); }
-    .left.neg b { color: #ff7a7e; }
+    .left.neg b { color: var(--red-text); }
     .sets { display: flex; gap: 10px; }
     .sets label { font-size: 0.74rem; color: var(--muted); }
     .sets input { width: 74px; min-height: 32px; padding: 2px 6px; text-align: right; font-variant-numeric: tabular-nums; }
@@ -26,10 +27,10 @@
     .slot small { font: 700 0.7rem var(--display); color: var(--muted); margin-right: 5px; }
     .slot input { grid-column: 1 / -1; width: 100%; min-height: 30px; padding: 2px 6px; text-align: right; font-variant-numeric: tabular-nums; }
     .slot button { border: 0; background: transparent; color: var(--muted); cursor: pointer; padding: 0 3px; }
-    .slot button:hover { color: #ff7a7e; }
+    .slot button:hover { color: var(--red-text); }
     .free { display: flex; align-items: center; border: 1px dashed var(--line); color: var(--muted); justify-content: center; }
     .info { color: var(--text-2); font-size: 0.86rem; line-height: 1.55; text-align: right; min-width: 150px; }
-    .info .neg { color: #ff7a7e; font-weight: 600; }
+    .info .neg { color: var(--red-text); font-weight: 600; }
     .reset { background: none; border: 0; padding: 0; color: var(--muted); cursor: pointer; font-size: 0.8rem; text-decoration: underline; }
     .tools { display: flex; gap: 16px; align-items: center; flex-wrap: wrap; padding: 10px 18px; }
     .tools input[type=search] { max-width: 240px; }
@@ -46,7 +47,7 @@
     .p .n { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .p .fav { color: var(--gold-2); }
     .p .c { font-weight: 700; color: var(--gold-2); font-variant-numeric: tabular-nums; }
-    .p.over .c { color: #ff7a7e; }
+    .p.over .c { color: var(--red-text); }
     .p.over .n { color: var(--muted); }
     .p.on { background: var(--gold); color: var(--on-gold); font-weight: 700; }
     .p.on .c, .p.on .fav { color: var(--on-gold); }
@@ -54,27 +55,27 @@
     /* nechceme: velký červený křížek */
     .nope { display: inline-grid; place-items: center; width: 24px; height: 24px; border-radius: 6px; background: #e5383b; color: #fff; font: 900 1.2rem/1 var(--font); flex: none; box-shadow: 0 0 0 2px rgba(229,56,59,.35); }
     .p.blocked { background: rgba(229,56,59,.12); box-shadow: inset 3px 0 0 #e5383b; }
-    .p.blocked .n { color: #ff9a9d; text-decoration: line-through; text-decoration-color: rgba(229,56,59,.7); }
-    .p.blocked .c { color: #ff7a7e; }
+    .p.blocked .n { color: var(--red-text); text-decoration: line-through; text-decoration-color: rgba(229,56,59,.7); }
+    .p.blocked .c { color: var(--red-text); }
     .p.blocked.on { background: #e5383b; color: #fff; }
     .slot.blocked { border-color: #e5383b; background: rgba(229,56,59,.14); }
     .slot .nope { width: 20px; height: 20px; font-size: 1rem; margin-right: 5px; vertical-align: middle; }
-    .info .warn { color: #ff7a7e; font-weight: 700; }
+    .info .warn { color: var(--red-text); font-weight: 700; }
     /* vzal jiný tým / máme my (picky z Variant v Queue scoutingu, sdílené pro všechny adminy) */
-    .tk { flex: none; font: 700 0.62rem var(--display); letter-spacing: .04em; padding: 1px 5px; border-radius: 4px; background: rgba(229,56,59,.2); color: #ff9a9d; white-space: nowrap; }
-    .tk.us { background: rgba(47,191,113,.2); color: #6fe0a3; }
+    .tk { flex: none; font: 700 0.62rem var(--display); letter-spacing: .04em; padding: 1px 5px; border-radius: 4px; background: rgba(229,56,59,.2); color: var(--red-text); white-space: nowrap; }
+    .tk.us { background: color-mix(in srgb, var(--green) 20%, transparent); color: var(--green-text); }
     .p.taken .n { color: var(--muted); text-decoration: line-through; }
     .p.taken .c { color: var(--muted); }
     .slot.taken { border-color: #e5383b; border-style: dashed; background: rgba(229,56,59,.1); }
-    .slot.taken .n { text-decoration: line-through; color: #ff9a9d; }
-    .var div.taken em { text-decoration: line-through; color: #ff9a9d; }
+    .slot.taken .n { text-decoration: line-through; color: var(--red-text); }
+    .var div.taken em { text-decoration: line-through; color: var(--red-text); }
     .p:disabled:hover { background: transparent; }
     /* odešel z turnaje: tlačítko u hráče (ukáže se při najetí) + seznam odešlých k vrácení */
     .row { display: flex; align-items: center; gap: 2px; }
     .row .p { flex: 1; min-width: 0; }
     .out { flex: none; width: 26px; height: 26px; border: 0; border-radius: 6px; background: transparent; color: var(--muted); cursor: pointer; font-size: 0.9rem; opacity: 0; }
     .row:hover .out, .out:focus-visible { opacity: 1; }
-    .out:hover { background: rgba(229,56,59,.18); color: #ff7a7e; }
+    .out:hover { background: rgba(229,56,59,.18); color: var(--red-text); }
     @media (hover: none) { .out { opacity: .6; } }
     .gone { display: inline-flex; gap: 6px; align-items: center; flex-wrap: wrap; font-size: 0.84rem; color: var(--muted); }
     .gone button { border: 1px solid var(--line-2); border-radius: 999px; background: var(--bg-2); color: var(--text-2); padding: 2px 10px; cursor: pointer; font: 500 0.82rem var(--font); }
@@ -92,9 +93,9 @@
     .var header { display: flex; align-items: baseline; gap: 8px; margin-bottom: 4px; }
     .var header b { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 0.92rem; }
     .var header i { font: 700 1.05rem var(--display); color: var(--gold-2); }
-    .var header i.neg { color: #ff7a7e; }
+    .var header i.neg { color: var(--red-text); }
     .var header span { color: var(--muted); padding: 0 2px; }
-    .var header span:hover { color: #ff7a7e; }
+    .var header span:hover { color: var(--red-text); }
     .var div { display: flex; gap: 6px; color: var(--text-2); }
     .var div small { width: 28px; color: var(--muted); font: 700 0.68rem/1.7 var(--display); }
     .var div em { flex: 1; min-width: 0; font-style: normal; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

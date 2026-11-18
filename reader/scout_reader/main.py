@@ -196,7 +196,7 @@ def keep_ban_shots(app: AppClient, streams: video.Streams, match_id: int, start:
 
     shots: list[tuple[float, bytes, str]] = []
     tiles = []
-    for off in BAN_SHOT_OFFSETS[mode]:
+    for off in sorted(BAN_SHOT_OFFSETS[mode]):  # oldest first: tile n of the overview = n-th shot in the app
         t = start + off
         if t < 0:
             continue

@@ -23,7 +23,7 @@
 
     <section class="tab-panel" data-panel="champions" hidden>
       <section class="gbox">
-        <h2>Championi</h2>
+        <h2>Championi <span class="gseg" id="pool-kinds" role="group" aria-label="Typ her" hidden></span></h2>
         <div class="gscroll"><table class="gtable" id="pool"></table></div>
       </section>
     </section>
@@ -52,13 +52,14 @@
   </main>
 
   <script type="module">
-    import { api, esc, initPage, ROLE_LABELS, loadChampions, champIcon, vodLink, fmtDuration, timeAgo, aggregateChampions, championTableHtml, gameKindBadge } from '/app.js';
+    import { api, esc, initPage, ROLE_LABELS, loadChampions, champIcon, vodLink, fmtDuration, timeAgo, aggregateChampions, championTableHtml, gameKindBadge, gameKind, GAME_KINDS, GAME_KIND_ORDER } from '/app.js';
 
     await initPage('teams');
     const id = new URLSearchParams(location.search).get('id');
     let icons = new Map();
     let champSort = 'g';
     let lastGames = [];
+    let poolKind = '';
 
     const tabs = document.getElementById('tabs');
     function showTab(name) {
@@ -68,8 +69,22 @@
     }
     tabs.addEventListener('click', (e) => { const b = e.target.closest('button[data-tab]'); if (b) showTab(b.dataset.tab); });
 
+    function renderPoolKinds() {
+      const counts = new Map();
+      for (const g of lastGames) counts.set(gameKind(g.game_type), (counts.get(gameKind(g.game_type)) || 0) + 1);
+      if (poolKind && !counts.has(poolKind)) poolKind = '';
+      const el = document.getElementById('pool-kinds');
+      el.hidden = counts.size < 2;
+      el.innerHTML = [['', 'Vše', lastGames.length], ...GAME_KIND_ORDER.filter((k) => counts.has(k)).map((k) => [k, GAME_KINDS[k].plural, counts.get(k)])]
+        .map(([v, label, n]) => `<button data-kind="${v}" class="${v === poolKind ? 'active' : ''}" aria-pressed="${v === poolKind}" title="${v ? esc(GAME_KINDS[v].hint) : ''}">${esc(label)} (${n})</button>`).join('');
+    }
+    document.getElementById('pool-kinds').addEventListener('click', (e) => {
+      const b = e.target.closest('[data-kind]'); if (!b) return;
+      poolKind = b.dataset.kind; renderPoolKinds(); renderPool();
+    });
+
     function renderPool() {
-      const picks = lastGames.map((g) => ({
+      const picks = lastGames.filter((g) => !poolKind || gameKind(g.game_type) === poolKind).map((g) => ({
         champion: g.champion, win: g.result === 'WIN' ? true : g.result === 'LOSS' ? false : null,
         kills: g.kills, deaths: g.deaths, assists: g.assists, who: g.opponent?.champion, played_at: g.played_at,
       }));
@@ -117,6 +132,7 @@
       ].join('');
 
       lastGames = games;
+      renderPoolKinds();
       renderPool();
 
       document.getElementById('games').innerHTML = games.length

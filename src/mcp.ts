@@ -112,7 +112,7 @@ const TOOLS: Tool[] = [
   },
   {
     name: 'get_player',
-    description: "A player's details, champion pool from recorded drafts, recent drafts and VODs.",
+    description: "A player's details, champion pool from recorded drafts (stats = all games, scrim_stats = scrims only – use those for strategy), recent drafts and VODs.",
     inputSchema: { type: 'object', properties: { player_id: { type: 'integer' } }, required: ['player_id'] },
     annotations: { readOnlyHint: true },
     async run(a, { env }) {
@@ -134,6 +134,8 @@ const TOOLS: Tool[] = [
       return text({
         player: parsePlayer(player),
         stats: summarizeGames(games),
+        // team strategy shows in scrims; flexes vs random players would skew these numbers
+        scrim_stats: summarizeGames(games.filter((g) => gameKind(g.game_type) === 'scrim')),
         recent_games: games.slice(0, 20).map((g) => ({
           played_at: g.played_at, result: g.result, champion: g.champion, role: g.role,
           kda: g.kills !== null ? `${g.kills}/${g.deaths}/${g.assists}` : null,

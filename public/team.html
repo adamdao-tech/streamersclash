@@ -155,7 +155,7 @@
     const teamId = new URLSearchParams(location.search).get('id');
     let team, players = [], allDrafts = [], icons = new Map(), live = {}, editingPlayer = null;
     let queue = new Map(), pools = [], hiddenGames = 0;
-    let typeFilter = '';
+    let typeFilter = null; // null = not chosen yet → scrims when the team has any
     let champRole = '';
     let champSort = 'g';
     let muRole = '';
@@ -217,11 +217,12 @@
     function renderTypeFilter() {
       const counts = new Map();
       for (const d of allDrafts) counts.set(typeOf(d), (counts.get(typeOf(d)) || 0) + 1);
-      const opts = [['', 'Vše', allDrafts.length], ...GAME_KIND_ORDER.filter((k) => counts.has(k)).map((k) => [k, GAME_KINDS[k].plural, counts.get(k)])];
+      // scrims first and by default – flexes against random players would skew the team's stats; "Vše" is last
+      const opts = [...GAME_KIND_ORDER.filter((k) => counts.has(k)).map((k) => [k, GAME_KINDS[k].plural, counts.get(k)]), ['', 'Vše', allDrafts.length]];
       const el = document.getElementById('type-filter');
       el.hidden = counts.size < 2;
       el.innerHTML = opts.map(([v, label, n]) =>
-        `<button data-type="${esc(v)}" class="${v === typeFilter ? 'active' : ''}" aria-pressed="${v === typeFilter}">${esc(label)} (${n})</button>`).join('');
+        `<button data-type="${esc(v)}" class="${v === typeFilter ? 'active' : ''}" aria-pressed="${v === typeFilter}" title="${v ? esc(GAME_KINDS[v].hint) : 'Všechny hry dohromady'}">${esc(label)} (${n})</button>`).join('');
     }
 
     function renderSummary(list) {
@@ -640,7 +641,9 @@
         });
       });
       hiddenGames = ds.length - allDrafts.length;
-      if (typeFilter && !allDrafts.some((d) => typeOf(d) === typeFilter)) typeFilter = '';
+      if (typeFilter === null || (typeFilter && !allDrafts.some((d) => typeOf(d) === typeFilter))) {
+        typeFilter = allDrafts.some((d) => typeOf(d) === 'scrim') ? 'scrim' : '';
+      }
       renderHero();
       renderTeamOpgg();
       renderNotes();

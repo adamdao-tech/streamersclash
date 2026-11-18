@@ -13,6 +13,10 @@
   <main>
     <p style="margin:0 0 10px" id="back"><a href="/">← Týmy</a></p>
     <section id="hero" class="team-hero compact"></section>
+    <div class="kind-bar" id="kind-bar" hidden>
+      <div class="gseg" id="pool-kinds" role="group" aria-label="Typ her"></div>
+      <span class="muted" id="kind-hint"></span>
+    </div>
     <section id="tiles" class="stat-tiles"></section>
 
     <nav class="tabs" id="tabs">
@@ -23,7 +27,7 @@
 
     <section class="tab-panel" data-panel="champions" hidden>
       <section class="gbox">
-        <h2>Championi <span class="gseg" id="pool-kinds" role="group" aria-label="Typ her" hidden></span></h2>
+        <h2>Championi</h2>
         <div class="gscroll"><table class="gtable" id="pool"></table></div>
       </section>
     </section>
@@ -59,7 +63,7 @@
     let icons = new Map();
     let champSort = 'g';
     let lastGames = [];
-    let poolKind = '';
+    let poolKind = null; // null = not chosen yet → scrims when there are any
 
     const tabs = document.getElementById('tabs');
     function showTab(name) {
@@ -69,22 +73,44 @@
     }
     tabs.addEventListener('click', (e) => { const b = e.target.closest('button[data-tab]'); if (b) showTab(b.dataset.tab); });
 
+    const shownGames = () => lastGames.filter((g) => !poolKind || gameKind(g.game_type) === poolKind);
+
+    /** Scrims first and by default – flexes against random players would skew the numbers; "Vše" is last. */
     function renderPoolKinds() {
       const counts = new Map();
       for (const g of lastGames) counts.set(gameKind(g.game_type), (counts.get(gameKind(g.game_type)) || 0) + 1);
-      if (poolKind && !counts.has(poolKind)) poolKind = '';
-      const el = document.getElementById('pool-kinds');
-      el.hidden = counts.size < 2;
-      el.innerHTML = [['', 'Vše', lastGames.length], ...GAME_KIND_ORDER.filter((k) => counts.has(k)).map((k) => [k, GAME_KINDS[k].plural, counts.get(k)])]
-        .map(([v, label, n]) => `<button data-kind="${v}" class="${v === poolKind ? 'active' : ''}" aria-pressed="${v === poolKind}" title="${v ? esc(GAME_KINDS[v].hint) : ''}">${esc(label)} (${n})</button>`).join('');
+      if (poolKind === null || (poolKind && !counts.has(poolKind))) poolKind = counts.has('scrim') ? 'scrim' : '';
+      document.getElementById('kind-bar').hidden = counts.size < 2;
+      document.getElementById('pool-kinds').innerHTML = [...GAME_KIND_ORDER.filter((k) => counts.has(k)).map((k) => [k, GAME_KINDS[k].plural, counts.get(k)]), ['', 'Vše', lastGames.length]]
+        .map(([v, label, n]) => `<button data-kind="${v}" class="${v === poolKind ? 'active' : ''}" aria-pressed="${v === poolKind}" title="${v ? esc(GAME_KINDS[v].hint) : 'Všechny hry dohromady'}">${esc(label)} (${n})</button>`).join('');
+      document.getElementById('kind-hint').textContent = poolKind === 'scrim' ? 'Statistiky jen ze scrimů'
+        : poolKind ? 'Hry proti náhodným hráčům – o strategii týmu toho moc neřeknou' : 'Scrimy i flexy dohromady';
     }
     document.getElementById('pool-kinds').addEventListener('click', (e) => {
       const b = e.target.closest('[data-kind]'); if (!b) return;
-      poolKind = b.dataset.kind; renderPoolKinds(); renderPool();
+      poolKind = b.dataset.kind; renderPoolKinds(); renderTiles(); renderPool(); renderGames();
     });
 
+    function renderTiles() {
+      const list = shownGames();
+      let w = 0, l = 0, k = 0, d = 0, a = 0, n = 0;
+      for (const g of list) {
+        if (g.result === 'WIN') w++; else if (g.result === 'LOSS') l++;
+        if (g.kills !== null && g.kills !== undefined) (k += g.kills, d += g.deaths, a += g.assists, n++);
+      }
+      const wr = w + l ? Math.round((w / (w + l)) * 100) : null;
+      const champs = new Set(list.map((g) => g.champion)).size;
+      const tile = (label, value, hint = '') => `<div class="tile"><div class="label">${label}</div><div class="value">${value}</div><div class="hint">${hint}</div></div>`;
+      document.getElementById('tiles').innerHTML = [
+        tile('Hry', list.length, `${champs} championů`),
+        tile('Výhry / prohry', `<span style="color:var(--green)">${w}</span> / <span style="color:#ff8f93">${l}</span>`, list.length - w - l ? `${list.length - w - l} bez výsledku` : ''),
+        tile('Winrate', wr === null ? '–' : `<span class="wr ${wrClass(wr)}">${wr} %</span>`),
+        tile('KDA', n ? Math.round(((k + a) / Math.max(d, 1)) * 100) / 100 : '–', n ? `${(k / n).toFixed(1)} / ${(d / n).toFixed(1)} / ${(a / n).toFixed(1)}` : ''),
+      ].join('');
+    }
+
     function renderPool() {
-      const picks = lastGames.filter((g) => !poolKind || gameKind(g.game_type) === poolKind).map((g) => ({
+      const picks = shownGames().map((g) => ({
         champion: g.champion, win: g.result === 'WIN' ? true : g.result === 'LOSS' ? false : null,
         kills: g.kills, deaths: g.deaths, assists: g.assists, who: g.opponent?.champion, played_at: g.played_at,
       }));
@@ -123,18 +149,25 @@
           ${p.kick_slug ? `<a class="chip chip-kick" href="https://kick.com/${esc(p.kick_slug)}" target="_blank" rel="noopener"><span class="dot"></span>${esc(p.kick_slug)}</a>` : ''}
         </div>`;
 
-      const tile = (label, value, hint = '') => `<div class="tile"><div class="label">${label}</div><div class="value">${value}</div><div class="hint">${hint}</div></div>`;
-      document.getElementById('tiles').innerHTML = [
-        tile('Hry', stats.games, `${stats.champions.length} championů`),
-        tile('Výhry / prohry', `<span style="color:var(--green)">${stats.wins}</span> / <span style="color:#ff8f93">${stats.losses}</span>`, stats.games - stats.wins - stats.losses ? `${stats.games - stats.wins - stats.losses} bez výsledku` : ''),
-        tile('Winrate', stats.winrate === null ? '–' : `<span class="wr ${wrClass(stats.winrate)}">${stats.winrate} %</span>`),
-        tile('KDA', stats.kda === null ? '–' : stats.kda, stats.avg ? `${stats.avg.kills} / ${stats.avg.deaths} / ${stats.avg.assists}` : ''),
-      ].join('');
-
       lastGames = games;
       renderPoolKinds();
+      renderTiles();
       renderPool();
+      renderGames();
 
+      renderNotes(notes);
+
+      document.getElementById('vods').innerHTML = vods.length
+        ? vods.map((v) => `
+          <a class="vod" href="${esc(v.url)}" target="_blank" rel="noopener">
+            <div class="thumb">${v.thumbnail_url ? `<img src="${esc(v.thumbnail_url)}" alt="" loading="lazy">` : ''}</div>
+            <div class="body"><div class="title">${esc(v.title || 'Bez názvu')}</div><div class="sub">${new Date(v.started_at).toLocaleDateString('cs-CZ')}</div></div>
+          </a>`).join('')
+        : '<div class="empty" style="grid-column:1/-1">Žádné VODky.</div>';
+    }
+
+    function renderGames() {
+      const games = shownGames();
       document.getElementById('games').innerHTML = games.length
         ? games.map((g) => {
             const res = g.result === 'WIN' ? '<span class="res res-win">V</span>' : g.result === 'LOSS' ? '<span class="res res-loss">P</span>' : '<span class="res res-none">–</span>';
@@ -151,16 +184,6 @@
             </div>`;
           }).join('')
         : '<p class="muted">Žádné zaznamenané hry.</p>';
-
-      renderNotes(notes);
-
-      document.getElementById('vods').innerHTML = vods.length
-        ? vods.map((v) => `
-          <a class="vod" href="${esc(v.url)}" target="_blank" rel="noopener">
-            <div class="thumb">${v.thumbnail_url ? `<img src="${esc(v.thumbnail_url)}" alt="" loading="lazy">` : ''}</div>
-            <div class="body"><div class="title">${esc(v.title || 'Bez názvu')}</div><div class="sub">${new Date(v.started_at).toLocaleDateString('cs-CZ')}</div></div>
-          </a>`).join('')
-        : '<div class="empty" style="grid-column:1/-1">Žádné VODky.</div>';
     }
 
     function renderNotes(notes) {

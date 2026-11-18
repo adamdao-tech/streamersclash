@@ -87,7 +87,7 @@ class Finder:
     def __init__(self, screen: str, work_width: int = 480, min_frac: float = 0.35, full_search_every: int = 1):
         self.screen = screen
         self.work_width = work_width
-        self.min_frac = min_frac
+        self.min_frac = float(SCREENS[screen].get("min_frac", min_frac))
         self.hint: ClientRect | None = None  # in original frame pixels
         # When the client position is known, the slow full search runs only every N-th frame:
         # stream layouts rarely change, and every screen we look for lasts far longer than N frames.

@@ -51,8 +51,42 @@ SCREENS = {
         # the chat box sits where most streamers put their webcam: the screen is also found without it
         "optional": 3,
     },
+    # drafter.lol – the draft tool many teams use for scrims; in the client those games are blind pick (no bans).
+    # Reference: the page's two pick columns (5 champion splashes each) and the ban rows under them, as a
+    # browser shows them on a wide screen. Only the parts that look the same in every draft are compared: the
+    # dark gaps between the pick panels, the columns' side edges and the ban slots.
+    "drafter": {
+        "reference": REF_DIR / "drafter.png",
+        # a finished draft scores ~0.6–0.75 at the scan's 320 px, other screens stay under ~0.4
+        "threshold": 0.5,
+        # the page is a big browser window (or a Discord screen share of one): smaller finds are something else
+        "min_frac": 0.45,
+        # its own window – it doesn't share where it is with the client screens
+        "own_window": True,
+        "min_seconds": 0,
+        "merge_gap_s": 60,
+        # a draft there takes minutes: a look every ~6 s is plenty (keeps the scan almost as fast as before)
+        "check_every_s": 6,
+        "regions": [
+            *[(x0, y - 0.0076, x1, y + 0.0076)
+              for x0, x1 in ((0.0064, 0.3423), (0.6577, 0.9936))
+              for y in (0.0106, 0.1864, 0.3652, 0.5455, 0.7242, 0.9061)],
+            *[(x - 0.0032, 0.0106, x + 0.0032, 0.9061) for x in (0.0051, 0.3436, 0.6564, 0.9949)],
+            *[(x - 0.0176, 0.9106, x + 0.0176, 0.9939)
+              for x in (0.0205, 0.0526, 0.0849, 0.1199, 0.1519, 0.8516, 0.8837, 0.9196, 0.9516, 0.9837)],
+        ],
+    },
 }
 STATIC_REGIONS = SCREENS["champselect"]["regions"]
+
+# --- drafter.lol page (coordinates relative to the found page rectangle, see SCREENS["drafter"]) -----------
+# Pick panels: tops/bottoms of the five rows (the gaps between them), x range of the blue (left) and red columns.
+DRAFTER_ROWS = [0.0106, 0.1864, 0.3652, 0.5455, 0.7242, 0.9061]
+DRAFTER_COLS = {"blue": (0.0064, 0.3423), "red": (0.6577, 0.9936)}
+# Ban slots, left to right on screen. Blue shows bans 1–5 left to right, red mirrored (5 → 1).
+DRAFTER_BAN_X = {"blue": [0.0205, 0.0526, 0.0849, 0.1199, 0.1519], "red": [0.9837, 0.9516, 0.9196, 0.8837, 0.8516]}
+DRAFTER_BAN_Y = 0.9523
+DRAFTER_BAN_SIZE = (0.0276, 0.0652)  # width, height
 
 # Ban icons: centres of the five icons on each side, and the icon size.
 BAN_Y = 0.069

@@ -53,6 +53,7 @@ class DraftResult:
 class ScanResult:
     drafts: list[Episode] = field(default_factory=list)
     postgames: list[Episode] = field(default_factory=list)
+    drafters: list[Episode] = field(default_factory=list)  # drafter.lol on screen (drafts made outside the client)
 
 
 def fmt(ts: float) -> str:
@@ -71,18 +72,23 @@ def find_episodes(streams: video.Streams, every_s: float = 5, start_s: float = 0
     current: dict[str, Episode | None] = {name: None for name in SCREENS}
     last_log = time.monotonic()
 
-    for ts, frame in video.iter_frames(streams.scan_url, every_s, start_s, end_s):
+    for i, (ts, frame) in enumerate(video.iter_frames(streams.scan_url, every_s, start_s, end_s)):
         fh, fw = frame.shape[:2]
         for name, finder in finders.items():
+            # a screen that stays up for minutes (drafter.lol) needn't be looked for in every sampled frame
+            nth = max(1, round(SCREENS[name].get("check_every_s", 0) / every_s))
+            if i % nth:
+                continue
             r = finder.find(frame)
             cand = SCREENS[name].get("candidate_threshold")
             weak_ok = cand is not None and r.score >= cand and r.w >= SCREENS[name]["candidate_min_frac"] * fw
             if r.score < finder.threshold and not weak_ok:
                 continue
-            # Both screens are the same client window: share where it is.
-            for other in finders.values():
-                if other.hint is None:
-                    other.hint = finder.hint
+            # The client screens are the same window: share where it is (drafter.lol is a browser window of its own).
+            if not SCREENS[name].get("own_window"):
+                for oname, other in finders.items():
+                    if other.hint is None and not SCREENS[oname].get("own_window"):
+                        other.hint = finder.hint
             ep = current[name]
             if ep and ts - ep.end <= SCREENS[name].get("merge_gap_s", every_s * 3):
                 ep.end, ep.hits = ts, ep.hits + 1
@@ -102,7 +108,7 @@ def find_episodes(streams: video.Streams, every_s: float = 5, start_s: float = 0
     keep = {name: [e for e in eps if e.hits >= min_hits(name, every_s)] for name, eps in episodes.items()}
     # weak post-game matches: keep only those whose scoreboard really reads (VICTORY/DEFEAT, K/D/A rows)
     postgames = [e for e in keep["postgame"] if e.best_score >= SCREENS["postgame"]["threshold"] or _confirm_postgame(streams, e)]
-    return ScanResult(keep["champselect"], postgames)
+    return ScanResult(keep["champselect"], postgames, keep["drafter"])
 
 
 def _client_crop(frame: np.ndarray, rect: tuple[float, float, float, float]) -> np.ndarray:
@@ -279,7 +285,7 @@ def read_draft_episode(streams: video.Streams, ep: Episode, db: ChampionDB, debu
 def real_drafts(scan: ScanResult, results: list[DraftResult]) -> ScanResult:
     """The scan with only the champ selects that really read: a false find (in-game frame) must not stand between
     a draft and its post-game screen."""
-    return ScanResult([r.episode for r in results], scan.postgames)
+    return ScanResult([r.episode for r in results], scan.postgames, scan.drafters)
 
 
 def attach_postgame(streams: video.Streams, res: DraftResult, db: ChampionDB, scan: ScanResult, debug_root: Path | None = None) -> DraftResult:

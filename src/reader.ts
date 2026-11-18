@@ -1,6 +1,7 @@
 import type { Env } from './index';
 import { applyPostgame, findSameGame, saveDraft, teamGameCheck, validateDraft, type DraftInput, type DraftSlot } from './drafts';
 import { logActivity } from './db';
+import { addReaderBans } from './drafter';
 import { assertBodySize, HttpError, json, sha256Hex } from './http';
 import { getStreams } from './twitch';
 
@@ -238,6 +239,7 @@ async function route(req: Request, env: Env, url: URL): Promise<Response> {
       const pg = (body.reading as { postgame?: Parameters<typeof applyPostgame>[2] } | undefined)?.postgame;
       let updated = false;
       if (existing.match_id && pg) updated = await applyPostgame(env, existing.match_id, pg);
+      if (existing.match_id && body.reading && (await readerBans(env, existing.match_id, body.reading))) updated = true;
       if (existing.status === 'review' && body.reading) {
         await db.prepare('UPDATE draft_frames SET reading = ?, image = ?, confidence = ? WHERE id = ?')
           .bind(JSON.stringify(body.reading), bytes.buffer, body.confidence ?? null, existing.id)
@@ -322,6 +324,8 @@ async function route(req: Request, env: Env, url: URL): Promise<Response> {
         [pg.ally, pg.enemy] = [pg.enemy, pg.ally];
         rd.ally = (pg.ally ?? []).map((r) => ({ champion: r.champion ?? '?', player_name: r.player_name ?? null, role: r.role ?? null }));
         rd.enemy = (pg.enemy ?? []).map((r) => ({ champion: r.champion ?? '?' }));
+        // bans (drafter.lol on stream) were given for the scoreboard's teams: they swap with them
+        [rd.ally_bans, rd.enemy_bans] = [rd.enemy_bans, rd.ally_bans];
         await db.prepare('UPDATE draft_frames SET reading = ? WHERE id = ?').bind(JSON.stringify(rd), frameId).run();
       }
       // A scrim against another team's roster with the streamer's teammates on unknown accounts: the normal
@@ -335,6 +339,7 @@ async function route(req: Request, env: Env, url: URL): Promise<Response> {
     const same = rd ? await findSameGame(env, [...(rd.ally ?? []), ...(rd.enemy ?? [])].map((s) => s.champion), pgDur, vodId) : null;
     if (same) {
       if (rd?.postgame) await applyPostgame(env, same, rd.postgame as Parameters<typeof applyPostgame>[2]);
+      if (rd) await readerBans(env, same, rd);
       await db.prepare(`UPDATE draft_frames SET status = 'accepted', match_id = ?, note = ? WHERE id = ?`)
         .bind(same, 'Stejná hra už je uložená', frameId).run();
       return json({ ok: true, duplicate: true, frame_id: frameId, match_id: same }, 201);
@@ -387,4 +392,13 @@ function mayBeTeamGame(chk: { ok: boolean; matched: number; need: number }, slot
     return n.length < 3;
   }).length;
   return chk.matched + unreadable >= chk.need;
+}
+
+/** Bans in a reading (read from drafter.lol on stream) for a game that is already saved – only when it has none. */
+async function readerBans(env: Env, matchId: number, rd: { ally?: { champion?: string | null }[]; ally_bans?: string[]; enemy_bans?: string[] }): Promise<boolean> {
+  const allyBans = Array.isArray(rd.ally_bans) ? rd.ally_bans.map(String) : [];
+  const enemyBans = Array.isArray(rd.enemy_bans) ? rd.enemy_bans.map(String) : [];
+  if (!allyBans.length && !enemyBans.length) return false;
+  const ally = (rd.ally ?? []).map((s) => String(s?.champion ?? '')).filter((c) => c && c !== '?');
+  return addReaderBans(env, matchId, ally, allyBans, enemyBans);
 }

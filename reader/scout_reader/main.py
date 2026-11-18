@@ -16,6 +16,7 @@ import threading
 import time
 from pathlib import Path
 
+from . import drafter as D
 from . import kick
 from . import scan as S
 from . import video
@@ -133,8 +134,13 @@ def cmd_scan(args) -> None:
     streams = video.resolve(args.url)
     every = float(env("SAMPLE_SECONDS", "2"))
     scan = S.find_episodes(streams, every, parse_time(args.start) if args.start else 0, parse_time(args.end) if args.end else None)
-    print(f"Found {len(scan.drafts)} champion select(s), {len(scan.postgames)} post-game screen(s)")
+    print(f"Found {len(scan.drafts)} champion select(s), {len(scan.postgames)} post-game screen(s), "
+          f"{len(scan.drafters)} drafter.lol page(s)")
     debug = Path(env("DEBUG_DIR", "/debug"))
+    cache_dir = Path(env("CACHE_DIR", "/cache"))
+    drafters = read_drafters(streams, scan, db, debug)
+    for d in drafters:
+        print(f"  {S.fmt(d.ts)}: drafter.lol – {d.summary()}")
     used: set[int] = set()
     read = {id(ep): S.read_draft_episode(streams, ep, db, debug) for ep in scan.drafts}
     real = S.real_drafts(scan, [r for r in read.values() if r])
@@ -145,11 +151,46 @@ def cmd_scan(args) -> None:
         print(f"  {S.fmt(ep.start)}–{S.fmt(ep.end)}: " + (summary(res.reading) if res else "could not read (false find or unreadable)"))
         if res:
             print("  " + postgame_summary(res.postgame) if res.postgame_ts else "  no post-game screen (dodge or game not finished in VOD)")
+            enemy = [s.champion for s in res.reading.enemy if s.champion] or [r["champion"] for r in (res.postgame or {}).get("enemy", []) if r.get("champion")]
+            got = D.bans_for(drafters, ep.start, [s.champion for s in res.reading.ally if s.champion], enemy, db, cache_dir)
+            if got:
+                print(f"  bans (drafter.lol): ours {', '.join(got[0]) or '–'} | theirs {', '.join(got[1]) or '–'}")
             if res.postgame_ep and res.postgame:
                 used.add(id(res.postgame_ep))
     for pg_ep in S.unused_postgames(scan, used):
         got = S.best_open_postgame(streams, pg_ep, db, None, debug)
         print(f"  {S.fmt(pg_ep.start)}: post-game without a draft – " + (postgame_summary(got[0]) if got else "unreadable"))
+        if got:
+            pg, ts = got[0], got[1]
+            b = D.bans_for(drafters, ts - (pg.get("duration_s") or 2400) - 240,
+                           [r["champion"] for r in pg["ally"] if r.get("champion")], [r["champion"] for r in pg["enemy"] if r.get("champion")], db, cache_dir)
+            if b:
+                print(f"  bans (drafter.lol): team 1 {', '.join(b[0]) or '–'} | team 2 {', '.join(b[1]) or '–'}")
+
+
+def read_drafters(streams: video.Streams, scan: S.ScanResult, db: ChampionDB, debug_root: Path | None = None) -> list:
+    """drafter.lol drafts seen in the VOD, read at full resolution (bans + pick panels)."""
+    out = []
+    for ep in scan.drafters:
+        r = D.read_episode(streams, ep, db, debug_root)
+        if r:
+            log.info("  %s: drafter.lol draft – %s", S.fmt(r.ts), r.summary())
+            out.append(r)
+    return out
+
+
+def add_drafter_bans(payload: dict, drafters: list, game_start: float, db: ChampionDB, cache_dir: Path) -> None:
+    """Bans from the drafter.lol draft before this game, when the client showed none (blind-pick customs).
+    The pick panels must show this game's champions – that also says which side was whose."""
+    if not drafters or payload.get("ally_bans") or payload.get("enemy_bans"):
+        return
+    ally = [s["champion"] for s in payload.get("ally", []) if s.get("champion") not in (None, "?")]
+    enemy = [s["champion"] for s in payload.get("enemy", []) if s.get("champion") not in (None, "?")]
+    got = D.bans_for(drafters, game_start, ally, enemy, db, cache_dir)
+    if got:
+        payload["ally_bans"], payload["enemy_bans"], line = got
+        payload["bans_source"] = "drafter.lol"
+        log.info("  %s", line)
 
 
 def process_job(app: AppClient, db: ChampionDB, job: dict, auto_accept: bool, every: float) -> None:
@@ -164,6 +205,8 @@ def process_job(app: AppClient, db: ChampionDB, job: dict, auto_accept: bool, ev
 
     scan = S.find_episodes(streams, every)
     log.info("  %d champion select(s), %d post-game screen(s) found", len(scan.drafts), len(scan.postgames))
+    cache_dir = Path(env("CACHE_DIR", "/cache"))
+    drafters = read_drafters(streams, scan, db)
     found = 0
     used: set[int] = set()  # post-game screens a saved draft took; every other one is read on its own below
     read = {id(ep): S.read_draft_episode(streams, ep, db) for ep in scan.drafts}
@@ -193,6 +236,7 @@ def process_job(app: AppClient, db: ChampionDB, job: dict, auto_accept: bool, ev
             continue
         if res.postgame:
             payload["postgame"] = {**res.postgame, "ts_s": int(res.postgame_ts or 0)}
+        add_drafter_bans(payload, drafters, res.episode.start, db, cache_dir)
         r = app.upload_frame(
             vod_id, res.ts, res.client_jpeg, res.width, res.height, payload, res.reading.confidence, auto,
             postgame_jpeg=res.postgame_jpeg,
@@ -232,6 +276,8 @@ def process_job(app: AppClient, db: ChampionDB, job: dict, auto_accept: bool, ev
             "postgame": {**pg, "ts_s": int(ts)},
             "source": "postgame",
         }
+        # the game started about its length (plus loading) before the scoreboard
+        add_drafter_bans(payload, drafters, ts - (pg.get("duration_s") or 2400) - 240, db, cache_dir)
         clear = all(r["champion"] and r.get("score", 0) >= 90 for r in pg["ally"] + pg["enemy"])
         r = app.upload_frame(vod_id, ts, jpg, w, h, payload, round(pg["fit"] / 100, 3), auto_accept and clear, postgame_jpeg=jpg)
         found += 1

@@ -158,6 +158,31 @@ async function findMatch(env: Env, blue: string[], red: string[], createdAt?: st
   return best;
 }
 
+/**
+ * Bans the draft reader saw (drafter.lol on stream) for a game that is already saved: added only when the game
+ * has no bans yet. `readAlly` are the reading's ally champions – they say whether the reading's "ally" is the
+ * saved game's ally side or the other one (the same game read from another player's stream).
+ */
+export async function addReaderBans(env: Env, matchId: number, readAlly: string[], allyBans: string[], enemyBans: string[]): Promise<boolean> {
+  if (!allyBans.length && !enemyBans.length) return false;
+  const db = env.DB;
+  const has = await db.prepare(`SELECT 1 AS x FROM draft_actions WHERE match_id = ? AND action = 'BAN' LIMIT 1`).bind(matchId).first();
+  if (has) return false;
+  const champions = await getChampions(env);
+  const norm = (c: string) => resolveChampion(champions, c);
+  const { results } = await db
+    .prepare(`SELECT side, champion FROM draft_actions WHERE match_id = ? AND action = 'PICK'`)
+    .bind(matchId)
+    .all<{ side: string; champion: string }>();
+  const mine = new Set(readAlly.map(norm).filter(Boolean));
+  const overlap = (side: string) => results.filter((r) => (r.side === side || (side === 'ALLY' && r.side === 'BLUE')) && mine.has(r.champion)).length;
+  const swapped = overlap('ENEMY') > overlap('ALLY');
+  const clean = (l: string[]) => l.map(norm).filter((c): c is string => !!c);
+  const [a, e] = swapped ? [clean(enemyBans), clean(allyBans)] : [clean(allyBans), clean(enemyBans)];
+  if (!a.length && !e.length) return false;
+  return saveBans(env, matchId, a, e);
+}
+
 /** Replaces the game's bans with drafter.lol's. Returns false when they were already the same. */
 async function saveBans(env: Env, matchId: number, ally: string[], enemy: string[]): Promise<boolean> {
   const db = env.DB;

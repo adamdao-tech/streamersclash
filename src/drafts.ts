@@ -409,10 +409,30 @@ export async function playerGames(env: Env, playerId: number, limit = 200): Prom
   });
 }
 
+export type GameKind = 'scrim' | 'flex' | 'soloq' | 'normal' | 'unknown';
+
+/**
+ * What kind of game this was, for scouting. Team games in a custom lobby are scrims (team vs team, real strategy);
+ * Ranked Flex / Solo are queue games against random players, so they say little about how a team plays together.
+ */
+export function gameKind(type: string | null | undefined): GameKind {
+  const t = (type ?? '').toLowerCase();
+  if (!t) return 'unknown';
+  if (t.includes('custom') || t.includes('vlastn') || t.includes('tournament') || t.includes('turnaj')) return 'scrim';
+  if (t.includes('flex')) return 'flex';
+  if (t.includes('solo')) return 'soloq';
+  return 'normal';
+}
+
 export function summarizeGames(games: PlayerGame[]) {
   const pool = new Map<string, { champion: string; games: number; wins: number; losses: number; k: number; d: number; a: number; kdaGames: number }>();
   let wins = 0, losses = 0, k = 0, d = 0, a = 0, kdaGames = 0;
+  const byKind: Partial<Record<GameKind, { games: number; wins: number; losses: number }>> = {};
   for (const g of games) {
+    const bk = (byKind[gameKind(g.game_type)] ??= { games: 0, wins: 0, losses: 0 });
+    bk.games++;
+    if (g.result === 'WIN') bk.wins++;
+    if (g.result === 'LOSS') bk.losses++;
     const p = pool.get(g.champion) ?? { champion: g.champion, games: 0, wins: 0, losses: 0, k: 0, d: 0, a: 0, kdaGames: 0 };
     p.games++;
     if (g.result === 'WIN') (p.wins++, wins++);
@@ -430,6 +450,7 @@ export function summarizeGames(games: PlayerGame[]) {
     losses,
     winrate: wins + losses ? Math.round((wins / (wins + losses)) * 100) : null,
     kda: kdaGames ? kda(k, d, a) : null,
+    by_kind: byKind,
     avg: kdaGames ? { kills: +(k / kdaGames).toFixed(1), deaths: +(d / kdaGames).toFixed(1), assists: +(a / kdaGames).toFixed(1) } : null,
     champions: [...pool.values()]
       .sort((x, y) => y.games - x.games || y.wins - x.wins)

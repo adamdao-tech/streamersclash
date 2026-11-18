@@ -5,7 +5,7 @@ import {
   formatPrague, isUpcoming, KIND_LABELS, listSchedule, matchResult, opponentLabel, requireOpponent, scheduleFields, type ScheduledMatch,
 } from './schedule';
 import { isSuperadmin, logActivity, type User } from './db';
-import { listDrafts, playerGames, relinkDraftPlayers, saveDraft, summarizeGames, teamGameCheck, validateDraft, type DraftInput } from './drafts';
+import { gameKind, listDrafts, playerGames, relinkDraftPlayers, saveDraft, summarizeGames, teamGameCheck, validateDraft, type DraftInput } from './drafts';
 import { assertBodySize, HttpError, json } from './http';
 import { userFromBearer } from './oauth';
 import { syncTwitchVods } from './vods';
@@ -30,6 +30,9 @@ Draft review workflow: list_drafts_for_review → get_draft_frame (look at the i
 correct champions, or discard_draft_frame if it isn't a finished draft (dodge, lobby, unreadable).
 Only team games are kept: at least 4 of the ally names must be players of the streamer's team (5, or 4 when a sub plays).
 Solo queue / Streamers Queue games with random teammates are discarded (save_draft refuses them with not_team_game).
+Game kind ("kind" in outputs): scrim = custom game team vs team – this is where a team's real strategy, draft priorities and
+macro show; flex = Ranked Flex with the team's five against random players – useful for champion pools and form, but it says
+little about team strategy. In scouting reports keep the two apart and base strategy conclusions on scrims.
 Coaching: get_coaching shows rune pages and coaching notes per player and folder; write notes with add_coaching_note.
 Schedule: get_schedule lists our tournament matches, scrims and other events; the next opponent's opponent_team_id is the team to scout.
 Coaching plan (superadmin only): get_coach_plan shows the coach's strategic plan – tabs with a goal and items to tick off when learned; add_coach_plan_items, update_coach_plan_item, save_coach_plan_tab change it. Items already done were learned – don't suggest them again.
@@ -136,6 +139,7 @@ const TOOLS: Tool[] = [
           kda: g.kills !== null ? `${g.kills}/${g.deaths}/${g.assists}` : null,
           vs: g.opponent ? `${g.opponent.champion}${g.opponent.player_name ? ` (${g.opponent.player_name})` : ''}` : null,
           game_type: g.game_type,
+          kind: gameKind(g.game_type),
         })),
         champion_pool_all_appearances: pool,
         vods,
@@ -1249,6 +1253,7 @@ function compactDraft(d: Json & { actions?: Json[] }) {
     played_at: d.played_at,
     result: d.result,
     game_type: d.game_type,
+    kind: gameKind(d.game_type as string | null),
     duration_s: d.duration_s,
     pov_player: d.pov_nickname,
     source: d.created_by_kind,

@@ -149,7 +149,7 @@
   </dialog>
 
   <script type="module">
-    import { api, esc, initPage, formDialog, logoHtml, loadChampions, champIcon, draftRow, vodLink, fmtDuration, aggregateChampions, championTableHtml } from '/app.js';
+    import { api, esc, initPage, formDialog, logoHtml, loadChampions, champIcon, draftRow, vodLink, fmtDuration, aggregateChampions, championTableHtml, gameKind, gameKindBadge, GAME_KINDS, GAME_KIND_ORDER } from '/app.js';
 
     const me = await initPage('teams');
     const teamId = new URLSearchParams(location.search).get('id');
@@ -162,7 +162,7 @@
 
     const ROLE_ORDER = ['TOP', 'JUNGLE', 'MID', 'ADC', 'SUPPORT', 'SUB'];
     const ROLE_NAME = { TOP: 'Top', JUNGLE: 'Jungle', MID: 'Mid', ADC: 'Bot', SUPPORT: 'Support', SUB: 'Náhradník' };
-    const typeOf = (d) => d.game_type || 'Neznámý';
+    const typeOf = (d) => gameKind(d.game_type);
     const drafts = () => allDrafts.filter((d) => !typeFilter || typeOf(d) === typeFilter);
     const pct = (a, b) => (b ? Math.round((a / b) * 100) : null);
     const num = (n, digits = 1) => n.toFixed(digits).replace('.', ',');
@@ -217,7 +217,7 @@
     function renderTypeFilter() {
       const counts = new Map();
       for (const d of allDrafts) counts.set(typeOf(d), (counts.get(typeOf(d)) || 0) + 1);
-      const opts = [['', 'Vše', allDrafts.length], ...[...counts.entries()].sort((a, b) => b[1] - a[1]).map(([t, n]) => [t, t, n])];
+      const opts = [['', 'Vše', allDrafts.length], ...GAME_KIND_ORDER.filter((k) => counts.has(k)).map((k) => [k, GAME_KINDS[k].plural, counts.get(k)])];
       const el = document.getElementById('type-filter');
       el.hidden = counts.size < 2;
       el.innerHTML = opts.map(([v, label, n]) =>
@@ -238,8 +238,11 @@
         }
       }
       const wr = pct(w, w + l);
+      const kinds = new Map();
+      for (const d of list) kinds.set(typeOf(d), (kinds.get(typeOf(d)) || 0) + 1);
       const rows = [
         ['Hry', list.length],
+        ...(kinds.size > 1 ? [['Z toho', GAME_KIND_ORDER.filter((k) => kinds.has(k)).map((k) => `${GAME_KINDS[k].plural} ${kinds.get(k)}`).join(' · ')]] : []),
         ['Bilance', w + l ? `${w} V – ${l} P` : '–'],
         ['Winrate', wrSpan(wr)],
         ['Ø délka hry', durN ? fmtDuration(Math.round(durSum / durN)) : '–'],
@@ -451,7 +454,7 @@
             <td class="muted">${when}</td>
             <td>${r === null ? '<span class="muted">–</span>' : r ? '<span class="wrv good">Výhra</span>' : '<span class="wrv bad">Prohra</span>'}</td>
             <td>${opp ? `<a href="/team?id=${opp.id}">${esc(opp.name)}</a>` : '<span class="muted">neznámý</span>'}</td>
-            <td class="muted">${esc(typeOf(d))}</td>
+            <td>${gameKindBadge(d.game_type)}</td>
             <td class="num muted">${d.duration_s ? fmtDuration(d.duration_s) : '–'}</td>
             <td><div class="gstrip">${picks.map((a) => champIcon(icons, a.champion, 'row')).join('')}</div></td>
             <td class="num">${link ? `<a href="${esc(link)}" target="_blank" rel="noopener" title="Champ select ve VODce">VOD ▶</a>` : ''}</td>

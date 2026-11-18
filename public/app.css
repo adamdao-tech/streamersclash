@@ -563,6 +563,11 @@ dialog h2 { margin-bottom: 16px; }
 .kind-scrim { color: var(--c-scrim); background: var(--c-scrim-bg); }
 .kind-other { color: var(--c-other); background: var(--c-other-bg); }
 .kind-off { color: var(--c-off); background: var(--c-off-bg); }
+/* game kind on draft rows: scrims stand out, queue games stay quiet */
+.kind-queue { color: var(--muted); background: var(--bg-2); border: 1px solid var(--line); padding: 4px 7px; }
+.kind-unknown { color: var(--muted); background: transparent; border: 1px dashed var(--line); padding: 4px 7px; }
+.drow summary .kind { flex: none; }
+.game .g-main .kind { margin-right: 6px; padding: 3px 6px; font-size: 0.62rem; }
 
 /* --- schedule: calendar --- */
 .cal-head { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }

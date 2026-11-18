@@ -163,6 +163,32 @@ function shortDate(iso) {
 }
 
 /** One draft as a single line; click to expand lane-by-lane details. */
+// --- game kind: scrim vs queue games --------------------------------------------
+
+/** Custom team games are scrims (real team strategy); flex/solo are queue games against random players. */
+export const GAME_KINDS = {
+  scrim: { label: 'Scrim', plural: 'Scrimy', cls: 'kind-scrim', hint: 'Custom hra tým proti týmu – tady je vidět strategie a draft' },
+  flex: { label: 'Flex', plural: 'Flexy', cls: 'kind-queue', hint: 'Ranked Flex proti náhodným hráčům – champion pool a forma, strategie málo' },
+  soloq: { label: 'Solo/Duo', plural: 'Solo/Duo', cls: 'kind-queue', hint: 'Ranked Solo/Duo' },
+  normal: { label: 'Normal', plural: 'Normaly', cls: 'kind-queue', hint: 'Normální hra' },
+  unknown: { label: 'Neznámý', plural: 'Neznámý typ', cls: 'kind-unknown', hint: 'Typ hry se nepodařilo přečíst' },
+};
+export const GAME_KIND_ORDER = ['scrim', 'flex', 'soloq', 'normal', 'unknown'];
+
+export function gameKind(type) {
+  const t = (type || '').toLowerCase();
+  if (!t) return 'unknown';
+  if (t.includes('custom') || t.includes('vlastn') || t.includes('tournament') || t.includes('turnaj')) return 'scrim';
+  if (t.includes('flex')) return 'flex';
+  if (t.includes('solo')) return 'soloq';
+  return 'normal';
+}
+
+export function gameKindBadge(type) {
+  const k = GAME_KINDS[gameKind(type)];
+  return `<span class="kind ${k.cls}" title="${esc(k.hint)}${type ? ` (${esc(type)})` : ''}">${k.label}</span>`;
+}
+
 export function draftRow(d, icons, ours = new Set()) {
   const picks = (side) => d.actions.filter((a) => a.side === side && a.action === 'PICK');
   const bans = (side) => d.actions.filter((a) => a.side === side && a.action === 'BAN');
@@ -195,11 +221,12 @@ export function draftRow(d, icons, ours = new Set()) {
     <details class="drow">
       <summary>
         ${resultBadge(d.result, oursOnEnemy ? 'ENEMY' : 'ALLY')}
+        ${gameKindBadge(d.game_type)}
         <span class="when">${shortDate(d.played_at)}</span>
         <span class="strip ally-strip">${strip(oursOnEnemy ? enemy : ally)}</span>
         <span class="vs">vs</span>
         <span class="strip">${strip(oursOnEnemy ? ally : enemy)}</span>
-        <span class="meta">${[d.game_type, fmtDuration(d.duration_s), d.pov_nickname ? `POV ${esc(d.pov_nickname)}` : ''].filter(Boolean).map(esc).join(' · ')}</span>
+        <span class="meta">${[fmtDuration(d.duration_s), d.pov_nickname ? `POV ${esc(d.pov_nickname)}` : ''].filter(Boolean).map(esc).join(' · ')}</span>
         ${link ? `<a class="play" href="${esc(link)}" target="_blank" rel="noopener" title="Champ select ve VODce">▶</a>` : ''}
       </summary>
       <div class="drow-detail">

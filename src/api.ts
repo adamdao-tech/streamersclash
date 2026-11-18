@@ -4,6 +4,7 @@ import { HttpError, json, assertBodySize } from './http';
 import { getLiveChannels, syncTwitchVods } from './vods';
 import { listDrafts, playerGames, relinkDraftPlayers, saveDraft, summarizeGames, teamGameCheck, validateDraft, type DraftInput } from './drafts';
 import { getChampionData } from './champions';
+import { importDrafterSeries } from './drafter';
 import { listSchedule, opponentLabel, requireOpponent, scheduleFields } from './schedule';
 import { freeSlot, listTournament, SLOTS, tournamentFields, tournamentLabel } from './tournament';
 import {
@@ -258,6 +259,15 @@ async function route(req: Request, env: Env, url: URL, user: User): Promise<Resp
     const login = normalizeChannel(body.login, 'twitch.tv');
     const result = await syncTwitchVods(env, login ? [login] : undefined);
     return json(result);
+  }
+
+  if (path === '/api/drafter/import' && method === 'POST') {
+    const body = await readBody(req);
+    const res = await importDrafterSeries(env, String(body.url ?? ''));
+    await logActivity(db, actor, 'drafter.import', null, null, {
+      series: res.series, games: res.games.length, updated: res.games.filter((g) => g.status === 'updated').map((g) => g.match_id),
+    });
+    return json(res);
   }
 
   if (path === '/api/live' && method === 'GET') {

@@ -37,6 +37,12 @@
     .rv-zoom { position: fixed; inset: 0; background: rgba(0,0,0,.85); display: flex; align-items: center; justify-content: center; z-index: 100; cursor: zoom-out; }
     .rv-zoom img { max-width: 96vw; max-height: 94vh; }
     .rv-tag { font-size: .72rem; padding: 2px 7px; border-radius: 999px; background: rgba(255,255,255,.07); color: var(--muted); }
+    .drafter-import { border: 1px solid var(--line); border-radius: 12px; background: var(--panel); padding: 12px 14px; margin: 0 0 16px; display: flex; flex-direction: column; gap: 8px; }
+    .drafter-import label { font-size: .86rem; color: var(--text-2); }
+    .drafter-row { display: flex; gap: 8px; }
+    .drafter-row input { flex: 1; min-width: 0; }
+    .drafter-out { font-size: .84rem; color: var(--text-2); display: flex; flex-direction: column; gap: 3px; }
+    .drafter-out .err { color: #ff7a7e; }
   </style>
 </head>
 <body>
@@ -48,6 +54,14 @@
       </div>
       <button class="btn" id="reload">Obnovit</button>
     </div>
+    <form class="drafter-import" id="drafter-form">
+      <label for="drafter-url"><b>Bany z drafter.lol</b> – vlož odkaz na sérii, bany se doplní k uloženým hrám (prázdné bany se přeskočí).</label>
+      <div class="drafter-row">
+        <input id="drafter-url" type="url" placeholder="https://drafter.lol/draft/…" required>
+        <button class="btn btn-primary" type="submit">Doplnit bany</button>
+      </div>
+      <div id="drafter-out" class="drafter-out" aria-live="polite"></div>
+    </form>
     <div id="list" class="rv-list"></div>
   </main>
 
@@ -60,6 +74,25 @@
     if (me.role !== 'admin') location.href = '/';
 
     const icons = await loadChampions();
+
+    // --- bany z drafter.lol ---------------------------------------------------
+    const STATUS = {
+      updated: 'bany doplněné', unchanged: 'bany už byly stejné', no_bans: 'na drafter.lol bez banů – nechávám, jak je',
+      not_found: 'hra zatím není uložená – importuj znovu, až ji čtečka najde', not_done: 'draft nedokončený',
+    };
+    document.getElementById('drafter-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const out = document.getElementById('drafter-out');
+      const btn = e.target.querySelector('button');
+      btn.disabled = true; out.textContent = 'Stahuju z drafter.lol…';
+      try {
+        const r = await api('/api/drafter/import', { method: 'POST', body: { url: document.getElementById('drafter-url').value } });
+        out.innerHTML = r.games.map((g) => `<div>Hra ${g.game} (${esc(g.blue || 'blue')} vs ${esc(g.red || 'red')}): ${
+          g.match_id ? `<b>zápas #${g.match_id}</b> – ` : ''}${STATUS[g.status] || esc(g.status)}${g.bans_saved ? ` (${g.bans_saved} banů)` : ''}</div>`).join('') || 'Série nemá žádné hry.';
+      } catch (err) {
+        out.innerHTML = `<span class="err">${esc(err.message || 'Import se nepovedl')}</span>`;
+      } finally { btn.disabled = false; }
+    });
     document.getElementById('champ-list').innerHTML = [...icons.keys()].sort().map((n) => `<option value="${esc(n)}">`).join('');
 
     const ROLES = ['TOP', 'JUNGLE', 'MID', 'ADC', 'SUPPORT'];

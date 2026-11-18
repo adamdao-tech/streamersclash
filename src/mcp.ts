@@ -7,6 +7,7 @@ import {
 import { isSuperadmin, logActivity, type User } from './db';
 import { gameKind, listDrafts, playerGames, relinkDraftPlayers, saveDraft, summarizeGames, teamGameCheck, validateDraft, type DraftInput } from './drafts';
 import { assertBodySize, HttpError, json } from './http';
+import { importDrafterSeries } from './drafter';
 import { userFromBearer } from './oauth';
 import { syncTwitchVods } from './vods';
 import { createFolder, getShotImage, loadCoaching, saveNote, savePool, saveRunePage, TIER_LABELS } from './coaching';
@@ -757,6 +758,22 @@ const TOOLS: Tool[] = [
       }
       if (!body.data) body.data = {};
       return text({ ok: true, id: await createBoard(env, user, body, 'claude') });
+    },
+  },
+  {
+    name: 'import_drafter',
+    description:
+      'Imports bans from a drafter.lol series link (https://drafter.lol/draft/…). Each game of the series is matched to a saved game by its ten ' +
+      'champions; its bans replace the saved ones (empty slots are skipped, a game with no bans keeps what it had) and a note records which side ' +
+      '(blue/red) the POV team was on. Games not saved yet come back as not_found – import again after the reader saves them.',
+    inputSchema: { type: 'object', properties: { url: { type: 'string', description: 'drafter.lol link or series id' } }, required: ['url'] },
+    async run(a, { env, user }) {
+      const res = await importDrafterSeries(env, String(a.url ?? ''));
+      const updated = res.games.filter((g) => g.status === 'updated');
+      await logActivity(env.DB, { kind: 'claude', userId: user.id }, 'drafter.import', null, null, {
+        series: res.series, games: res.games.length, updated: updated.map((g) => g.match_id),
+      });
+      return text(res);
     },
   },
   {

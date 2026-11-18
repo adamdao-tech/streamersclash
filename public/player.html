@@ -7,6 +7,7 @@
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
   <link rel="preload" href="/fonts/inter-var.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="preload" href="/fonts/rajdhani-700.woff2" as="font" type="font/woff2" crossorigin>
+  <script>try{var t=localStorage.getItem('sc-theme');if(t&&t!=='default')document.documentElement.dataset.theme=t}catch(e){}</script>
   <link rel="stylesheet" href="/app.css">
 </head>
 <body>
@@ -103,7 +104,7 @@
       const tile = (label, value, hint = '') => `<div class="tile"><div class="label">${label}</div><div class="value">${value}</div><div class="hint">${hint}</div></div>`;
       document.getElementById('tiles').innerHTML = [
         tile('Hry', list.length, `${champs} championů`),
-        tile('Výhry / prohry', `<span style="color:var(--green)">${w}</span> / <span style="color:#ff8f93">${l}</span>`, list.length - w - l ? `${list.length - w - l} bez výsledku` : ''),
+        tile('Výhry / prohry', `<span style="color:var(--green)">${w}</span> / <span style="color:var(--red-text)">${l}</span>`, list.length - w - l ? `${list.length - w - l} bez výsledku` : ''),
         tile('Winrate', wr === null ? '–' : `<span class="wr ${wrClass(wr)}">${wr} %</span>`),
         tile('KDA', n ? Math.round(((k + a) / Math.max(d, 1)) * 100) / 100 : '–', n ? `${(k / n).toFixed(1)} / ${(d / n).toFixed(1)} / ${(a / n).toFixed(1)}` : ''),
       ].join('');

@@ -742,4 +742,8 @@ DELETE FROM matches WHERE id IN (
   /* 38: other accounts of a player (names in game, e.g. a smurf used in scrims) – games on them count for him */ `
 ALTER TABLE players ADD COLUMN alt_names TEXT;
 `,
+
+  /* 39: each user's own look of the web (theme picker in the top bar); NULL = the default navy + gold */ `
+ALTER TABLE users ADD COLUMN theme TEXT;
+`,
 ];

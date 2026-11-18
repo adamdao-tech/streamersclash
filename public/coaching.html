@@ -7,6 +7,7 @@
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
   <link rel="preload" href="/fonts/inter-var.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="preload" href="/fonts/rajdhani-700.woff2" as="font" type="font/woff2" crossorigin>
+  <script>try{var t=localStorage.getItem('sc-theme');if(t&&t!=='default')document.documentElement.dataset.theme=t}catch(e){}</script>
   <link rel="stylesheet" href="/app.css">
   <style>
     /* champion pool: širší stránka a hustší tier list, ať se toho vejde víc */
@@ -31,7 +32,7 @@
     .pool-layout .pc.pc-ico { width: auto; padding: 2px; }
     .pool-layout.compact .tier-drop { min-height: 50px; }
     .pc-g { position: absolute; left: 1px; bottom: 1px; min-width: 15px; height: 15px; padding: 0 3px; border-radius: 4px; background: rgba(8,10,16,.85); color: var(--text-2); font: 700 0.6rem/15px var(--font); text-align: center; }
-    .pc-g.good { color: var(--green); } .pc-g.bad { color: #ff8f93; }
+    .pc-g.good { color: var(--green); } .pc-g.bad { color: var(--red-text); }
     .pool-bank-list { gap: 1px; padding: 6px; }
     .pool-layout .pc-bank { width: 56px; }
     .pool-layout .pc-bank .ri { width: 36px; height: 36px; }

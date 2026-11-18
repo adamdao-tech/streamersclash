@@ -7,14 +7,15 @@
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
   <link rel="preload" href="/fonts/inter-var.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="preload" href="/fonts/rajdhani-700.woff2" as="font" type="font/woff2" crossorigin>
+  <script>try{var t=localStorage.getItem('sc-theme');if(t&&t!=='default')document.documentElement.dataset.theme=t}catch(e){}</script>
   <link rel="stylesheet" href="/app.css">
   <style>
     .rv-list { display: grid; gap: 18px; }
-    .rv { background: var(--panel); border: 1px solid var(--line, #22304a); border-radius: 12px; padding: 16px; display: grid; gap: 14px; }
+    .rv { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 16px; display: grid; gap: 14px; }
     .rv-head { display: flex; gap: 12px; align-items: baseline; flex-wrap: wrap; justify-content: space-between; }
     .rv-head h2 { margin: 0; font-size: 1.05rem; }
     .rv-shots { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 10px; }
-    .rv-shots img { width: 100%; border-radius: 8px; border: 1px solid var(--line, #22304a); cursor: zoom-in; display: block; }
+    .rv-shots img { width: 100%; border-radius: 8px; border: 1px solid var(--line); cursor: zoom-in; display: block; }
     .rv-shots figure { margin: 0; }
     .rv-shots figcaption { font-size: .75rem; color: var(--muted); margin-top: 4px; }
     .rv-sides { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
@@ -36,13 +37,13 @@
     .rv-err { color: #e0605a; font-size: .85rem; }
     .rv-zoom { position: fixed; inset: 0; background: rgba(0,0,0,.85); display: flex; align-items: center; justify-content: center; z-index: 100; cursor: zoom-out; }
     .rv-zoom img { max-width: 96vw; max-height: 94vh; }
-    .rv-tag { font-size: .72rem; padding: 2px 7px; border-radius: 999px; background: rgba(255,255,255,.07); color: var(--muted); }
+    .rv-tag { font-size: .72rem; padding: 2px 7px; border-radius: 999px; background: color-mix(in srgb, var(--text) 7%, transparent); color: var(--muted); }
     .drafter-import { border: 1px solid var(--line); border-radius: 12px; background: var(--panel); padding: 12px 14px; margin: 0 0 16px; display: flex; flex-direction: column; gap: 8px; }
     .drafter-import label { font-size: .86rem; color: var(--text-2); }
     .drafter-row { display: flex; gap: 8px; }
     .drafter-row input { flex: 1; min-width: 0; }
     .drafter-out { font-size: .84rem; color: var(--text-2); display: flex; flex-direction: column; gap: 3px; }
-    .drafter-out .err { color: #ff7a7e; }
+    .drafter-out .err { color: var(--red-text); }
     .drafter-tip { margin: 0; font-size: .8rem; color: var(--muted); }
     .drafter-tip .btn { cursor: grab; margin: 0 4px; }
   </style>

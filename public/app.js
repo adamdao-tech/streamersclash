@@ -31,9 +31,70 @@ export function logoHtml(team, large = false) {
 
 export const ROLE_LABELS = { TOP: 'TOP', JUNGLE: 'JNG', MID: 'MID', ADC: 'ADC', SUPPORT: 'SUP', SUB: 'SUB' };
 
+// --- looks (themes) ---------------------------------------------------------
+// Keep in sync with THEMES in src/db.ts and the [data-theme] blocks at the end of app.css.
+// sw = swatch colours for the picker: background, big dot, small dot.
+export const THEMES = [
+  { id: 'default', name: 'Klasika', desc: 'Tmavě modrá a zlatá', sw: ['#0a0f1c', '#e8b84a', '#3b82f6'] },
+  { id: 'pink', name: 'Růžová', desc: 'Světlá, jemná, skleněné karty', sw: ['#fdf1f5', '#d6336c', '#ae3ec9'] },
+  { id: 'premium', name: 'Dark premium', desc: 'Černá s neonovou září', sw: ['#06070c', '#22d3ee', '#a78bfa'] },
+  { id: 'editorial', name: 'Minimal editorial', desc: 'Papír, inkoust, patkové písmo', sw: ['#faf9f6', '#151515', '#a19d93'] },
+  { id: 'bold', name: 'Bold & playful', desc: 'Výrazné obrysy a barvy', sw: ['#fff6e0', '#ffcf24', '#6d28d9'] },
+];
+const THEME_KEY = 'sc-theme';
+
+/** Puts a look on the page (the inline script in <head> does the same before the first paint). */
+export function applyTheme(id, { animate = false } = {}) {
+  const theme = THEMES.some((t) => t.id === id) ? id : 'default';
+  const root = document.documentElement;
+  if (animate && !matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    root.classList.add('theme-fade');
+    setTimeout(() => root.classList.remove('theme-fade'), 400);
+  }
+  if (theme === 'default') delete root.dataset.theme;
+  else root.dataset.theme = theme;
+  try { localStorage.setItem(THEME_KEY, theme); } catch { /* private mode */ }
+  return theme;
+}
+
+const PALETTE_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 22a10 10 0 1 1 10-10c0 2.8-2.2 4-4.5 4H16a2 2 0 0 0-1.4 3.4A1.6 1.6 0 0 1 13.4 22z"/><circle cx="7.5" cy="10.5" r="1.2" fill="currentColor"/><circle cx="11" cy="6.8" r="1.2" fill="currentColor"/><circle cx="15.8" cy="7.8" r="1.2" fill="currentColor"/></svg>';
+
+function themePicker(current) {
+  const wrap = document.createElement('div');
+  wrap.className = 'theme-pick';
+  wrap.innerHTML = `
+    <button type="button" class="btn btn-icon" aria-haspopup="true" aria-expanded="false" title="Vzhled stránky">${PALETTE_ICON}<span class="sr-only">Vzhled stránky</span></button>
+    <div class="theme-menu" role="menu" hidden>
+      <h4>Vzhled stránky</h4>
+      ${THEMES.map((t) => `
+        <button type="button" class="theme-opt" role="menuitemradio" data-theme-id="${t.id}" aria-checked="${t.id === current}">
+          <span class="theme-sw" style="--sw-bg:${t.sw[0]};--sw-a:${t.sw[1]};--sw-b:${t.sw[2]}"></span>
+          <span>${esc(t.name)}<small>${esc(t.desc)}</small></span>
+          <span class="tick">✓</span>
+        </button>`).join('')}
+    </div>`;
+  const toggle = wrap.querySelector('.btn-icon');
+  const menu = wrap.querySelector('.theme-menu');
+  const setOpen = (open) => { menu.hidden = !open; toggle.setAttribute('aria-expanded', String(open)); };
+  toggle.addEventListener('click', () => setOpen(menu.hidden));
+  document.addEventListener('click', (e) => { if (!wrap.contains(e.target)) setOpen(false); });
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !menu.hidden) { setOpen(false); toggle.focus(); } });
+  menu.addEventListener('click', async (e) => {
+    const opt = e.target.closest('.theme-opt');
+    if (!opt) return;
+    const id = applyTheme(opt.dataset.themeId, { animate: true });
+    for (const o of menu.querySelectorAll('.theme-opt')) o.setAttribute('aria-checked', String(o.dataset.themeId === id));
+    // saved on the account, so the same look follows the user to other devices
+    try { await api('/api/me/theme', { method: 'PUT', body: { theme: id } }); } catch (err) { console.warn('theme not saved', err); }
+  });
+  return wrap;
+}
+
 /** Renders the top bar and returns the logged-in user. */
 export async function initPage(active) {
   const { user } = await api('/api/me');
+  // the account's look wins over what this browser remembered (the user may have changed it elsewhere)
+  const theme = applyTheme(user.theme || 'default');
   if (user.is_commentator) document.body.classList.add('is-commentator');
   const nav = user.is_commentator ? [['/', 'Týmy', 'teams']] : [
     ['/', 'Týmy', 'teams'],
@@ -53,6 +114,7 @@ export async function initPage(active) {
       <span>${esc(user.display_name || user.twitch_login)}</span>
       <a class="btn btn-small" href="/auth/logout">Odhlásit</a>
     </div>`;
+  header.querySelector('.me').prepend(themePicker(theme));
   document.body.prepend(header);
   return user;
 }

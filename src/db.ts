@@ -41,7 +41,12 @@ export interface User {
   can_stream?: number;
   /** 1 = Komentátor: read-only, sees only the opposing teams (see commentator.ts) */
   commentator?: number;
+  /** the user's chosen look of the web (see THEMES); null = default */
+  theme?: string | null;
 }
+
+/** Looks a user can pick in the top bar. Keep in sync with THEMES in public/app.js and [data-theme] in public/app.css. */
+export const THEMES = ['default', 'pink', 'premium', 'editorial', 'bold'] as const;
 
 /** Superadmins (SUPERADMINS var, Twitch logins) are the only ones who see the activity log, admins included. */
 export function isSuperadmin(env: { SUPERADMINS?: string }, user: Pick<User, 'twitch_login'>): boolean {

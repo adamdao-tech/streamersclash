@@ -7,6 +7,7 @@
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
   <link rel="preload" href="/fonts/inter-var.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="preload" href="/fonts/rajdhani-700.woff2" as="font" type="font/woff2" crossorigin>
+  <script>try{var t=localStorage.getItem('sc-theme');if(t&&t!=='default')document.documentElement.dataset.theme=t}catch(e){}</script>
   <link rel="stylesheet" href="/app.css">
   <style>
     main { max-width: 1440px; }
@@ -21,7 +22,7 @@
     .bd.active { background: var(--panel-2); border-color: var(--line-2); color: var(--text); box-shadow: inset 3px 0 0 var(--gold); }
     .bd b { font-weight: 600; font-size: .93rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: flex; gap: 6px; align-items: center; }
     .bd .sd { flex: none; font: 700 .62rem var(--display); letter-spacing: .05em; padding: 1px 5px; border-radius: 4px; }
-    .sd.BLUE { background: rgba(59,130,246,.22); color: #9cc2ff; } .sd.RED { background: rgba(229,72,77,.22); color: #ffa3a6; }
+    .sd.BLUE { background: rgba(59,130,246,.22); color: var(--blue-text); } .sd.RED { background: rgba(229,72,77,.22); color: var(--red-text); }
     .bd .strip { display: flex; gap: 2px; }
     .bd .strip .champ { width: 20px; height: 20px; border-radius: 4px; }
     .bd .strip .sep { width: 6px; }
@@ -35,20 +36,20 @@
     .tools { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 14px; }
     .tools .sp { flex: 1; }
     .state { color: var(--muted); font-size: .82rem; }
-    .state.err { color: #ff7a7e; }
+    .state.err { color: var(--red-text); }
 
     .board { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 14px; }
     .col { border: 1px solid var(--line); border-radius: 14px; background: var(--panel); padding: 12px; display: flex; flex-direction: column; gap: 10px; }
     .col.BLUE { border-top: 3px solid var(--blue); } .col.RED { border-top: 3px solid var(--red); }
     .col.ours { box-shadow: 0 0 0 1px var(--gold) inset; }
     .col-h { display: flex; justify-content: space-between; align-items: center; font: 700 1.05rem var(--display); letter-spacing: .04em; }
-    .col.BLUE .col-h { color: #9cc2ff; } .col.RED .col-h { color: #ffa3a6; }
+    .col.BLUE .col-h { color: var(--blue-text); } .col.RED .col-h { color: var(--red-text); }
     .col-h .us { font: 700 .66rem var(--display); background: var(--gold); color: var(--on-gold); padding: 2px 7px; border-radius: 5px; letter-spacing: .06em; }
     .bans { display: flex; gap: 6px; }
     .bans .gap { width: 10px; }
     .slot { position: relative; cursor: pointer; border: 1px dashed var(--line-2); background: var(--bg-2); border-radius: 9px; display: grid; place-items: center; color: var(--muted); font-size: .7rem; }
     .slot:hover { border-color: var(--gold); }
-    .slot.on { border: 2px solid var(--gold); box-shadow: 0 0 0 3px rgba(232,184,74,.2); }
+    .slot.on { border: 2px solid var(--gold); box-shadow: 0 0 0 3px color-mix(in srgb, var(--gold) 20%, transparent); }
     .slot .ord { position: absolute; top: -7px; left: -7px; background: var(--panel-3); border: 1px solid var(--line-2); color: var(--text-2); font: 700 .6rem var(--display); border-radius: 99px; min-width: 18px; height: 18px; display: grid; place-items: center; padding: 0 3px; z-index: 1; }
     .slot .x { position: absolute; top: -7px; right: -7px; width: 18px; height: 18px; border-radius: 99px; border: 0; background: var(--red); color: #fff; font-size: .7rem; line-height: 1; cursor: pointer; display: none; z-index: 1; }
     .slot.filled:hover .x { display: block; }

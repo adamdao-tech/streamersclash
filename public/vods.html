@@ -7,6 +7,7 @@
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
   <link rel="preload" href="/fonts/inter-var.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="preload" href="/fonts/rajdhani-700.woff2" as="font" type="font/woff2" crossorigin>
+  <script>try{var t=localStorage.getItem('sc-theme');if(t&&t!=='default')document.documentElement.dataset.theme=t}catch(e){}</script>
   <link rel="stylesheet" href="/app.css">
 </head>
 <body>
@@ -112,7 +113,7 @@
       document.getElementById('channels').innerHTML = channels.length
         ? channels.map((c) => `
           <li>
-            <span><b>${esc(c.label || c.login)}</b><br><small>${c.platform === 'kick' ? '<span style="color:var(--kick)">Kick</span> · ' : ''}${esc(c.login)} · ${c.vod_count} VOD${c.last_error ? ` · <span style="color:#ff9a9d">${esc(c.last_error)}</span>` : ''}</small></span>
+            <span><b>${esc(c.label || c.login)}</b><br><small>${c.platform === 'kick' ? '<span style="color:var(--kick)">Kick</span> · ' : ''}${esc(c.login)} · ${c.vod_count} VOD${c.last_error ? ` · <span style="color:var(--red-text)">${esc(c.last_error)}</span>` : ''}</small></span>
             <button class="btn btn-small btn-danger" data-delete="${c.id}">✕</button>
           </li>`).join('')
         : '<li>Žádné další kanály.</li>';

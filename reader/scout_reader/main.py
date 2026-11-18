@@ -344,6 +344,9 @@ def cmd_run(_args) -> None:
 
 
 def main() -> None:
+    # OpenCV would use every core in each worker thread: with several VODs at once that starves the PC.
+    import cv2
+    cv2.setNumThreads(int(os.environ.get("CV_THREADS", "2")))
     logging.basicConfig(level=os.environ.get("LOG_LEVEL", "INFO"), format="%(asctime)s %(threadName)s %(levelname)s %(message)s")
     p = argparse.ArgumentParser(prog="reader", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = p.add_subparsers(dest="cmd")

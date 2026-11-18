@@ -3,6 +3,8 @@ services:
     build: .
     env_file: .env
     restart: unless-stopped
+    # CPU cores the reader may use at most (leave some for the PC; set READER_CPUS in .env to change)
+    cpus: ${READER_CPUS:-4}
     volumes:
       - ./cache:/cache   # champion list + icons
       - ./debug:/debug   # images from `test` / `scan` runs

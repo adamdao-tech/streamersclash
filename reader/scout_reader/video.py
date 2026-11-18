@@ -18,6 +18,9 @@ SCAN_W, SCAN_H = 320, 180  # scanning resolution; 16:9 like Twitch/Kick streams
 # Lowest stream height used for scanning (160p by default). 360 makes small/briefly shown screens easier to find
 # at ~2–3× the download per VOD.
 SCAN_MIN_HEIGHT = int(os.environ.get("SCAN_MIN_HEIGHT", "150"))
+# Decoder threads per ffmpeg process. Several VODs are read at once (WORKERS); ffmpeg on its own takes every core,
+# which leaves the PC sluggish while the reader works.
+FFMPEG_THREADS = os.environ.get("FFMPEG_THREADS", "2")
 
 
 @dataclass
@@ -66,7 +69,7 @@ def iter_frames(stream_url: str, every_s: float, start_s: float = 0, end_s: floa
         cmd += ["-skip_frame", "nokey"]
     if start_s:
         cmd += ["-ss", str(start_s)]
-    cmd += ["-i", stream_url]
+    cmd += ["-threads", FFMPEG_THREADS, "-i", stream_url]
     if end_s:
         cmd += ["-t", str(end_s - start_s)]
     # area averaging keeps the thin UI lines the detector looks for (bicubic aliases them away at 1/6 size)
@@ -92,7 +95,7 @@ def iter_frames(stream_url: str, every_s: float, start_s: float = 0, end_s: floa
 def grab_frame(stream_url: str, ts: float) -> np.ndarray:
     """One full-resolution frame at `ts` seconds."""
     cmd = [
-        "ffmpeg", "-loglevel", "error", "-nostdin", "-ss", f"{max(ts, 0):.2f}", "-i", stream_url,
+        "ffmpeg", "-loglevel", "error", "-nostdin", "-ss", f"{max(ts, 0):.2f}", "-threads", FFMPEG_THREADS, "-i", stream_url,
         "-frames:v", "1", "-f", "image2pipe", "-vcodec", "png", "pipe:1",
     ]
     out = subprocess.run(cmd, capture_output=True, timeout=120)

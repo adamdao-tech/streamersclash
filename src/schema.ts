@@ -751,4 +751,20 @@ ALTER TABLE users ADD COLUMN theme TEXT;
          what this one shows, e.g. the drafter.lol page with the bans) */ `
 ALTER TABLE vods ADD COLUMN force_scan INTEGER NOT NULL DEFAULT 0;
 `,
+
+  /* 41: frames from just before a game without bans (blind-pick customs drafted on drafter.lol and the like) –
+         Claude reads the bans from them; bans_checked = looked at by hand (bans saved, or none visible) */ `
+CREATE TABLE ban_shots (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  match_id   INTEGER NOT NULL REFERENCES matches(id) ON DELETE CASCADE,
+  vod_id     INTEGER NOT NULL REFERENCES vods(id) ON DELETE CASCADE,
+  ts_s       INTEGER NOT NULL,
+  kind       TEXT NOT NULL DEFAULT 'frame' CHECK (kind IN ('frame', 'sheet')),
+  image      BLOB NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  UNIQUE (match_id, kind, ts_s)
+);
+CREATE INDEX idx_ban_shots_match ON ban_shots(match_id);
+ALTER TABLE matches ADD COLUMN bans_checked INTEGER NOT NULL DEFAULT 0;
+`,
 ];

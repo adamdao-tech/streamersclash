@@ -44,6 +44,19 @@ class AppClient:
             )
         )
 
+    def upload_ban_shots(self, match_id: int, shots: list[tuple[float, bytes, str]]) -> dict:
+        """Frames from just before a saved game without bans (ts, jpeg, kind 'frame' | 'sheet')."""
+        return self._check(
+            self.s.post(
+                f"{self.base}/api/reader/ban-shots",
+                json={
+                    "match_id": match_id,
+                    "shots": [{"ts_s": int(ts), "image_b64": base64.b64encode(jpg).decode(), "kind": kind} for ts, jpg, kind in shots],
+                },
+                timeout=90,
+            )
+        )
+
     def upload_frame(
         self, vod_id: int | None, ts: float, jpeg: bytes, width: int, height: int, reading: dict, confidence: float, auto: bool,
         postgame_jpeg: bytes | None = None, vod_url: str | None = None,

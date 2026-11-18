@@ -8,6 +8,7 @@ import { isSuperadmin, logActivity, type User } from './db';
 import { gameKind, listDrafts, playerGames, relinkDraftPlayers, saveDraft, summarizeGames, teamGameCheck, validateDraft, type DraftInput } from './drafts';
 import { assertBodySize, HttpError, json } from './http';
 import { importDrafterSeries } from './drafter';
+import { gamesMissingBans, getBanShot, resolveBans } from './banshots';
 import { userFromBearer } from './oauth';
 import { syncTwitchVods } from './vods';
 import { createFolder, getShotImage, loadCoaching, saveNote, savePool, saveRunePage, TIER_LABELS } from './coaching';
@@ -34,6 +35,9 @@ Solo queue / Streamers Queue games with random teammates are discarded (save_dra
 Game kind ("kind" in outputs): scrim = custom game team vs team – this is where a team's real strategy, draft priorities and
 macro show; flex = Ranked Flex with the team's five against random players – useful for champion pools and form, but it says
 little about team strategy. In scouting reports keep the two apart and base strategy conclusions on scrims.
+Missing bans: list_games_missing_bans lists saved games without bans that have frames kept from just before them
+(drafts done on drafter.lol and the like) → get_ban_shot (overview first, then the frame with the finished draft) →
+save_game_bans with ally/enemy bans, or no_bans: true when no draft is visible.
 Coaching: get_coaching shows rune pages and coaching notes per player and folder; write notes with add_coaching_note.
 Schedule: get_schedule lists our tournament matches, scrims and other events; the next opponent's opponent_team_id is the team to scout.
 Coaching plan (superadmin only): get_coach_plan shows the coach's strategic plan – tabs with a goal and items to tick off when learned; add_coach_plan_items, update_coach_plan_item, save_coach_plan_tab change it. Items already done were learned – don't suggest them again.
@@ -353,6 +357,54 @@ const TOOLS: Tool[] = [
         await env.DB.prepare(`UPDATE draft_frames SET status = 'accepted', match_id = ? WHERE id = ?`).bind(matchId, frameId).run();
       }
       return text({ ok: true, match_id: matchId });
+    },
+  },
+  {
+    name: 'list_games_missing_bans',
+    description:
+      "Saved games without bans that have frames kept from just before the game (blind-pick customs drafted on drafter.lol or elsewhere on stream, which the reader didn't read). For each: picks of both sides, an overview image of the frames (overview_shot_id) and the single frames (shots). Open them with get_ban_shot, then save_game_bans.",
+    inputSchema: { type: 'object', properties: { limit: { type: 'integer', maximum: 30 } } },
+    annotations: { readOnlyHint: true },
+    async run(a, { env }) {
+      const games = await gamesMissingBans(env, a.limit ? int(a.limit, 'limit') : 10);
+      return text({ waiting: games.length, games });
+    },
+  },
+  {
+    name: 'get_ban_shot',
+    description:
+      "One kept frame from before a game without bans (or the overview of all of them). Look for the draft: a drafter.lol page (blue column left, red right, the 5 bans of each side in a row under its column – red's are mirrored, ban 1 rightmost) or the client's champ select (bans top-left = ally, top-right = enemy). Work out which column is the streamer's team by its picks (ally_picks from list_games_missing_bans).",
+    inputSchema: { type: 'object', properties: { shot_id: { type: 'integer' } }, required: ['shot_id'] },
+    annotations: { readOnlyHint: true },
+    async run(a, { env }) {
+      const s = await getBanShot(env, int(a.shot_id, 'shot_id'));
+      return {
+        content: [
+          { type: 'image', data: toBase64(new Uint8Array(s.image)), mimeType: 'image/jpeg' },
+          { type: 'text', text: JSON.stringify({ shot_id: a.shot_id, match_id: s.match_id, kind: s.kind, vod_link: s.vod_link }) },
+        ],
+      };
+    },
+  },
+  {
+    name: 'save_game_bans',
+    description:
+      "Saves the bans of a game read from its kept frames: ally_bans = the streamer's team (whose picks are ally_picks), enemy_bans = the opponents, in ban order. When no draft with bans shows in the frames (blind pick without bans, draft off stream, covered), pass no_bans: true instead. Either way the game's frames are deleted and it leaves the list.",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        match_id: { type: 'integer' },
+        ally_bans: { type: 'array', items: { type: 'string' }, maxItems: 5 },
+        enemy_bans: { type: 'array', items: { type: 'string' }, maxItems: 5 },
+        no_bans: { type: 'boolean' },
+      },
+      required: ['match_id'],
+    },
+    async run(a, { env, user }) {
+      const id = int(a.match_id, 'match_id');
+      const r = await resolveBans(env, id, (a.ally_bans as string[]) ?? [], (a.enemy_bans as string[]) ?? [], !!a.no_bans);
+      await logActivity(env.DB, { kind: 'claude', userId: user.id }, r.saved ? 'bans.save' : 'bans.none', 'match', id, r.saved ? { ally: r.ally, enemy: r.enemy } : { none: true });
+      return text({ ok: true, match_id: id, ...r });
     },
   },
   {

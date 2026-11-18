@@ -184,7 +184,7 @@ export async function addReaderBans(env: Env, matchId: number, readAlly: string[
 }
 
 /** Replaces the game's bans with drafter.lol's. Returns false when they were already the same. */
-async function saveBans(env: Env, matchId: number, ally: string[], enemy: string[]): Promise<boolean> {
+export async function saveBans(env: Env, matchId: number, ally: string[], enemy: string[]): Promise<boolean> {
   const db = env.DB;
   const { results: old } = await db
     .prepare(`SELECT side, champion FROM draft_actions WHERE match_id = ? AND action = 'BAN' ORDER BY seq`)

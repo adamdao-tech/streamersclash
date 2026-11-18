@@ -1,4 +1,5 @@
 import type { Env } from './index';
+import { needBanShots, storeBanShots } from './banshots';
 import { applyPostgame, findSameGame, saveDraft, teamGameCheck, validateDraft, type DraftInput, type DraftSlot } from './drafts';
 import { logActivity } from './db';
 import { addReaderBans } from './drafter';
@@ -192,6 +193,11 @@ async function route(req: Request, env: Env, url: URL): Promise<Response> {
   // Upload a final-draft frame with the reader's OCR result.
   // When the reader is confident (auto=true) and all champions validate, the draft is saved right away;
   // otherwise the frame waits for review (Claude via MCP, or a person).
+  // Frames from just before a saved game that has no bans (see banshots.ts).
+  if (path === '/api/reader/ban-shots' && req.method === 'POST') {
+    return json({ ok: true, ...(await storeBanShots(env, (await req.json()) as Parameters<typeof storeBanShots>[1], MAX_IMAGE_BYTES)) });
+  }
+
   if (path === '/api/reader/frames' && req.method === 'POST') {
     const body = (await req.json()) as {
       vod_id?: number;
@@ -249,7 +255,7 @@ async function route(req: Request, env: Env, url: URL): Promise<Response> {
       if (pgBytes && existing.status === 'review') {
         await db.prepare('UPDATE draft_frames SET postgame_image = ? WHERE id = ?').bind(pgBytes.buffer, existing.id).run();
       }
-      return json({ ok: true, duplicate: true, updated, frame_id: existing.id, match_id: existing.match_id });
+      return json({ ok: true, duplicate: true, updated, frame_id: existing.id, match_id: existing.match_id, need_ban_shots: await needBanShots(db, existing.match_id) });
     }
 
     const ins = await db
@@ -342,7 +348,7 @@ async function route(req: Request, env: Env, url: URL): Promise<Response> {
       if (rd) await readerBans(env, same, rd);
       await db.prepare(`UPDATE draft_frames SET status = 'accepted', match_id = ?, note = ? WHERE id = ?`)
         .bind(same, 'Stejná hra už je uložená', frameId).run();
-      return json({ ok: true, duplicate: true, frame_id: frameId, match_id: same }, 201);
+      return json({ ok: true, duplicate: true, frame_id: frameId, match_id: same, need_ban_shots: await needBanShots(db, same) }, 201);
     }
 
     let matchId: number | null = null;
@@ -375,7 +381,7 @@ async function route(req: Request, env: Env, url: URL): Promise<Response> {
     if (!matchId) {
       await logActivity(db, { kind: 'sync' }, 'frame.review', 'frame', frameId, { vod_id: vodId });
     }
-    return json({ ok: true, frame_id: frameId, match_id: matchId, review: !matchId, reason: reviewReason }, 201);
+    return json({ ok: true, frame_id: frameId, match_id: matchId, review: !matchId, reason: reviewReason, need_ban_shots: await needBanShots(db, matchId) }, 201);
   }
 
   throw new HttpError(404, 'not_found', 'Unknown endpoint');

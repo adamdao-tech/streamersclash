@@ -179,6 +179,53 @@ def read_drafters(streams: video.Streams, scan: S.ScanResult, db: ChampionDB, de
     return out
 
 
+# Frames kept before a game the app has no bans for, seconds relative to the estimated start. The draft (drafter.lol
+# or anything else shown on stream) is done just before the lobby and loading screen: a few looks spread over the
+# minutes before catch its finished state. Claude reads the bans from them later (connector: list_games_missing_bans).
+BAN_SHOT_OFFSETS = {
+    # from the game's start (end of the post-game screen minus the game length): loading + lobby sit in between
+    "postgame": [-150, -210, -270, -330, -420, -540],
+    # from the start of the client's champ select (blind pick without bans in the client)
+    "champselect": [-20, -60, -120, -180, -270, -390],
+}
+
+
+def keep_ban_shots(app: AppClient, streams: video.Streams, match_id: int, start: float, mode: str) -> None:
+    import cv2
+    import numpy as np
+
+    shots: list[tuple[float, bytes, str]] = []
+    tiles = []
+    for off in BAN_SHOT_OFFSETS[mode]:
+        t = start + off
+        if t < 0:
+            continue
+        try:
+            frame = video.grab_frame(streams.hires_url, t)
+        except Exception as e:  # noqa: BLE001 – a missing frame just leaves a gap
+            log.debug("  ban shot at %s failed: %s", S.fmt(t), e)
+            continue
+        h, w = frame.shape[:2]
+        big = cv2.resize(frame, (1280, round(h * 1280 / w)), interpolation=cv2.INTER_AREA) if w > 1280 else frame
+        ok, jpg = cv2.imencode(".jpg", big, [cv2.IMWRITE_JPEG_QUALITY, 82])
+        if ok:
+            shots.append((t, jpg.tobytes(), "frame"))
+        tile = cv2.resize(frame, (640, 360), interpolation=cv2.INTER_AREA)
+        cv2.rectangle(tile, (0, 0), (150, 30), (0, 0, 0), -1)
+        cv2.putText(tile, f"{len(tiles) + 1}  {S.fmt(t)}", (8, 22), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 1, cv2.LINE_AA)
+        tiles.append(tile)
+    if not shots:
+        return
+    while len(tiles) % 2:
+        tiles.append(np.zeros((360, 640, 3), np.uint8))
+    sheet = np.vstack([np.hstack(tiles[i:i + 2]) for i in range(0, len(tiles), 2)])
+    ok, jpg = cv2.imencode(".jpg", sheet, [cv2.IMWRITE_JPEG_QUALITY, 78])
+    if ok:
+        shots.append((start, jpg.tobytes(), "sheet"))
+    r = app.upload_ban_shots(match_id, shots)
+    log.info("  %d frame(s) before the game kept for its bans (%d stored)", len(shots) - 1, r.get("stored", 0))
+
+
 def add_drafter_bans(payload: dict, drafters: list, game_start: float, db: ChampionDB, cache_dir: Path) -> None:
     """Bans from the drafter.lol draft before this game, when the client showed none (blind-pick customs).
     The pick panels must show this game's champions – that also says which side was whose."""
@@ -242,6 +289,8 @@ def process_job(app: AppClient, db: ChampionDB, job: dict, auto_accept: bool, ev
             postgame_jpeg=res.postgame_jpeg,
         )
         found += 1
+        if r.get("need_ban_shots") and r.get("match_id"):
+            keep_ban_shots(app, streams, r["match_id"], res.episode.start, "champselect")
         if res.postgame and res.postgame_ep:
             used.add(id(res.postgame_ep))
         if r.get("duplicate"):
@@ -281,6 +330,8 @@ def process_job(app: AppClient, db: ChampionDB, job: dict, auto_accept: bool, ev
         clear = all(r["champion"] and r.get("score", 0) >= 90 for r in pg["ally"] + pg["enemy"])
         r = app.upload_frame(vod_id, ts, jpg, w, h, payload, round(pg["fit"] / 100, 3), auto_accept and clear, postgame_jpeg=jpg)
         found += 1
+        if r.get("need_ban_shots") and r.get("match_id"):
+            keep_ban_shots(app, streams, r["match_id"], ts - (pg.get("duration_s") or 2400), "postgame")
         state = ("already saved" if r.get("duplicate") else "saved" if r.get("match_id")
                  else "not a team game, skipped" if r.get("skipped") else f"for review ({r.get('reason')})")
         log.info("  %s: game from the post-game screen only → %s", S.fmt(ts), state)

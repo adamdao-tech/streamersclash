@@ -263,9 +263,13 @@ export function draftRow(d, icons, ours = new Set()) {
   const pgLink = d.postgame_ts ? vodLink(d.vod_url, d.postgame_ts + 60) : null;
 
   const byLane = ally.every((a) => a.lane !== null && a.lane !== undefined) && enemy.every((a) => a.lane !== null && a.lane !== undefined);
+  // On a team page (ours = the team's players): someone on that team's side who isn't on its roster is a sub.
+  const ourSideNow = oursOnEnemy ? 'ENEMY' : 'ALLY';
+  const isSub = (a) => ours.size > 0 && (ally.some((x) => ours.has(x.player_id)) || enemy.some((x) => ours.has(x.player_id)))
+    && a.side === ourSideNow && !ours.has(a.player_id);
   const line = (a) =>
     a
-      ? `<div class="pl">${champIcon(icons, a.champion, 'md')}<div><b>${esc(a.champion)}</b><small>${a.player_id ? `<a href="/player?id=${a.player_id}" title="Přečteno: ${esc(a.player_name || '')}">${esc(a.player_nickname || a.player_name || '')}</a>` : esc(a.player_name || '')}</small></div><span class="kda">${kdaText(a)}</span></div>`
+      ? `<div class="pl">${champIcon(icons, a.champion, 'md')}<div><b>${esc(a.champion)}</b><small>${a.player_id ? `<a href="/player?id=${a.player_id}" title="Přečteno: ${esc(a.player_name || '')}">${esc(a.player_nickname || a.player_name || '')}</a>` : esc(a.player_name || '')}${isSub(a) ? ' <span class="sub-tag" title="Není na soupisce – hrál jako sub">sub</span>' : ''}</small></div><span class="kda">${kdaText(a)}</span></div>`
       : '<div></div>';
   const ROLE = { TOP: 'TOP', JUNGLE: 'JNG', MID: 'MID', ADC: 'ADC', SUPPORT: 'SUP' };
   let rows;

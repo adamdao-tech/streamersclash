@@ -108,7 +108,24 @@ const TOOLS: Tool[] = [
       if (!team) throw new HttpError(404, 'not_found', 'Team not found');
       const { results } = await env.DB.prepare('SELECT * FROM players WHERE team_id = ? ORDER BY role, nickname').bind(id).all();
       const drafts = await listDrafts(env, { teamId: id, limit: 15 });
-      return text({ team, players: results.map(parsePlayer), recent_drafts: drafts.map(compactDraft) });
+      const roster = results as { id: number; nickname: string; role: string | null }[];
+      const ids = new Set(roster.map((p) => p.id));
+      const withSubs = drafts.map((d) => {
+        const c = compactDraft(d) as Record<string, unknown>;
+        const picks = ((d.actions ?? []) as unknown as { side: string; action: string; player_id: number | null; player_name: string | null; player_nickname?: string | null; role: string | null }[])
+          .filter((x) => x.action === 'PICK');
+        const side = picks.find((x) => x.player_id && ids.has(x.player_id))?.side;
+        if (!side) return c;
+        const ours = picks.filter((x) => x.side === side);
+        const subs = ours.filter((x) => !x.player_id || !ids.has(x.player_id));
+        if (subs.length && subs.length <= 2) {
+          const played = new Set(ours.map((x) => x.player_id));
+          c.subs = subs.map((x) => `${x.player_nickname || x.player_name || '?'}${x.role ? ` (${x.role})` : ''}`);
+          c.missing_from_roster = roster.filter((p) => p.role !== 'SUB' && !played.has(p.id) && p.id !== (d as Record<string, unknown>).pov_player_id).map((p) => p.nickname);
+        }
+        return c;
+      });
+      return text({ team, players: results.map(parsePlayer), recent_drafts: withSubs });
     },
   },
   {

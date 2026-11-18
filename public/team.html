@@ -190,6 +190,23 @@
       return ids.has(d.pov_player_id) ? 'ALLY' : null;
     }
     const other = (side) => (side === 'ALLY' ? 'ENEMY' : 'ALLY');
+    /** Stand-ins: picks on our side by someone not on the roster, and the roster players who didn't play. */
+    function subsOf(d, side) {
+      const ids = teamIds();
+      const picks = d.actions.filter((a) => a.action === 'PICK' && a.side === side);
+      const played = new Set(picks.map((a) => a.player_id));
+      // the streamer himself under a name that wasn't linked is not a sub
+      const povUnlinked = ids.has(d.pov_player_id) && side === 'ALLY' && !played.has(d.pov_player_id);
+      const subs = picks.filter((a) => !ids.has(a.player_id) && a.player_name);
+      if (!subs.length || subs.length > 2 || (povUnlinked && subs.length === 1)) return null;
+      const missing = players.filter((p) => p.role !== 'SUB' && !played.has(p.id) && p.id !== d.pov_player_id);
+      return { subs, missing };
+    }
+    const LANE_LABEL = ['top', 'jungle', 'mid', 'ADC', 'support'];
+    function subText({ subs, missing }) {
+      const who = subs.map((a) => `<b>${esc(a.player_nickname || a.player_name || '?')}</b>${a.lane != null ? ` (${LANE_LABEL[a.lane]})` : ''}`).join(', ');
+      return `Sub: ${who}${missing.length && missing.length <= subs.length ? ` za ${missing.map((p) => esc(p.nickname)).join(', ')}` : ''}`;
+    }
     function won(d, side) {
       if (!d.result || !side) return null;
       return (side === 'ALLY') === (d.result === 'WIN');
@@ -450,6 +467,7 @@
           const opp = side ? opponentOf(d, side) : null;
           const picks = d.actions.filter((a) => a.action === 'PICK' && a.side === side)
             .sort((x, y) => (x.lane ?? 9) - (y.lane ?? 9) || x.seq - y.seq);
+          const sub = side ? subsOf(d, side) : null;
           const when = d.played_at ? new Date(d.played_at).toLocaleDateString('cs-CZ', { day: 'numeric', month: 'numeric' }) : '–';
           const link = vodLink(d.vod_url, d.vod_timestamp_s);
           return `<tr>
@@ -458,7 +476,7 @@
             <td>${opp ? `<a href="/team?id=${opp.id}">${esc(opp.name)}</a>` : '<span class="muted">neznámý</span>'}</td>
             <td>${gameKindBadge(d.game_type)}</td>
             <td class="num muted">${d.duration_s ? fmtDuration(d.duration_s) : '–'}</td>
-            <td><div class="gstrip">${picks.map((a) => champIcon(icons, a.champion, 'row')).join('')}</div></td>
+            <td><div class="gstrip">${picks.map((a) => `<span class="${sub && sub.subs.includes(a) ? 'is-sub' : ''}">${champIcon(icons, a.champion, 'row')}</span>`).join('')}</div>${sub ? `<div class="sub-note">${subText(sub)}</div>` : ''}</td>
             <td class="num">${link ? `<a href="${esc(link)}" target="_blank" rel="noopener" title="Champ select ve VODce">VOD ▶</a>` : ''}</td>
           </tr>`;
         }).join('')}</tbody>`;

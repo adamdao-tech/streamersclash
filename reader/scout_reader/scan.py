@@ -194,16 +194,27 @@ def read_postgame_open_at(streams: video.Streams, ts: float, names: list[str], a
     return match_open(read_postgame(crop, debug_dir), names, ally), crop
 
 
+def _open_quality(pg: dict) -> float:
+    """How complete an open scoreboard read is: champion fit plus K/D/A rows and the result (a frame where the
+    table is still animating in, or a tooltip covers it, can fit the champions well and read little else)."""
+    rows = pg["ally"] + pg["enemy"]
+    kda = sum(1 for r in rows if r.get("kills") is not None)
+    return pg["fit"] + 4 * kda + (10 if pg.get("result") else 0) + (5 if pg.get("duration_s") else 0)
+
+
 def best_open_postgame(streams: video.Streams, pg_ep: Episode, db: ChampionDB, ally: list[str] | None, debug_dir: Path | None = None):
-    """Reads a post-game screen without a full draft (blind pick / drafted outside the client): best of a few moments."""
+    """Reads a post-game screen without a full draft (blind pick / drafted outside the client): best of a few moments.
+    The confirmed frame (where the K/D/A column read) goes first; reading stops once a frame reads completely."""
     names = [c.name for c in db.champions]
     best = None
-    moments = sorted({pg_ep.best_ts, *(min(pg_ep.start + o, pg_ep.end) for o in (4, 12, 25))})
+    later = sorted({min(pg_ep.start + o, pg_ep.end) for o in (4, 12, 25)} | {min(pg_ep.best_ts + 6, pg_ep.end)})
+    moments = [pg_ep.best_ts] + [t for t in later if t != pg_ep.best_ts]
     for t in moments:
         got = read_postgame_open_at(streams, t, names, ally, debug_dir, pg_ep.rect)
-        if got and got[0] and (best is None or got[0]["fit"] > best[0]["fit"]):
+        if got and got[0] and (best is None or _open_quality(got[0]) > _open_quality(best[0])):
             best = (got[0], t, *_jpeg(got[1]))  # payload, ts, jpeg, width, height
-        if best and best[0]["fit"] >= 85:
+        if best and best[0]["fit"] >= 85 and all(r.get("kills") is not None for r in best[0]["ally"] + best[0]["enemy"]) \
+                and best[0].get("result"):
             break
     return best
 

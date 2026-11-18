@@ -140,6 +140,18 @@ def read_kda(img: np.ndarray) -> tuple[int, int, int] | None:
 # --- reading the screen -------------------------------------------------------------------
 
 
+def normalize_game_type(raw: str) -> str:
+    """The subtitle's game type in one spelling, English or Czech client, without OCR junk ("y Custom", "Vlastní")."""
+    key = letters(raw)
+    if "CUSTOM" in key or "VLASTN" in key or fuzz.partial_ratio(key, "VLASTNI") >= 85:
+        return "Custom"
+    if "FLEX" in key or "FIEX" in key or "FLEXIBIL" in key:
+        return "Ranked Flex"
+    if "SOLO" in key or "DUO" in key:
+        return "Ranked Solo/Duo"
+    return raw
+
+
 def clean_name(raw: str) -> str | None:
     """Drops OCR noise around a player name (stray marks, short lowercase junk at the end)."""
     words = raw.strip(" |:;.,'\"‘’=-_*").split()
@@ -179,8 +191,9 @@ def read_postgame(client_crop: np.ndarray, debug_dir: Path | None = None) -> Pos
         x0, y0, x1, y1 = L.px(box, w, h)
         for floor in (0, 120):
             result_raw = letters(_ocr(_prep(client[y0:y1, x0:x1], 80, floor=floor)))
-            for word in ("VICTORY", "DEFEAT"):
-                if word in result_raw or fuzz.ratio(result_raw, word) >= 70:
+            # English and Czech clients ("VÍTĚZSTVÍ" / "PROHRA" – letters() drops the accents)
+            for word, shown in (("VICTORY", "VICTORY"), ("DEFEAT", "DEFEAT"), ("VICTORY", "VITEZSTVI"), ("DEFEAT", "PROHRA")):
+                if shown in result_raw or fuzz.ratio(result_raw, shown) >= 70:
                     result = word
             if result:
                 break
@@ -191,8 +204,8 @@ def read_postgame(client_crop: np.ndarray, debug_dir: Path | None = None) -> Pos
     sub = _ocr(_prep(client[y0:y1, x0:x1], 60))
     m = re.search(r"(\d{1,2})[:.](\d{2})", sub)
     duration = int(m.group(1)) * 60 + int(m.group(2)) if m else None
-    gm = re.match(r"\W*([A-Za-z][A-Za-z/ ]*?)\s*(?:[-·•+|]|W\s*[:.]|\d|$)", sub)
-    game_type = gm.group(1).strip() if gm and gm.group(1).strip() else None
+    gm = re.match(r"\W*([^\W\d_](?:[^\W\d_]|[/ ])*?)\s*(?:[-·•+|]|[WV]\s*[:.]|\d|$)", sub)
+    game_type = normalize_game_type(gm.group(1).strip()) if gm and gm.group(1).strip() else None
 
     pg = PostGame(result, game_type, duration)
     for ys, team in ((L.TEAM1_NAME_Y, pg.team1), (L.TEAM2_NAME_Y, pg.team2)):

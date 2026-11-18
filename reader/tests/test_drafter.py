@@ -34,6 +34,8 @@ assert r.score >= f.threshold, r.score
 reading = drafter.read_frame(frame, db, 1822)
 assert reading, "page not found at full resolution"
 print(reading.summary())
+for side in ("blue", "red"):
+    print(" ", side, [(b.champion, b.score, b.margin) for b in reading.bans[side]])
 assert reading.ban_names("blue") == ["Lulu", "Seraphine", "Wukong", "Zoe", "Malphite"], reading.ban_names("blue")
 assert reading.ban_names("red") == ["Zac", "Gwen", "Lee Sin", "Nautilus"], reading.ban_names("red")
 assert reading.bans["red"][4].champion is None  # the empty slot stays empty

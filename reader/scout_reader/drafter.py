@@ -28,8 +28,9 @@ from .detect import Finder, _gradient, _match, _reference
 log = logging.getLogger(__name__)
 
 DDRAGON = "https://ddragon.leagueoflegends.com"
-BAN_OK = 0.78  # icon similarity needed to accept a ban (real bans read ~0.9, an empty slot ~0.55)
-BAN_MARGIN = 0.06  # …and this much better than the second best icon
+BAN_OK = 0.55  # icon similarity needed to accept a ban (real bans read ~0.75–0.95)
+BAN_MARGIN = 0.03  # …and this much better than the second best icon
+EMPTY_STD = 22  # an empty ban slot is a flat grey box (brightness spread ~12, icons 40+)
 SPLASH_OK = 0.62  # a pick panel counts as a champion's splash from this similarity
 SPLASH_MARGIN = 0.07
 GAME_GAP_S = 20 * 60  # a draft older than this before the game's champ select / start belongs to something else
@@ -87,15 +88,20 @@ def _page(frame: np.ndarray) -> tuple[float, float, float, float, float] | None:
     return x, y, w, h, score
 
 
-def _gray_icons(db: ChampionDB, size: int, cache: dict) -> dict[str, np.ndarray]:
-    """Champion icons in grey (drafter.lol shows bans desaturated), zoomed in a little like the page draws them."""
+def _gray_icons(db: ChampionDB, size: int, cache: dict) -> dict[str, list[np.ndarray]]:
+    """Champion icons in grey (drafter.lol shows bans desaturated), each zoomed in a few ways (the page crops the
+    icon's border) and softened a little like a stream is."""
     key = size
     if key not in cache:
         out = {}
         for cid, icon in db.icons().items():
             g = cv2.cvtColor(icon, cv2.COLOR_BGR2GRAY)
-            m = int(round(g.shape[0] * 0.08))
-            out[cid] = cv2.resize(g[m : g.shape[0] - m, m : g.shape[1] - m], (size, size), interpolation=cv2.INTER_AREA).astype(np.float32)
+            variants = []
+            for zoom in (0.04, 0.08, 0.12):
+                m = int(round(g.shape[0] * zoom))
+                t = cv2.resize(g[m : g.shape[0] - m, m : g.shape[1] - m], (size, size), interpolation=cv2.INTER_AREA)
+                variants.append(cv2.GaussianBlur(t, (3, 3), 0).astype(np.float32))
+            out[cid] = variants
         cache[key] = out
     return cache[key]
 
@@ -108,13 +114,24 @@ def _read_ban(frame_gray: np.ndarray, cx: float, cy: float, bw: float, bh: float
     if crop.shape[0] < size or crop.shape[1] < size:
         return DrafterBan(None, 0.0, 0.0)
     crop = crop.astype(np.float32)
-    # the white slash across every ban is the same on all of them: leave it out of the comparison
     yy, xx = np.mgrid[0:size, 0:size]
-    mask = (np.abs(xx - yy) > max(2, size // 12)).astype(np.float32)
+    off_slash = np.abs(xx - yy) > max(2, size // 12)
+    # an empty slot: the flat grey box (a faint placeholder, the slash) where the icon would be
+    inner = crop[pad : pad + size, pad : pad + size]
+    m = size // 8
+    keep = off_slash.copy()
+    keep[:m, :] = keep[-m:, :] = keep[:, :m] = keep[:, -m:] = False
+    if inner.shape == keep.shape and float(inner[keep].std()) < EMPTY_STD:
+        return DrafterBan(None, 0.0, 0.0)
+    # the white slash across every ban is the same on all of them: leave it out of the comparison
+    mask = off_slash.astype(np.float32)
     scores = []
-    for cid, icon in _gray_icons(db, size, cache).items():
-        r = cv2.matchTemplate(crop, icon, cv2.TM_CCOEFF_NORMED, mask=mask)
-        scores.append((float(np.nan_to_num(r, nan=0.0, posinf=0.0, neginf=0.0).max()), cid))
+    for cid, icons in _gray_icons(db, size, cache).items():
+        best = -1.0
+        for icon in icons:
+            r = cv2.matchTemplate(crop, icon, cv2.TM_CCOEFF_NORMED, mask=mask)
+            best = max(best, float(np.nan_to_num(r, nan=0.0, posinf=0.0, neginf=0.0).max()))
+        scores.append((best, cid))
     scores.sort(reverse=True)
     (s1, best), (s2, _) = scores[0], scores[1]
     if s1 < BAN_OK or s1 - s2 < BAN_MARGIN:
@@ -134,6 +151,18 @@ def read_frame(frame: np.ndarray, db: ChampionDB, ts: float = 0.0, cache: dict |
     bw, bh = L.DRAFTER_BAN_SIZE[0] * w, L.DRAFTER_BAN_SIZE[1] * h
     cy = y + L.DRAFTER_BAN_Y * h
     bans = {side: [_read_ban(gray, x + fx * w, cy, bw, bh, db, cache) for fx in xs] for side, xs in L.DRAFTER_BAN_X.items()}
+    # a champion is banned once at most: a second read of the same one is the weaker guess
+    seen: dict[str, DrafterBan] = {}
+    for b in bans["blue"] + bans["red"]:
+        if not b.champion:
+            continue
+        other = seen.get(b.champion)
+        if other is None:
+            seen[b.champion] = b
+            continue
+        loser = b if b.score <= other.score else other
+        seen[b.champion] = other if loser is b else b
+        loser.champion = None
     panels = {}
     for side, (fx0, fx1) in L.DRAFTER_COLS.items():
         crops = []

@@ -171,12 +171,41 @@ def read_at(streams: video.Streams, ts: float, db: ChampionDB, debug_dir: Path |
     return read_draft(crop, db, debug_dir), crop
 
 
-def read_postgame_at(streams: video.Streams, ts: float, ally: list[str], enemy: list[str], debug_dir: Path | None = None):
-    frame = video.grab_frame(streams.hires_url, ts)
-    ok, rect = is_screen(frame, "postgame", leniency=0.05)
-    if not ok:
+def _aligned_crop(frame: np.ndarray, rects: list[tuple[float, float, float, float]]) -> np.ndarray | None:
+    """The client crop whose scoreboard rows line up best: the found rectangle is often a few pixels off at 1080p,
+    and then the top rows read as noise. Each candidate (and small shifts of it) is tried; the one where the most
+    K/D/A cells read wins (cheap – no OCR)."""
+    if not rects:
         return None
-    crop = rect.crop(frame)
+    best_rows, best_rect = -1, rects[0]
+    for base in rects:
+        for r in _nudges(base):
+            rows = kda_rows(_client_crop(frame, r))
+            if rows > best_rows:
+                best_rows, best_rect = rows, r
+            if rows == 10:
+                return _client_crop(frame, best_rect)
+    return _client_crop(frame, best_rect)
+
+
+def _postgame_rects(frame: np.ndarray, hint: tuple[float, float, float, float] | None = None) -> list[tuple[float, float, float, float]]:
+    """Where the post-game client may be in a full-resolution frame: as found now, and where the scan confirmed it."""
+    h, w = frame.shape[:2]
+    out = []
+    ok, rect = is_screen(frame, "postgame", leniency=0.05)
+    if ok:
+        out.append((rect.x / w, rect.y / h, rect.w / w, rect.h / h))
+    if hint:  # a confirmed match: the client is where the scan (nudged to the K/D/A column) saw it
+        out.append(hint)
+    return out
+
+
+def read_postgame_at(streams: video.Streams, ts: float, ally: list[str], enemy: list[str], debug_dir: Path | None = None,
+                     hint: tuple[float, float, float, float] | None = None):
+    frame = video.grab_frame(streams.hires_url, ts)
+    crop = _aligned_crop(frame, _postgame_rects(frame, hint))
+    if crop is None:
+        return None
     pg = read_postgame(crop, debug_dir)
     return match_to_draft(pg, ally, enemy), crop
 
@@ -184,12 +213,8 @@ def read_postgame_at(streams: video.Streams, ts: float, ally: list[str], enemy: 
 def read_postgame_open_at(streams: video.Streams, ts: float, names: list[str], ally: list[str] | None, debug_dir: Path | None = None,
                           hint: tuple[float, float, float, float] | None = None):
     frame = video.grab_frame(streams.hires_url, ts)
-    ok, rect = is_screen(frame, "postgame", leniency=0.05)
-    if ok:
-        crop = rect.crop(frame)
-    elif hint:  # a confirmed weak match: the client is where the scan saw it
-        crop = _client_crop(frame, hint)
-    else:
+    crop = _aligned_crop(frame, _postgame_rects(frame, hint))
+    if crop is None:
         return None
     return match_open(read_postgame(crop, debug_dir), names, ally), crop
 
@@ -274,7 +299,7 @@ def attach_postgame(streams: video.Streams, res: DraftResult, db: ChampionDB, sc
         # The scoreboard animates in; read a few seconds after it appears, keep the best fit.
         for offset in (4, 12, 25):
             t = min(pg_ep.start + offset, pg_ep.end)
-            got = read_postgame_at(streams, t, ally, enemy, debug_dir)
+            got = read_postgame_at(streams, t, ally, enemy, debug_dir, pg_ep.rect)
             if got and got[0] and (res.postgame is None or got[0]["fit"] > res.postgame["fit"]):
                 res.postgame, res.postgame_ts = got[0], t
                 res.postgame_jpeg = _jpeg(got[1])[0]

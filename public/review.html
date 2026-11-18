@@ -38,6 +38,16 @@
     .rv-zoom { position: fixed; inset: 0; background: rgba(0,0,0,.85); display: flex; align-items: center; justify-content: center; z-index: 100; cursor: zoom-out; }
     .rv-zoom img { max-width: 96vw; max-height: 94vh; }
     .rv-tag { font-size: .72rem; padding: 2px 7px; border-radius: 999px; background: color-mix(in srgb, var(--text) 7%, transparent); color: var(--muted); }
+    .bs-sec { margin: 0 0 20px; }
+    .bs-sec h2 { font-size: 1.05rem; margin: 0 0 4px; }
+    .bs-game { border: 1px solid var(--line); border-radius: 12px; background: var(--panel); padding: 12px 14px; margin: 10px 0; display: grid; gap: 8px; }
+    .bs-head { display: flex; flex-wrap: wrap; gap: 6px 14px; align-items: baseline; }
+    .bs-picks { font-size: 0.85rem; color: var(--muted); }
+    .bs-picks b { color: var(--text); font-weight: 600; }
+    .bs-sheet { width: 100%; max-width: 900px; border-radius: 8px; cursor: zoom-in; }
+    .bs-shots { display: flex; flex-wrap: wrap; gap: 6px; font-size: 0.85rem; }
+    .bs-form { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+    .bs-form input { flex: 1 1 260px; }
     .drafter-import { border: 1px solid var(--line); border-radius: 12px; background: var(--panel); padding: 12px 14px; margin: 0 0 16px; display: flex; flex-direction: column; gap: 8px; }
     .drafter-import label { font-size: .86rem; color: var(--text-2); }
     .drafter-row { display: flex; gap: 8px; }
@@ -68,6 +78,11 @@
         <a class="btn btn-small" id="drafter-bm" href="#" title="Přetáhni do záložek">SC bany</a>
         Pak na stránce draftu na drafter.lol klikni na záložku a bany se doplní samy.</p>
     </form>
+    <section id="bans-sec" class="bs-sec" hidden>
+      <h2>Bany ze snímků před hrou</h2>
+      <p class="muted">Hry bez banů – čtečka uložila snímky z minut před nimi. Najdi dokončený draft (drafter.lol, champ select) a vypiš bany, nebo dej „Žádné bany“. Claude to každé 2 hodiny projíždí sám.</p>
+      <div id="bans-list"></div>
+    </section>
     <div id="list" class="rv-list"></div>
   </main>
 
@@ -93,6 +108,42 @@
     const bm = document.getElementById('drafter-bm');
     bm.href = BOOKMARKLET;
     bm.addEventListener('click', (e) => { e.preventDefault(); alert('Tlačítko přetáhni myší do lišty záložek a pak ho použij na stránce draftu na drafter.lol.'); });
+
+    // --- bany ze snímků před hrou -----------------------------------------------
+    async function loadBanShots() {
+      const sec = document.getElementById('bans-sec');
+      let games = [];
+      try { games = (await api('/api/ban-shots')).games; } catch { return; }
+      sec.hidden = !games.length;
+      const when = (t) => (t ? new Date(t).toLocaleString('cs-CZ', { day: 'numeric', month: 'numeric', hour: '2-digit', minute: '2-digit' }) : '');
+      document.getElementById('bans-list').innerHTML = games.map((g) => `
+        <div class="bs-game" data-id="${g.match_id}">
+          <div class="bs-head"><b>Zápas #${g.match_id}</b><span class="muted">${esc(when(g.played_at))} · POV ${esc(g.pov_player || '?')} · ${esc(g.game_type || '')}</span></div>
+          <div class="bs-picks"><b>Naši:</b> ${g.ally_picks.map(esc).join(', ')}<br><b>Soupeři:</b> ${g.enemy_picks.map(esc).join(', ')}</div>
+          ${g.overview_shot_id ? `<a href="/api/ban-shots/${g.overview_shot_id}.jpg" target="_blank" rel="noopener"><img class="bs-sheet" loading="lazy" src="/api/ban-shots/${g.overview_shot_id}.jpg" alt="Přehled snímků před hrou"></a>` : ''}
+          <div class="bs-shots">Snímky v plné velikosti: ${g.shots.map((s, i) => `<a href="/api/ban-shots/${s.shot_id}.jpg" target="_blank" rel="noopener">${i + 1}</a> (<a href="${esc(s.vod_link)}" target="_blank" rel="noopener">VOD</a>)`).join(' · ')}</div>
+          <form class="bs-form">
+            <input name="ally" list="champ-list" placeholder="Naše bany (čárkou): Ahri, Zed, …">
+            <input name="enemy" list="champ-list" placeholder="Bany soupeře (čárkou)">
+            <button class="btn btn-primary" type="submit">Uložit bany</button>
+            <button class="btn" type="button" data-none>Žádné bany</button>
+            <span class="bs-out muted" aria-live="polite"></span>
+          </form>
+        </div>`).join('');
+    }
+    document.getElementById('bans-list').addEventListener('submit', (e) => { e.preventDefault(); saveBans(e.target, false); });
+    document.getElementById('bans-list').addEventListener('click', (e) => { if (e.target.matches('[data-none]')) saveBans(e.target.form, true); });
+    async function saveBans(form, none) {
+      const id = form.closest('.bs-game').dataset.id;
+      const list = (v) => v.split(',').map((x) => x.trim()).filter(Boolean);
+      const out = form.querySelector('.bs-out');
+      try {
+        await api(`/api/matches/${id}/bans`, { method: 'POST', body: none ? { no_bans: true } : { ally_bans: list(form.ally.value), enemy_bans: list(form.enemy.value) } });
+        form.closest('.bs-game').remove();
+        if (!document.querySelector('.bs-game')) document.getElementById('bans-sec').hidden = true;
+      } catch (err) { out.textContent = err.message || 'Nepovedlo se'; }
+    }
+    loadBanShots();
 
     async function importDrafter(url, data) {
       const out = document.getElementById('drafter-out');

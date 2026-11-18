@@ -4,6 +4,7 @@ import { HttpError, json, assertBodySize } from './http';
 import { getLiveChannels, syncTwitchVods } from './vods';
 import { listDrafts, playerGames, relinkDraftPlayers, saveDraft, summarizeGames, teamGameCheck, validateDraft, type DraftInput } from './drafts';
 import { getChampionData } from './champions';
+import { gamesMissingBans, getBanShot, resolveBans } from './banshots';
 import { importDrafterSeries } from './drafter';
 import { listSchedule, opponentLabel, requireOpponent, scheduleFields } from './schedule';
 import { freeSlot, listTournament, SLOTS, tournamentFields, tournamentLabel } from './tournament';
@@ -270,6 +271,24 @@ async function route(req: Request, env: Env, url: URL, user: User): Promise<Resp
     const login = normalizeChannel(body.login, 'twitch.tv');
     const result = await syncTwitchVods(env, login ? [login] : undefined);
     return json(result);
+  }
+
+  // Games without bans with frames kept from before them (banshots.ts) – read on the review page or by Claude.
+  if (path === '/api/ban-shots' && method === 'GET') {
+    return json({ games: await gamesMissingBans(env, 30) });
+  }
+  let bm: RegExpMatchArray | null;
+  if ((bm = path.match(/^\/api\/ban-shots\/(\d+)\.jpg$/)) && method === 'GET') {
+    const s = await getBanShot(env, Number(bm[1]));
+    return new Response(new Uint8Array(s.image), { headers: { 'Content-Type': 'image/jpeg', 'Cache-Control': 'private, max-age=86400' } });
+  }
+  if ((bm = path.match(/^\/api\/matches\/(\d+)\/bans$/)) && method === 'POST') {
+    const body = await readBody(req);
+    const id = Number(bm[1]);
+    const arr = (v: unknown) => (Array.isArray(v) ? v.map(String) : []);
+    const r = await resolveBans(env, id, arr(body.ally_bans), arr(body.enemy_bans), !!body.no_bans);
+    await logActivity(db, actor, r.saved ? 'bans.save' : 'bans.none', 'match', id, r.saved ? { ally: r.ally, enemy: r.enemy } : { none: true });
+    return json({ ok: true, ...r });
   }
 
   if (path === '/api/drafter/import' && method === 'POST') {

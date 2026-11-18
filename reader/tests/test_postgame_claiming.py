@@ -1,8 +1,13 @@
 """Which post-game screens are read on their own (no network, no images).
 
-    PYTHONPATH=. python3 tests/test_postgame_claiming.py
+    python3 tests/test_postgame_claiming.py
 """
-from scout_reader import scan as S
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))  # reader/ (or /app in the image)
+
+from scout_reader import scan as S  # noqa: E402
 
 E = S.Episode
 real = E("champselect", 1000, 1100, 10)        # a real draft that reads

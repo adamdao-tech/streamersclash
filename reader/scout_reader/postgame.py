@@ -93,6 +93,42 @@ def _digit_templates() -> np.ndarray:
     return np.stack([img[:, i * 16 : (i + 1) * 16] for i in range(10)])
 
 
+def _holes(comp: np.ndarray) -> list[tuple[float, float]]:
+    """Enclosed background areas of a digit: (centre y, height), both as a fraction of the digit's height."""
+    h = comp.shape[0]
+    bg = (cv2.copyMakeBorder((comp > 0).astype(np.uint8), 1, 1, 1, 1, cv2.BORDER_CONSTANT, value=0) == 0).astype(np.uint8)
+    n, labels, stats, cents = cv2.connectedComponentsWithStats(bg, connectivity=4)
+    out = []
+    for i in range(1, n):
+        x, y, w, hh, area = stats[i]
+        if x == 0 or y == 0 or x + w >= bg.shape[1] or y + hh >= bg.shape[0]:
+            continue  # the outside
+        if area < 4:
+            continue  # speck
+        out.append(((cents[i][1] - 1) / h, hh / h))
+    return out
+
+
+def _by_holes(comp: np.ndarray, guess: int) -> int:
+    """0, 6, 8 and 9 look alike to the template match (a 6 often came out as 0); the enclosed areas tell them
+    apart: 8 has two, 0 one spanning most of the height, 6 one low, 9 one high."""
+    if guess not in (0, 6, 8, 9):
+        return guess
+    holes = _holes(comp)
+    if len(holes) >= 2:
+        return 8
+    if len(holes) != 1:
+        return guess
+    cy, hh = holes[0]
+    if hh >= 0.33 and 0.38 <= cy <= 0.62:
+        return 0
+    if cy > 0.55:
+        return 6
+    if cy < 0.45:
+        return 9
+    return guess
+
+
 def _classify_digit(comp: np.ndarray) -> tuple[int, float]:
     t = _digit_templates()
     x = cv2.resize(comp.astype(np.float32), (16, 24), interpolation=cv2.INTER_AREA)
@@ -103,7 +139,7 @@ def _classify_digit(comp: np.ndarray) -> tuple[int, float]:
         s = float(xv @ tv / (np.linalg.norm(xv) * np.linalg.norm(tv) + 1e-6))
         if s > best_s:
             best, best_s = d, s
-    return best, best_s
+    return _by_holes(comp, best), best_s
 
 
 def read_kda(img: np.ndarray) -> tuple[int, int, int] | None:

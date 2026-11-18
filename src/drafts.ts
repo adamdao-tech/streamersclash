@@ -456,11 +456,19 @@ export async function applyPostgame(env: Env, matchId: number, pg: PostGameInput
     .all<{ id: number; side: string; champion: string; player_id: number | null }>();
   if (!actions.length) return false;
   const players = await loadPlayerNames(db);
+  // A game saved by a person (or Claude from a checked screenshot) keeps what it has – a later automatic read
+  // only fills in what's missing. A game the reader saved itself takes newer values, but never loses one to a
+  // cell that didn't read (null).
+  const m = await db.prepare('SELECT created_by_kind FROM matches WHERE id = ?').bind(matchId).first<{ created_by_kind: string | null }>();
+  const keep = m?.created_by_kind === 'user' || m?.created_by_kind === 'claude';
 
   const stmts: D1PreparedStatement[] = [
     db
       .prepare(
-        `UPDATE matches SET result = COALESCE(?, result), game_type = COALESCE(?, game_type),
+        keep
+          ? `UPDATE matches SET result = COALESCE(result, ?), game_type = COALESCE(game_type, ?),
+                duration_s = COALESCE(duration_s, ?), postgame_ts = COALESCE(postgame_ts, ?) WHERE id = ?`
+          : `UPDATE matches SET result = COALESCE(?, result), game_type = COALESCE(?, game_type),
                 duration_s = COALESCE(?, duration_s), postgame_ts = COALESCE(?, postgame_ts) WHERE id = ?`,
       )
       .bind(result, pg.game_type ? String(pg.game_type).slice(0, 40) : null, num(pg.duration_s, 6 * 3600), num(pg.ts_s, 24 * 3600), matchId),
@@ -474,7 +482,12 @@ export async function applyPostgame(env: Env, matchId: number, pg: PostGameInput
       stmts.push(
         db
           .prepare(
-            `UPDATE draft_actions SET kills = ?, deaths = ?, assists = ?, lane = ?, role = COALESCE(?, role),
+            keep
+              ? `UPDATE draft_actions SET kills = COALESCE(kills, ?), deaths = COALESCE(deaths, ?), assists = COALESCE(assists, ?),
+                    lane = COALESCE(lane, ?), role = COALESCE(role, ?),
+                    player_name = COALESCE(player_name, ?), player_id = COALESCE(player_id, ?) WHERE id = ?`
+              : `UPDATE draft_actions SET kills = COALESCE(?, kills), deaths = COALESCE(?, deaths), assists = COALESCE(?, assists),
+                    lane = COALESCE(?, lane), role = COALESCE(?, role),
                     player_name = COALESCE(player_name, ?), player_id = COALESCE(player_id, ?) WHERE id = ?`,
           )
           .bind(num(row.kills), num(row.deaths), num(row.assists), num(row.lane, 4), normRole(row.role), name,

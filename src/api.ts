@@ -10,7 +10,7 @@ import { listSchedule, opponentLabel, requireOpponent, scheduleFields } from './
 import { freeSlot, listTournament, SLOTS, tournamentFields, tournamentLabel } from './tournament';
 import {
   addDeckImage, createDeck, createFolder, createShot, deleteDeck, getDeckImage, updateDeck, deleteFolder, deleteMap, deleteNote, deleteRunePage, deleteShot, getMapImage, getShotImage, loadCoaching,
-  mapVersion, renameFolder, resetMapImage, saveMap, saveNote, savePool, saveRunePage, setMapImage, updateShot,
+  mapVersion, renameFolder, resetMapImage, saveMap, saveNote, savePool, saveRunePage, setMapImage, updateShot, saveIdentity, deleteIdentity,
 } from './coaching';
 import { getRuneData } from './runes';
 import { handleQueueApi } from './queue';
@@ -588,6 +588,13 @@ async function route(req: Request, env: Env, url: URL, user: User): Promise<Resp
   if ((m = path.match(/^\/api\/coaching\/runes\/(\d+)$/))) {
     if (method === 'PUT') return json({ id: await saveRunePage(env, actor, await readBody(req), Number(m[1])) });
     if (method === 'DELETE') return (await deleteRunePage(env, Number(m[1])), json({ ok: true }));
+  }
+  if (path === '/api/coaching/identities' && method === 'POST') {
+    return json({ id: await saveIdentity(env, actor, await readBody(req)) }, 201);
+  }
+  if ((m = path.match(/^\/api\/coaching\/identities\/(\d+)$/))) {
+    if (method === 'PUT') return json({ id: await saveIdentity(env, actor, await readBody(req), Number(m[1])) });
+    if (method === 'DELETE') return (await deleteIdentity(env, Number(m[1])), json({ ok: true }));
   }
   if ((m = path.match(/^\/api\/coaching\/pool\/(\d+)$/)) && method === 'PUT') {
     const body = await readBody(req);

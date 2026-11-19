@@ -44,6 +44,85 @@
     .pool-mini-list { gap: 2px; }
     .pool-mini .tier-tag { min-width: 34px; }
     @media (max-width: 900px) { .pool-layout { grid-template-columns: 1fr; } }
+
+    /* identita týmu */
+    .id-intro { margin: 0 0 12px; font-size: 0.88rem; }
+    .id-lean { padding: 14px; margin-bottom: 18px; }
+    .id-sec-head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 10px; }
+    .id-sec-head h3 { margin: 0; font-size: 1.15rem; }
+    .id-sec-head label { margin: 0; display: flex; align-items: center; gap: 6px; font-size: 0.84rem; color: var(--muted); cursor: pointer; }
+    .id-sec-head .spacer { flex: 1; }
+    .id-matrix-wrap { overflow-x: auto; }
+    .id-matrix { width: 100%; border-collapse: collapse; font-size: 0.84rem; min-width: 760px; }
+    .id-matrix th, .id-matrix td { border-top: 1px solid var(--line); padding: 6px; vertical-align: middle; text-align: left; }
+    .id-matrix thead th { border-top: 0; color: var(--muted); font-weight: 600; font-size: 0.78rem; white-space: nowrap; }
+    .id-matrix thead .role { width: 22px; height: 22px; font-size: 0.56rem; vertical-align: middle; margin-right: 4px; }
+    .id-matrix .id-style { width: 170px; }
+    .id-matrix .id-style b { display: block; font-size: 0.92rem; }
+    .id-matrix .id-style small { color: var(--muted); font-size: 0.74rem; line-height: 1.25; display: block; }
+    .id-matrix tr.top .id-style b { color: var(--gold-2); }
+    .id-cell { display: flex; flex-wrap: wrap; gap: 2px; }
+    .id-cell .ri { position: relative; }
+    .id-cell .none { color: var(--red-text); font-size: 0.78rem; font-weight: 700; }
+    .id-tier { box-shadow: 0 0 0 2px var(--tc, transparent); }
+    .id-cover { white-space: nowrap; font-size: 0.8rem; }
+    .id-cover b { font-size: 1rem; }
+    .id-cover .btn { margin-top: 4px; display: block; }
+    .id-summary { margin: 10px 0 0; font-size: 0.88rem; }
+    .id-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(380px, 1fr)); gap: 14px; }
+    .id-card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px; display: flex; flex-direction: column; gap: 12px; }
+    .id-card header { display: flex; gap: 10px; align-items: flex-start; }
+    .id-card header h3 { margin: 0; font-size: 1.2rem; }
+    .id-card header .chips { margin-top: 4px; }
+    .id-card header .id-actions { margin-left: auto; display: flex; gap: 6px; flex: none; }
+    .id-chip-style { color: var(--gold-2); border-color: color-mix(in srgb, var(--gold) 50%, transparent); }
+    .id-picks { display: flex; flex-direction: column; gap: 6px; }
+    .id-pick { display: grid; grid-template-columns: 26px 86px minmax(0, 1fr); align-items: center; gap: 8px; }
+    .id-pick .role { width: 26px; height: 26px; font-size: 0.6rem; }
+    .id-pick .who { font-size: 0.82rem; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .id-pick .champs { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+    .id-pick .main { display: flex; align-items: center; gap: 6px; font-weight: 700; font-size: 0.9rem; }
+    .id-pick .alts { display: flex; gap: 3px; opacity: 0.8; }
+    .id-pick .alts::before { content: 'nebo'; font-size: 0.72rem; color: var(--muted); align-self: center; margin-right: 3px; }
+    .id-dmg { display: flex; height: 8px; border-radius: 4px; overflow: hidden; background: var(--bg-2); }
+    .id-dmg span { display: block; }
+    .id-dmg .ad { background: #ff8a5c; } .id-dmg .ap { background: #6f9dff; }
+    .id-dmg-legend { display: flex; justify-content: space-between; font-size: 0.74rem; color: var(--muted); margin-top: 3px; }
+    .id-traits { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 8px; }
+    .id-traits .chip b { color: var(--text); }
+    .id-traits .chip.zero { opacity: 0.45; }
+    .id-notes { list-style: none; margin: 8px 0 0; padding: 0; font-size: 0.83rem; display: flex; flex-direction: column; gap: 3px; }
+    .id-notes .warn { color: var(--red-text); }
+    .id-notes .ok { color: var(--green); }
+    .id-text { margin: 0; display: grid; grid-template-columns: 120px minmax(0, 1fr); gap: 6px 10px; font-size: 0.86rem; }
+    .id-text dt { color: var(--muted); font-weight: 600; }
+    .id-text dd { margin: 0; white-space: pre-wrap; }
+    .id-bans-row { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; font-size: 0.82rem; color: var(--muted); }
+    .id-bans-row .ri { filter: grayscale(0.6); }
+    dialog.id-dialog { width: min(1040px, calc(100vw - 24px)); }
+    .id-style-pick { display: flex; gap: 6px; flex-wrap: wrap; }
+    .id-style-pick button { border: 1px solid var(--line); background: var(--bg-2); color: var(--muted); border-radius: 999px; padding: 5px 12px; font: 600 0.84rem var(--font); cursor: pointer; }
+    .id-style-pick button.on { background: var(--gold); color: var(--on-gold); border-color: var(--gold); }
+    .id-roles { display: flex; flex-direction: column; gap: 8px; }
+    .id-role { display: grid; grid-template-columns: 120px 230px minmax(0, 1fr); gap: 10px; align-items: start; border: 1px solid var(--line); border-radius: 10px; padding: 8px; background: var(--panel); }
+    .id-role-head { display: flex; align-items: center; gap: 6px; font-weight: 700; font-size: 0.9rem; padding-top: 6px; }
+    .id-role-head .role { width: 24px; height: 24px; font-size: 0.58rem; }
+    .id-role-sel { display: flex; gap: 4px; flex-wrap: wrap; align-items: center; min-height: 46px; padding: 3px; border-radius: 8px; background: var(--bg-2); }
+    .id-role-sel .empty-sel { font-size: 0.78rem; color: var(--muted); padding: 0 6px; }
+    .id-role-pool { display: flex; gap: 3px; flex-wrap: wrap; align-items: center; }
+    .id-ch { position: relative; background: none; border: 0; padding: 2px; border-radius: 8px; cursor: pointer; }
+    .id-ch:hover { background: var(--panel-2); }
+    .id-ch.fit::after { content: ''; position: absolute; right: 1px; top: 1px; width: 8px; height: 8px; border-radius: 50%; background: var(--gold); box-shadow: 0 0 0 2px var(--panel); }
+    .id-ch.picked { opacity: 0.35; }
+    .id-ch .star { position: absolute; left: 0; bottom: -2px; font-size: 0.7rem; color: var(--gold-2); text-shadow: 0 0 3px #000; }
+    .id-role-pool .id-other { width: 130px; min-height: 30px; padding: 3px 8px; font-size: 0.8rem; }
+    .id-role-pool .none { font-size: 0.78rem; color: var(--muted); }
+    .id-live { border: 1px dashed var(--line); border-radius: 10px; padding: 10px; margin-top: 10px; }
+    .id-live h4 { margin: 0 0 6px; font-size: 0.82rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; }
+    .id-dialog textarea { width: 100%; }
+    .id-ban-add { display: flex; gap: 6px; margin-top: 6px; }
+    .id-ban-add input { max-width: 240px; }
+    @media (max-width: 760px) { .id-role { grid-template-columns: 1fr; } .id-grid { grid-template-columns: 1fr; } }
   </style>
 </head>
 <body>
@@ -70,6 +149,7 @@
           <button data-tab="maps">Mapy <span class="count" id="count-maps"></span></button>
           <button data-tab="shots">Screenshoty <span class="count" id="count-shots"></span></button>
           <button data-tab="pool">Champion pool <span class="count" id="count-pool"></span></button>
+          <button data-tab="identity">Identita <span class="count" id="count-identity"></span></button>
           <button data-tab="decks">Prezentace <span class="count" id="count-decks"></span></button>
         </div>
 
@@ -93,6 +173,7 @@
           <div id="maps" class="rp-grid"></div>
         </div>
         <div id="tab-pool" hidden></div>
+        <div id="tab-identity" hidden></div>
         <div id="tab-decks" hidden>
           <div class="tab-bar">
             <span class="muted">Slidy s textem a obrázky. Přehráváš přes celou obrazovku, šipkami přepínáš.</span>
@@ -211,6 +292,36 @@
     </form>
   </dialog>
 
+  <dialog id="identity-dialog" class="id-dialog">
+    <form>
+      <h2 id="identity-title">Nová identita</h2>
+      <label>Název *</label>
+      <input name="name" required maxlength="80" placeholder="např. Engage přes Jarvana a Galia">
+      <label style="margin-top:12px">Styl hry</label>
+      <div class="id-style-pick" id="id-style-pick"></div>
+      <label style="margin-top:14px">Picky</label>
+      <p class="muted" style="margin:0 0 8px;font-size:.82rem">Klikni na championa z poolu hráče. První vybraný je <b>main</b> (★), další jsou alternativy (max 4). Kliknutím na vybraného ho odebereš.
+        Zlatá tečka = champion sedí na zvolený styl.</p>
+      <div class="id-roles" id="id-roles"></div>
+      <div class="id-live" id="id-live"></div>
+      <label style="margin-top:14px">Win condition – jak tuhle hru vyhrajeme</label>
+      <textarea name="win_condition" rows="2" maxlength="2000" placeholder="např. Silní kolem 2.–3. draka, vyhráváme 5v5 fighty, Jarvan + Galio engage na ADC"></textarea>
+      <label style="margin-top:10px">Jak to hrajeme</label>
+      <textarea name="plan" rows="4" maxlength="2000" placeholder="Early: … &#10;Mid game: … &#10;Teamfighty: …"></textarea>
+      <label style="margin-top:10px">Na co si dát pozor</label>
+      <textarea name="avoid" rows="2" maxlength="2000" placeholder="Co tenhle plán láme – např. poke kompozice, silný split pusher"></textarea>
+      <label style="margin-top:10px">Prio bany</label>
+      <div class="id-role-sel" id="id-bans"></div>
+      <div class="id-ban-add"><input id="id-ban-input" list="champ-list" placeholder="Champion na ban"><button type="button" class="btn btn-small" id="id-ban-add">+ Ban</button></div>
+      <p class="form-error"></p>
+      <div class="dialog-actions">
+        <button type="button" class="btn btn-danger" data-delete style="margin-right:auto">Smazat</button>
+        <button type="button" class="btn" data-cancel>Zrušit</button>
+        <button type="submit" class="btn btn-primary">Uložit</button>
+      </div>
+    </form>
+  </dialog>
+
   <dialog id="shot-dialog" class="wide">
     <form>
       <h2>Screenshot</h2>
@@ -279,7 +390,8 @@
 
   <script type="module">
     import { openDeckEditor, present, slideHtml } from '/deck-editor.js';
-    import { api, esc, initPage, formDialog, ROLE_LABELS, loadChampions, timeAgo, MARKERS, markersSvg, mapBoxHtml, mapImageSrc, shrinkImage, blobToBase64 } from '/app.js';
+    import { STYLES, STYLE_LABELS, TRAIT_LABELS, traitsOf, styleFits, analyzeComp } from '/champ-traits.js';
+    import { api, esc, initPage, formDialog, ROLE_LABELS, loadChampions, loadChampionInfo, timeAgo, MARKERS, markersSvg, mapBoxHtml, mapImageSrc, shrinkImage, blobToBase64 } from '/app.js';
 
     await initPage('coaching');
 
@@ -291,10 +403,10 @@
 
     let data = { players: [], folders: [], runes: [], notes: [] };
     let runeData = null; // null when Data Dragon is unavailable
-    const champIcons = await loadChampions();
+    const [champIcons, champInfo] = await Promise.all([loadChampions(), loadChampionInfo()]);
     // Selected place: player = 'team' or a player id; folder = folder id or null.
     let sel = JSON.parse(store.get('coach.sel') || 'null') || { player: 'team', folder: null };
-    let tab = ['notes', 'maps', 'shots', 'pool', 'decks'].includes(store.get('coach.tab')) ? store.get('coach.tab') : 'runes';
+    let tab = ['notes', 'maps', 'shots', 'pool', 'identity', 'decks'].includes(store.get('coach.tab')) ? store.get('coach.tab') : 'runes';
 
     // Broken icons (e.g. a renamed rune) turn into their short label instead of an empty circle.
     document.addEventListener('error', (e) => {
@@ -1046,11 +1158,290 @@
       if (open) openDeck(data.decks.find((x) => x.id === Number(open.dataset.openDeck)));
     });
 
+
+    // --- team identity (herní plány postavené z champion poolů) ---------------------------------
+    const ID_ROLES = ['TOP', 'JUNGLE', 'MID', 'ADC', 'SUPPORT'];
+    const TIER_ORDER = { S: 0, A: 1, B: 2, C: 3, L: 4 };
+    const TIER_COLORS = { S: '#f0c75e', A: '#7fd18b', B: '#6fb2ff', C: '#b9c1d3', L: '#c4a6ff' };
+    let idInclB = store.get('coach.idB') !== '0';
+    const roleLabel = (r) => ROLE_LABELS[r] || r;
+    const playerForRole = (role) => data.players.find((p) => p.role === role) || null;
+    /** A player's pool sorted by tier, then by their order in the tier. */
+    const rolePool = (role, tiers) => {
+      const p = playerForRole(role);
+      if (!p) return [];
+      return poolOf(p.id).filter((e) => !tiers || tiers.includes(e.tier)).sort((a, b) => TIER_ORDER[a.tier] - TIER_ORDER[b.tier] || a.sort - b.sort);
+    };
+    const tOf = (name) => traitsOf(name, champInfo.get(name));
+    const traitTitle = (name) => {
+      const t = tOf(name);
+      return `${name} · ${t.dmg} · ${t.traits.map((x) => TRAIT_LABELS[x]).join(', ') || '—'}${t.guessed ? ' (odhad podle třídy)' : ''}`;
+    };
+    const champMini = (name, cls = 'ri-md ri-sq', tier) =>
+      `<span class="id-tier" style="--tc:${tier ? TIER_COLORS[tier] : 'transparent'};border-radius:6px;display:inline-flex" title="${esc(traitTitle(name))}${tier ? ` · tier ${tier}` : ''}">${icon(champIcons.get(name), name, cls)}</span>`;
+
+    /** How well the pools carry each style: fitting champions per role and how many roles are covered. */
+    function styleLean() {
+      const tiers = idInclB ? ['S', 'A', 'B'] : ['S', 'A'];
+      return STYLES.map((st) => {
+        const cells = ID_ROLES.map((role) => rolePool(role, tiers).filter((e) => styleFits(st.key, tOf(e.champion), role)));
+        const covered = cells.filter((c) => c.length).length;
+        const champs = cells.reduce((n, c) => n + c.length, 0);
+        const sTier = cells.reduce((n, c) => n + c.filter((e) => e.tier === 'S').length, 0);
+        return { ...st, cells, covered, champs, score: covered * 100 + sTier * 3 + champs };
+      }).sort((a, b) => b.score - a.score);
+    }
+
+    function identityCard(i) {
+      const mains = ID_ROLES.map((r) => (i.picks?.[r] || [])[0]).filter(Boolean);
+      const a = analyzeComp(mains, champInfo);
+      const total = a.ad + a.ap || 1;
+      const adPct = Math.round((a.ad / total) * 100);
+      return `<article class="id-card">
+        <header>
+          <div>
+            <h3>${esc(i.name)}</h3>
+            <div class="chips">${(i.styles || []).map((s) => `<span class="chip id-chip-style">${esc(STYLE_LABELS[s] || s)}</span>`).join('')}</div>
+          </div>
+          <div class="id-actions">
+            <button type="button" class="btn btn-small" data-edit-identity="${i.id}">Upravit</button>
+          </div>
+        </header>
+        <div class="id-picks">${ID_ROLES.map((r) => {
+          const list = i.picks?.[r] || [];
+          const p = playerForRole(r);
+          return `<div class="id-pick"><span class="role role-${r}">${roleLabel(r)}</span><span class="who">${esc(p?.nickname || '—')}</span>
+            <div class="champs">${list.length
+              ? `<span class="main">${champMini(list[0], 'ri-lg ri-sq')}${esc(list[0])}</span>${list.length > 1 ? `<span class="alts">${list.slice(1).map((c) => champMini(c)).join('')}</span>` : ''}`
+              : '<span class="muted" style="font-size:.82rem">nevybráno</span>'}</div></div>`;
+        }).join('')}</div>
+        ${mains.length ? `<div>
+          <div class="id-dmg" title="Poměr fyzického a magického damage hlavních picků"><span class="ad" style="width:${adPct}%"></span><span class="ap" style="width:${100 - adPct}%"></span></div>
+          <div class="id-dmg-legend"><span>AD ${adPct} %</span><span>AP ${100 - adPct} %</span></div>
+          <div class="id-traits">${Object.entries(TRAIT_LABELS).map(([k, l]) => `<span class="chip ${a.counts[k] ? '' : 'zero'}">${l} <b>${a.counts[k] || 0}</b></span>`).join('')}</div>
+          ${a.warnings.length || a.good.length ? `<ul class="id-notes">${a.warnings.map((w) => `<li class="warn">⚠ ${esc(w)}</li>`).join('')}${a.good.map((g) => `<li class="ok">✓ ${esc(g)}</li>`).join('')}</ul>` : ''}
+        </div>` : ''}
+        ${i.win_condition || i.plan || i.avoid ? `<dl class="id-text">
+          ${i.win_condition ? `<dt>Win condition</dt><dd>${esc(i.win_condition)}</dd>` : ''}
+          ${i.plan ? `<dt>Jak hrajeme</dt><dd>${esc(i.plan)}</dd>` : ''}
+          ${i.avoid ? `<dt>Pozor na</dt><dd>${esc(i.avoid)}</dd>` : ''}
+        </dl>` : ''}
+        ${(i.bans || []).length ? `<div class="id-bans-row">Prio bany: ${i.bans.map((c) => champMini(c)).join('')}</div>` : ''}
+      </article>`;
+    }
+
+    function renderIdentity() {
+      const el = document.getElementById('tab-identity');
+      const poolCount = data.pool.length;
+      const lean = styleLean();
+      const best = lean.filter((s) => s.covered >= 4).slice(0, 2);
+      el.innerHTML = `
+        <p class="muted id-intro">Identita = herní plán týmu: kdo co hraje, jak hru vyhráváme a co banujeme. Picky se berou z poolů hráčů – championy jim naklikej v záložce <b>Champion pool</b>. Platí pro celý tým.</p>
+        <section class="card id-lean">
+          <div class="id-sec-head">
+            <h3>Kam táhne náš pool</h3>
+            <span class="muted" style="font-size:.82rem">championi z tierů S a A${idInclB ? ' a B' : ''}, kteří stylu sedí</span>
+            <span class="spacer"></span>
+            <label><input type="checkbox" id="id-incl-b" ${idInclB ? 'checked' : ''}> počítat i tier B</label>
+          </div>
+          ${poolCount ? `<div class="id-matrix-wrap"><table class="id-matrix">
+            <thead><tr><th>Styl</th>${ID_ROLES.map((r) => `<th><span class="role role-${r}">${roleLabel(r)}</span>${esc(playerForRole(r)?.nickname || '—')}</th>`).join('')}<th>Pokrytí</th></tr></thead>
+            <tbody>${lean.map((s, idx) => `<tr class="${best.includes(s) ? 'top' : ''}">
+              <td class="id-style"><b>${esc(s.label)}</b><small>${esc(s.desc)}</small></td>
+              ${s.cells.map((c) => `<td><div class="id-cell">${c.length ? c.map((e) => champMini(e.champion, 'ri-md ri-sq', e.tier)).join('') : '<span class="none">—</span>'}</div></td>`).join('')}
+              <td class="id-cover"><b>${s.covered}/5</b> rolí · ${s.champs}×<button type="button" class="btn btn-small" data-new-from-style="${s.key}">Vytvořit plán</button></td>
+            </tr>`).join('')}</tbody>
+          </table></div>
+          <p class="id-summary">${best.length
+            ? `Nejvíc vám sedí: ${best.map((s) => `<b>${esc(s.label)}</b> (${s.covered}/5 rolí)`).join(' a ')}. Prázdné políčko = role, která pro ten styl nemá championa – buď ho do poolu doučit, nebo styl nehrát.`
+            : 'Žádný styl zatím nepokrývá aspoň 4 role. Doplň championy do poolů, nebo zapni i tier B.'}
+            <span class="muted">Zařazení championů do stylů je orientační.</span></p>`
+          : '<div class="empty">Pooly jsou zatím prázdné. Nejdřív hráčům naklikej championy v záložce Champion pool.</div>'}
+        </section>
+        <div class="tab-bar">
+          <h3 style="margin:0;font-size:1.15rem">Herní plány</h3>
+          <span class="spacer"></span>
+          <button type="button" class="btn btn-primary" data-new-identity>+ Nová identita</button>
+        </div>
+        <div class="id-grid">${(data.identities || []).length
+          ? data.identities.map(identityCard).join('')
+          : '<div class="empty" style="grid-column:1/-1">Zatím žádný herní plán. Klikni na „Vytvořit plán“ u stylu, který vám sedí, nebo na „+ Nová identita“.</div>'}</div>`;
+    }
+
+    document.getElementById('tab-identity').addEventListener('change', (e) => {
+      if (e.target.id === 'id-incl-b') { idInclB = e.target.checked; store.set('coach.idB', idInclB ? '1' : '0'); renderIdentity(); }
+    });
+    document.getElementById('tab-identity').addEventListener('click', (e) => {
+      const edit = e.target.closest('[data-edit-identity]');
+      if (edit) return openIdentity(data.identities.find((x) => x.id === Number(edit.dataset.editIdentity)));
+      if (e.target.closest('[data-new-identity]')) return openIdentity(null);
+      const fromStyle = e.target.closest('[data-new-from-style]');
+      if (fromStyle) {
+        const key = fromStyle.dataset.newFromStyle;
+        const picks = {};
+        for (const r of ID_ROLES) {
+          picks[r] = rolePool(r, ['S', 'A', 'B']).filter((x) => styleFits(key, tOf(x.champion), r)).slice(0, 3).map((x) => x.champion);
+        }
+        openIdentity(null, { name: STYLE_LABELS[key], styles: [key], picks });
+      }
+    });
+
+    // editor
+    const idDialog = document.getElementById('identity-dialog');
+    const idForm = idDialog.querySelector('form');
+    let idEditing = null;
+    let idDraft = null; // { styles, picks, bans }
+
+    function openIdentity(item, preset) {
+      idEditing = item || null;
+      const src = item || preset || {};
+      idDraft = {
+        styles: [...(src.styles || [])],
+        picks: Object.fromEntries(ID_ROLES.map((r) => [r, [...(src.picks?.[r] || [])]])),
+        bans: [...(src.bans || [])],
+      };
+      document.getElementById('identity-title').textContent = item ? 'Upravit identitu' : 'Nová identita';
+      idForm.name.value = src.name || '';
+      idForm.win_condition.value = src.win_condition || '';
+      idForm.plan.value = src.plan || '';
+      idForm.avoid.value = src.avoid || '';
+      idForm.querySelector('[data-delete]').hidden = !item;
+      idForm.querySelector('.form-error').textContent = '';
+      renderIdEditor();
+      idDialog.showModal();
+    }
+
+    function renderIdEditor() {
+      document.getElementById('id-style-pick').innerHTML = STYLES.map((s) =>
+        `<button type="button" class="${idDraft.styles.includes(s.key) ? 'on' : ''}" data-id-style="${s.key}" title="${esc(s.desc)}">${esc(s.label)}</button>`).join('');
+      document.getElementById('id-roles').innerHTML = ID_ROLES.map((r) => {
+        const p = playerForRole(r);
+        const sel = idDraft.picks[r];
+        const pool = rolePool(r);
+        const fits = (name) => idDraft.styles.some((s) => styleFits(s, tOf(name), r));
+        return `<div class="id-role">
+          <div class="id-role-head"><span class="role role-${r}">${roleLabel(r)}</span>${esc(p?.nickname || '—')}</div>
+          <div class="id-role-sel">${sel.length
+            ? sel.map((c, i) => `<button type="button" class="id-ch" data-id-unpick="${r}" data-champ="${esc(c)}" title="${esc(traitTitle(c))} – kliknutím odebrat">${icon(champIcons.get(c), c, i ? 'ri-md ri-sq' : 'ri-lg ri-sq')}${i ? '' : '<span class="star">★</span>'}</button>`).join('')
+            : '<span class="empty-sel">nic nevybráno</span>'}</div>
+          <div class="id-role-pool">${pool.length
+            ? pool.map((e) => `<button type="button" class="id-ch ${fits(e.champion) ? 'fit' : ''} ${sel.includes(e.champion) ? 'picked' : ''}" data-id-pick="${r}" data-champ="${esc(e.champion)}" title="${esc(traitTitle(e.champion))} · tier ${e.tier}">${champMini(e.champion, 'ri-md ri-sq', e.tier)}</button>`).join('')
+            : '<span class="none">Prázdný pool</span>'}
+            <input class="id-other" list="champ-list" data-id-other="${r}" placeholder="jiný champion…">
+          </div>
+        </div>`;
+      }).join('');
+      document.getElementById('id-bans').innerHTML = idDraft.bans.length
+        ? idDraft.bans.map((c) => `<button type="button" class="id-ch" data-id-unban="${esc(c)}" title="${esc(c)} – kliknutím odebrat">${icon(champIcons.get(c), c, 'ri-md ri-sq')}</button>`).join('')
+        : '<span class="empty-sel">žádné</span>';
+      renderIdLive();
+    }
+
+    function renderIdLive() {
+      const mains = ID_ROLES.map((r) => idDraft.picks[r][0]).filter(Boolean);
+      const el = document.getElementById('id-live');
+      if (!mains.length) { el.innerHTML = '<h4>Rozbor kompozice</h4><span class="muted" style="font-size:.84rem">Vyber hlavní picky a ukáže se poměr damage, engage, frontline a na co si dát pozor.</span>'; return; }
+      const a = analyzeComp(mains, champInfo);
+      const total = a.ad + a.ap || 1;
+      const adPct = Math.round((a.ad / total) * 100);
+      el.innerHTML = `<h4>Rozbor kompozice (hlavní picky)</h4>
+        <div class="id-dmg"><span class="ad" style="width:${adPct}%"></span><span class="ap" style="width:${100 - adPct}%"></span></div>
+        <div class="id-dmg-legend"><span>AD ${adPct} %</span><span>AP ${100 - adPct} %</span></div>
+        <div class="id-traits">${Object.entries(TRAIT_LABELS).map(([k, l]) => `<span class="chip ${a.counts[k] ? '' : 'zero'}">${l} <b>${a.counts[k] || 0}</b></span>`).join('')}</div>
+        ${a.warnings.length || a.good.length ? `<ul class="id-notes">${a.warnings.map((w) => `<li class="warn">⚠ ${esc(w)}</li>`).join('')}${a.good.map((g) => `<li class="ok">✓ ${esc(g)}</li>`).join('')}</ul>` : ''}`;
+    }
+
+    const champName = (v) => [...champIcons.keys()].find((n) => n.toLowerCase().replace(/[^a-z0-9]/g, '') === String(v).toLowerCase().replace(/[^a-z0-9]/g, ''));
+    function addPick(role, name) {
+      const list = idDraft.picks[role];
+      if (list.includes(name)) return;
+      if (list.length >= 4) { idForm.querySelector('.form-error').textContent = 'Na jednu roli max 4 championi.'; return; }
+      idForm.querySelector('.form-error').textContent = '';
+      list.push(name);
+    }
+
+    idDialog.addEventListener('click', (e) => {
+      const st = e.target.closest('[data-id-style]');
+      if (st) {
+        const k = st.dataset.idStyle;
+        idDraft.styles = idDraft.styles.includes(k) ? idDraft.styles.filter((x) => x !== k) : [...idDraft.styles, k];
+        return renderIdEditor();
+      }
+      const pick = e.target.closest('[data-id-pick]');
+      if (pick) {
+        const r = pick.dataset.idPick;
+        const c = pick.dataset.champ;
+        if (idDraft.picks[r].includes(c)) idDraft.picks[r] = idDraft.picks[r].filter((x) => x !== c);
+        else addPick(r, c);
+        return renderIdEditor();
+      }
+      const unpick = e.target.closest('[data-id-unpick]');
+      if (unpick) {
+        const r = unpick.dataset.idUnpick;
+        idDraft.picks[r] = idDraft.picks[r].filter((x) => x !== unpick.dataset.champ);
+        return renderIdEditor();
+      }
+      const unban = e.target.closest('[data-id-unban]');
+      if (unban) { idDraft.bans = idDraft.bans.filter((x) => x !== unban.dataset.idUnban); return renderIdEditor(); }
+      if (e.target.closest('#id-ban-add')) {
+        const inp = document.getElementById('id-ban-input');
+        const n = champName(inp.value);
+        if (!n) { idForm.querySelector('.form-error').textContent = 'Takového championa neznám.'; return; }
+        if (!idDraft.bans.includes(n) && idDraft.bans.length < 10) idDraft.bans.push(n);
+        inp.value = '';
+        return renderIdEditor();
+      }
+      if (e.target.closest('[data-cancel]')) idDialog.close();
+    });
+    idDialog.addEventListener('change', (e) => {
+      const other = e.target.closest('[data-id-other]');
+      if (!other) return;
+      const n = champName(other.value);
+      if (!n) { if (other.value) idForm.querySelector('.form-error').textContent = 'Takového championa neznám.'; return; }
+      addPick(other.dataset.idOther, n);
+      renderIdEditor();
+    });
+    idDialog.addEventListener('keydown', (e) => {
+      if (e.key !== 'Enter') return;
+      if (e.target.id === 'id-ban-input') { e.preventDefault(); document.getElementById('id-ban-add').click(); }
+      else if (e.target.dataset?.idOther) { e.preventDefault(); e.target.dispatchEvent(new Event('change', { bubbles: true })); }
+    });
+    idForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const err = idForm.querySelector('.form-error');
+      const btn = idForm.querySelector('[type=submit]');
+      btn.disabled = true;
+      try {
+        const body = {
+          name: idForm.name.value, styles: idDraft.styles, picks: idDraft.picks, bans: idDraft.bans,
+          win_condition: idForm.win_condition.value, plan: idForm.plan.value, avoid: idForm.avoid.value,
+        };
+        if (idEditing) await api(`/api/coaching/identities/${idEditing.id}`, { method: 'PUT', body });
+        else await api('/api/coaching/identities', { method: 'POST', body });
+        idDialog.close();
+        await load();
+      } catch (ex) {
+        err.textContent = ex.message || 'Uložení se nepovedlo.';
+      } finally {
+        btn.disabled = false;
+      }
+    });
+    idForm.querySelector('[data-delete]').addEventListener('click', async () => {
+      if (!idEditing || !confirm(`Smazat identitu „${idEditing.name}“?`)) return;
+      try {
+        await api(`/api/coaching/identities/${idEditing.id}`, { method: 'DELETE' });
+        idDialog.close();
+        await load();
+      } catch (ex) {
+        idForm.querySelector('.form-error').textContent = ex.message || 'Smazání se nepovedlo.';
+      }
+    });
+
     function render() {
       validateSel();
       store.set('coach.sel', JSON.stringify(sel));
       store.set('coach.tab', tab);
-      document.body.classList.toggle('coach-wide', tab === 'pool');
+      document.body.classList.toggle('coach-wide', tab === 'pool' || tab === 'identity');
       renderTree();
       document.getElementById('place-title').innerHTML = placeName();
       document.getElementById('add-folder').hidden = !!sel.folder;
@@ -1078,6 +1469,9 @@
       const poolPid = poolPlayer();
       document.getElementById('count-pool').textContent = (poolPid ? data.pool.filter((e) => e.player_id === poolPid).length : data.pool.length) || '';
       if (tab === 'pool') renderPool();
+      document.getElementById('tab-identity').hidden = tab !== 'identity';
+      document.getElementById('count-identity').textContent = (data.identities || []).length || '';
+      if (tab === 'identity') renderIdentity();
       document.getElementById('shots').innerHTML = shots.length
         ? shots.map(shotCard).join('')
         : '<div class="empty" style="grid-column:1/-1">Zatím žádné screenshoty. Zkopíruj obrázek a zmáčkni Ctrl+V.</div>';

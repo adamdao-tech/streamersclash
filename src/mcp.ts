@@ -11,7 +11,7 @@ import { importDrafterSeries } from './drafter';
 import { gamesMissingBans, getBanShot, resolveBans } from './banshots';
 import { userFromBearer } from './oauth';
 import { syncTwitchVods } from './vods';
-import { createFolder, getShotImage, loadCoaching, saveNote, savePool, saveRunePage, TIER_LABELS } from './coaching';
+import { createFolder, getShotImage, IDENTITY_STYLE_LABELS, IDENTITY_STYLES, loadCoaching, saveIdentity, saveNote, savePool, saveRunePage, TIER_LABELS } from './coaching';
 import { describeRunePage, getRuneData } from './runes';
 import { createItem, createTab, loadPlan, PRIORITY_LABELS, requireSuperadmin, updateItem, updateTab } from './plan';
 import { handleQueueApi, streamGuard } from './queue';
@@ -38,7 +38,7 @@ little about team strategy. In scouting reports keep the two apart and base stra
 Missing bans: list_games_missing_bans lists saved games without bans that have frames kept from just before them
 (drafts done on drafter.lol and the like) → get_ban_shot (overview first, then the frame with the finished draft) →
 save_game_bans with ally/enemy bans, or no_bans: true when no draft is visible.
-Coaching: get_coaching shows rune pages and coaching notes per player and folder; write notes with add_coaching_note.
+Coaching: get_coaching shows rune pages and coaching notes per player and folder, champion pools and the team identities (herní plány: picks per role, styles, win condition, bans); write notes with add_coaching_note, identities with save_team_identity.
 Schedule: get_schedule lists our tournament matches, scrims and other events; the next opponent's opponent_team_id is the team to scout.
 Coaching plan (superadmin only): get_coach_plan shows the coach's strategic plan – tabs with a goal and items to tick off when learned; add_coach_plan_items, update_coach_plan_item, save_coach_plan_tab change it. Items already done were learned – don't suggest them again.
 Tournament: get_tournament lists every match of the whole tournament (all teams: group match days and the play-off bracket); assign teams and results with update_tournament_match.
@@ -1100,6 +1100,10 @@ const TOOLS: Tool[] = [
               })])),
             };
           }),
+        team_identities: (data.identities as Record<string, any>[]).map((i) => ({
+          id: i.id, name: i.name, styles: (i.styles as string[]).map((x) => IDENTITY_STYLE_LABELS[x] ?? x),
+          picks: i.picks, win_condition: i.win_condition, plan: i.plan, avoid: i.avoid, bans: i.bans, updated_at: i.updated_at,
+        })),
         screenshots: (data.shots as Record<string, any>[]).filter(inScope).map((sh) => ({
           id: sh.id, player: playerName(sh.player_id), folder: folderName(sh.folder_id), title: sh.title, notes: sh.notes,
           size: sh.width && sh.height ? `${sh.width}×${sh.height}` : null, added: sh.created_at,
@@ -1155,6 +1159,36 @@ const TOOLS: Tool[] = [
       }
       await savePool(env, { kind: 'claude', userId: user.id }, playerId, items);
       return text({ ok: true });
+    },
+  },
+  {
+    name: 'save_team_identity',
+    description:
+      'Creates or updates (pass id) a team identity – a game plan on the coaching page (záložka Identita): ' +
+      'picks per role from the players\' champion pools (first champion = main pick, the rest alternatives, max 4 per role), ' +
+      'styles, win condition, how we play it, what to watch out for and prio bans. Fields left out of an update stay as they are. ' +
+      'Base picks on get_coaching champion_pools (tiers S/A first). Write texts in Czech. Ask Dao before saving.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        id: { type: 'integer', description: 'Existing identity to update' },
+        name: { type: 'string', description: 'e.g. "Engage přes Jarvana a Galia"' },
+        styles: { type: 'array', items: { type: 'string', enum: [...IDENTITY_STYLES] } },
+        picks: {
+          type: 'object',
+          description: 'Role → champions, first = main',
+          properties: Object.fromEntries(['TOP', 'JUNGLE', 'MID', 'ADC', 'SUPPORT'].map((r) => [r, { type: 'array', items: { type: 'string' } }])),
+        },
+        win_condition: { type: 'string' },
+        plan: { type: 'string', description: 'How we play it: early, mid game, teamfights' },
+        avoid: { type: 'string', description: 'What beats this plan / what to watch out for' },
+        bans: { type: 'array', items: { type: 'string' } },
+      },
+    },
+    async run(a, { env, user }) {
+      const { id, ...body } = a;
+      const saved = await saveIdentity(env, { kind: 'claude', userId: user.id }, body, id ? int(id, 'id') : undefined);
+      return text({ ok: true, identity_id: saved });
     },
   },
   {

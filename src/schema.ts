@@ -767,4 +767,23 @@ CREATE TABLE ban_shots (
 CREATE INDEX idx_ban_shots_match ON ban_shots(match_id);
 ALTER TABLE matches ADD COLUMN bans_checked INTEGER NOT NULL DEFAULT 0;
 `,
+
+  /* 42: team identities (herní plány) built from the champion pools on the coaching page – picks per role
+         (first = main, the rest alternatives), styles, win condition, how we play, prio bans */ `
+CREATE TABLE team_identities (
+  id              INTEGER PRIMARY KEY AUTOINCREMENT,
+  name            TEXT NOT NULL,
+  styles          TEXT NOT NULL DEFAULT '[]',
+  win_condition   TEXT,
+  plan            TEXT,
+  avoid           TEXT,
+  picks           TEXT NOT NULL DEFAULT '{}',
+  bans            TEXT NOT NULL DEFAULT '[]',
+  sort            INTEGER NOT NULL DEFAULT 0,
+  created_by      INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  created_by_kind TEXT NOT NULL DEFAULT 'user',
+  created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at      TEXT NOT NULL DEFAULT (datetime('now'))
+);
+`,
 ];

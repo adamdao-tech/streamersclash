@@ -173,18 +173,8 @@ export function timeAgo(sqlDate) {
 
 let championsPromise = null;
 /** Map of champion name → icon URL (Riot Data Dragon). */
-let championsRaw = null;
-const championsData = () => (championsRaw ??= api('/api/champions'));
-
-/** Data Dragon classes and damage leaning per champion name: Map name → { tags, attack, magic }. */
-export function loadChampionInfo() {
-  return championsData()
-    .then(({ champions }) => new Map(champions.map((c) => [c.name, { tags: c.tags || [], attack: c.attack || 0, magic: c.magic || 0 }])))
-    .catch(() => new Map());
-}
-
 export function loadChampions() {
-  championsPromise ??= championsData()
+  championsPromise ??= api('/api/champions')
     .then(({ version, champions }) => {
       const map = new Map();
       for (const c of champions) map.set(c.name, `https://ddragon.leagueoflegends.com/cdn/${version}/img/champion/${c.id}.png`);

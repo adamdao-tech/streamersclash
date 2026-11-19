@@ -786,4 +786,20 @@ CREATE TABLE team_identities (
   updated_at      TEXT NOT NULL DEFAULT (datetime('now'))
 );
 `,
+
+  /* 43: the identity tab is the coach's private scratchpad instead: only its owner (a superadmin) sees it,
+         champions are clicked freely and aren't tied to players */ `
+DROP TABLE IF EXISTS team_identities;
+CREATE TABLE private_identities (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  owner_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  name          TEXT NOT NULL,
+  champions     TEXT NOT NULL DEFAULT '[]',
+  note          TEXT,
+  sort          INTEGER NOT NULL DEFAULT 0,
+  created_at    TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at    TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX idx_private_identities_owner ON private_identities(owner_user_id);
+`,
 ];

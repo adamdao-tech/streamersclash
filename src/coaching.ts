@@ -30,7 +30,7 @@ const optId = (v: unknown): number | null => {
 /** Everything on the coaching page in one go – the data set is small. */
 export async function loadCoaching(env: Env) {
   const db = env.DB;
-  const [players, folders, runes, notes, maps, shots, pool, decks, identities] = await Promise.all([
+  const [players, folders, runes, notes, maps, shots, pool, decks] = await Promise.all([
     db.prepare(
       `SELECT p.id, p.nickname, p.role FROM players p JOIN teams t ON t.id = p.team_id
         WHERE t.is_own_team = 1
@@ -55,10 +55,6 @@ export async function loadCoaching(env: Env) {
       `SELECT d.id, d.player_id, d.folder_id, d.title, d.theme, d.slides, d.created_by_kind, d.created_at, d.updated_at, u.display_name AS author_name
          FROM coaching_decks d LEFT JOIN users u ON u.id = d.created_by ORDER BY d.updated_at DESC`,
     ).all(),
-    db.prepare(
-      `SELECT i.*, u.display_name AS author_name FROM team_identities i LEFT JOIN users u ON u.id = i.created_by
-        ORDER BY i.sort, i.id`,
-    ).all(),
   ]);
   // Per champion games and winrate from recorded drafts, shown next to the tier list.
   const poolStats: Record<number, unknown> = {};
@@ -71,7 +67,6 @@ export async function loadCoaching(env: Env) {
     players: players.results, folders: folders.results, runes: runes.results, notes: notes.results, maps: maps.results, shots: shots.results,
     pool: pool.results, pool_stats: poolStats,
     decks: (decks.results as Record<string, unknown>[]).map((d) => ({ ...d, slides: JSON.parse(String(d.slides || '[]')) })),
-    identities: (identities.results as Record<string, unknown>[]).map(parseIdentity),
   };
 }
 
@@ -550,91 +545,47 @@ export async function getDeckImage(env: Env, id: number): Promise<{ mime: string
   return row ? { mime: row.mime, data: new Uint8Array(row.data) } : null;
 }
 
-// --- team identities (herní plány) -------------------------------------------------------------
+// --- private identities (the coach's own scratchpad – only the owner sees them) -------------------
 
-export const IDENTITY_ROLES = ['TOP', 'JUNGLE', 'MID', 'ADC', 'SUPPORT'] as const;
-export const IDENTITY_STYLES = ['engage', 'pick', 'poke', 'protect', 'split', 'early'] as const;
-export const IDENTITY_STYLE_LABELS: Record<string, string> = {
-  engage: 'Engage / teamfight', pick: 'Pick (chytání)', poke: 'Poke & siege',
-  protect: 'Protect the carry', split: 'Split push', early: 'Early skirmish',
-};
-const MAX_PER_ROLE = 4;
-const MAX_BANS = 10;
+const MAX_IDENTITY_CHAMPS = 60;
 
-const parseJson = <T>(v: unknown, def: T): T => {
-  try { return v ? (JSON.parse(String(v)) as T) : def; } catch { return def; }
-};
-
-export function parseIdentity(r: Record<string, unknown>): Record<string, unknown> & { styles: string[]; picks: Record<string, string[]>; bans: string[] } {
-  return { ...r, styles: parseJson<string[]>(r.styles, []), picks: parseJson<Record<string, string[]>>(r.picks, {}), bans: parseJson<string[]>(r.bans, []) };
+export async function listIdentities(env: Env, ownerId: number) {
+  const { results } = await env.DB.prepare(
+    'SELECT id, name, champions, note, updated_at FROM private_identities WHERE owner_user_id = ? ORDER BY sort, id',
+  ).bind(ownerId).all<Record<string, unknown>>();
+  return results.map((r) => ({ ...r, champions: (() => { try { return JSON.parse(String(r.champions || '[]')); } catch { return []; } })() }));
 }
 
-async function champList(env: Env, v: unknown, max: number, label: string): Promise<string[]> {
-  if (v === undefined || v === null) return [];
-  if (!Array.isArray(v)) throw new HttpError(400, 'invalid', `${label}: čekám seznam championů.`);
-  const champions = await getChampions(env).catch(() => []);
-  const out: string[] = [];
-  for (const raw of v) {
-    const name = String(raw ?? '').trim();
-    if (!name) continue;
-    const c = resolveChampion(champions, name) ?? (champions.length ? null : name);
-    if (!c) throw new HttpError(400, 'invalid', `Neznámý champion: ${name}`);
-    if (!out.includes(c)) out.push(c);
-  }
-  if (out.length > max) throw new HttpError(400, 'invalid', `${label}: max ${max} championů.`);
-  return out;
-}
-
-/** Creates (no id) or updates an identity. Fields left out of an update stay as they are. */
-export async function saveIdentity(env: Env, actor: Actor, body: Body, id?: number): Promise<number> {
+export async function saveIdentity(env: Env, ownerId: number, body: Body, id?: number): Promise<number> {
   const db = env.DB;
-  const existing = id ? await db.prepare('SELECT * FROM team_identities WHERE id = ?').bind(id).first<Record<string, unknown>>() : null;
-  if (id && !existing) throw new HttpError(404, 'not_found', 'Identita neexistuje.');
-  const cur = existing ? parseIdentity(existing) : null;
-  const has = (k: string) => k in body;
-
-  const name = has('name') ? str(body.name, 'Název', 80) : (cur?.name as string | undefined) ?? null;
-  if (!name) throw new HttpError(400, 'invalid', 'Zadej název identity.');
-  let styles = cur?.styles ?? [];
-  if (has('styles')) {
-    if (!Array.isArray(body.styles)) throw new HttpError(400, 'invalid', 'Styly: čekám seznam.');
-    styles = [...new Set(body.styles.map((x) => String(x).toLowerCase()))];
-    const bad = styles.find((x) => !(IDENTITY_STYLES as readonly string[]).includes(x));
-    if (bad) throw new HttpError(400, 'invalid', `Neznámý styl: ${bad} (možné: ${IDENTITY_STYLES.join(', ')})`);
+  if (id && !(await db.prepare('SELECT 1 FROM private_identities WHERE id = ? AND owner_user_id = ?').bind(id, ownerId).first())) {
+    throw new HttpError(404, 'not_found', 'Identita neexistuje.');
   }
-  let picks = cur?.picks ?? {};
-  if (has('picks')) {
-    const p = (body.picks ?? {}) as Record<string, unknown>;
-    if (typeof p !== 'object' || Array.isArray(p)) throw new HttpError(400, 'invalid', 'Picky: čekám {TOP: [...], JUNGLE: [...], ...}.');
-    picks = {};
-    for (const role of IDENTITY_ROLES) {
-      const list = await champList(env, p[role] ?? p[role.toLowerCase()], MAX_PER_ROLE, role);
-      if (list.length) picks[role] = list;
-    }
+  const name = str(body.name, 'Název', 80);
+  if (!name) throw new HttpError(400, 'invalid', 'Zadej název.');
+  const note = str(body.note, 'Poznámka', 4000);
+  if (!Array.isArray(body.champions)) throw new HttpError(400, 'invalid', 'Championi: čekám seznam.');
+  const all = await getChampions(env).catch(() => []);
+  const champions: string[] = [];
+  for (const raw of body.champions) {
+    const n = String(raw ?? '').trim();
+    if (!n) continue;
+    const c = resolveChampion(all, n) ?? (all.length ? null : n);
+    if (!c) throw new HttpError(400, 'invalid', `Neznámý champion: ${n}`);
+    if (!champions.includes(c)) champions.push(c);
   }
-  const bans = has('bans') ? await champList(env, body.bans, MAX_BANS, 'Bany') : cur?.bans ?? [];
-  const text = (k: string, label: string) => (has(k) ? str(body[k], label, 2000) : ((cur as Record<string, unknown> | null)?.[k] as string | null) ?? null);
-  const winCondition = text('win_condition', 'Win condition');
-  const plan = text('plan', 'Jak hrajeme');
-  const avoid = text('avoid', 'Na co si dát pozor');
-
-  if (existing) {
-    await db.prepare(
-      `UPDATE team_identities SET name = ?, styles = ?, win_condition = ?, plan = ?, avoid = ?, picks = ?, bans = ?, updated_at = datetime('now') WHERE id = ?`,
-    ).bind(name, JSON.stringify(styles), winCondition, plan, avoid, JSON.stringify(picks), JSON.stringify(bans), id).run();
-    await logActivity(db, actor, 'coaching.identity.update', 'team_identity', id!, { name });
-    return id!;
+  if (champions.length > MAX_IDENTITY_CHAMPS) throw new HttpError(400, 'invalid', `Max ${MAX_IDENTITY_CHAMPS} championů.`);
+  if (id) {
+    await db.prepare(`UPDATE private_identities SET name = ?, champions = ?, note = ?, updated_at = datetime('now') WHERE id = ? AND owner_user_id = ?`)
+      .bind(name, JSON.stringify(champions), note, id, ownerId).run();
+    return id;
   }
-  const next = await db.prepare('SELECT COALESCE(MAX(sort), 0) + 1 AS n FROM team_identities').first<{ n: number }>();
-  const res = await db.prepare(
-    `INSERT INTO team_identities (name, styles, win_condition, plan, avoid, picks, bans, sort, created_by, created_by_kind)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-  ).bind(name, JSON.stringify(styles), winCondition, plan, avoid, JSON.stringify(picks), JSON.stringify(bans), next?.n ?? 1, actor.userId, actor.kind).run();
-  const newId = res.meta.last_row_id;
-  await logActivity(db, actor, 'coaching.identity.create', 'team_identity', newId, { name });
-  return newId;
+  const next = await db.prepare('SELECT COALESCE(MAX(sort), 0) + 1 AS n FROM private_identities WHERE owner_user_id = ?').bind(ownerId).first<{ n: number }>();
+  const res = await db.prepare('INSERT INTO private_identities (owner_user_id, name, champions, note, sort) VALUES (?, ?, ?, ?, ?)')
+    .bind(ownerId, name, JSON.stringify(champions), note, next?.n ?? 1).run();
+  return res.meta.last_row_id;
 }
 
-export async function deleteIdentity(env: Env, id: number): Promise<void> {
-  await env.DB.prepare('DELETE FROM team_identities WHERE id = ?').bind(id).run();
+export async function deleteIdentity(env: Env, ownerId: number, id: number): Promise<void> {
+  await env.DB.prepare('DELETE FROM private_identities WHERE id = ? AND owner_user_id = ?').bind(id, ownerId).run();
 }

@@ -165,7 +165,11 @@ def _jpeg(img: np.ndarray, width: int = 1280) -> tuple[bytes, int, int]:
 
 
 def read_at(streams: video.Streams, ts: float, db: ChampionDB, debug_dir: Path | None = None) -> tuple[DraftReading, np.ndarray] | None:
-    frame = video.grab_frame(streams.hires_url, ts)
+    try:
+        frame = video.grab_frame(streams.hires_url, ts)
+    except RuntimeError as e:  # a broken segment of the VOD: skip this moment, not the whole VOD
+        log.warning("  frame at %s unreadable: %s", fmt(ts), str(e).splitlines()[0][:120])
+        return None
     ok, rect = is_screen(frame, "champselect")
     if not ok:
         log.debug("no champ select at %s (score %.2f)", fmt(ts), rect.score)
@@ -208,7 +212,11 @@ def _postgame_rects(frame: np.ndarray, hint: tuple[float, float, float, float] |
 
 def read_postgame_at(streams: video.Streams, ts: float, ally: list[str], enemy: list[str], debug_dir: Path | None = None,
                      hint: tuple[float, float, float, float] | None = None):
-    frame = video.grab_frame(streams.hires_url, ts)
+    try:
+        frame = video.grab_frame(streams.hires_url, ts)
+    except RuntimeError as e:  # a broken segment of the VOD: skip this moment, not the whole VOD
+        log.warning("  frame at %s unreadable: %s", fmt(ts), str(e).splitlines()[0][:120])
+        return None
     crop = _aligned_crop(frame, _postgame_rects(frame, hint))
     if crop is None:
         return None
@@ -218,7 +226,11 @@ def read_postgame_at(streams: video.Streams, ts: float, ally: list[str], enemy: 
 
 def read_postgame_open_at(streams: video.Streams, ts: float, names: list[str], ally: list[str] | None, debug_dir: Path | None = None,
                           hint: tuple[float, float, float, float] | None = None):
-    frame = video.grab_frame(streams.hires_url, ts)
+    try:
+        frame = video.grab_frame(streams.hires_url, ts)
+    except RuntimeError as e:  # a broken segment of the VOD: skip this moment, not the whole VOD
+        log.warning("  frame at %s unreadable: %s", fmt(ts), str(e).splitlines()[0][:120])
+        return None
     crop = _aligned_crop(frame, _postgame_rects(frame, hint))
     if crop is None:
         return None

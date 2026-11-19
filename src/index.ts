@@ -28,7 +28,7 @@ export interface Env {
 }
 
 /** Paths reachable without logging in. */
-const PUBLIC_PATHS = new Set(['/login', '/login.html', '/rozpis', '/rozpis.html']);
+const PUBLIC_PATHS = new Set(['/login', '/login.html', '/rozpis', '/rozpis.html', '/soukromi', '/soukromi.html']);
 
 /** Pages only superadmins may open. */
 const SUPERADMIN_PAGES = new Set(['/plan', '/plan.html']);

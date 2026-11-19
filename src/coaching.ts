@@ -546,14 +546,27 @@ export async function getDeckImage(env: Env, id: number): Promise<{ mime: string
 }
 
 // --- private identities (the coach's own scratchpad – only the owner sees them) -------------------
+// champions = { TOP: { S: [...], A: [...], B: [...], C: [...] }, JUNGLE: {...}, ... } – a tier list per role.
+// ANY = "bez role" (older identities saved as a plain list land there).
 
-const MAX_IDENTITY_CHAMPS = 60;
+export const IDENTITY_ROLES = ['TOP', 'JUNGLE', 'MID', 'ADC', 'SUPPORT', 'ANY'] as const;
+export const IDENTITY_TIERS = ['S', 'A', 'B', 'C'] as const;
+const MAX_IDENTITY_CELL = 30;
+const MAX_IDENTITY_CHAMPS = 250;
+type TierList = Record<string, Record<string, string[]>>;
+
+function readTierList(raw: unknown): TierList {
+  let v: unknown;
+  try { v = JSON.parse(String(raw || '{}')); } catch { v = {}; }
+  if (Array.isArray(v)) return { ANY: { A: v.map(String) } };
+  return (v && typeof v === 'object' ? v : {}) as TierList;
+}
 
 export async function listIdentities(env: Env, ownerId: number) {
   const { results } = await env.DB.prepare(
     'SELECT id, name, champions, note, updated_at FROM private_identities WHERE owner_user_id = ? ORDER BY sort, id',
   ).bind(ownerId).all<Record<string, unknown>>();
-  return results.map((r) => ({ ...r, champions: (() => { try { return JSON.parse(String(r.champions || '[]')); } catch { return []; } })() }));
+  return results.map((r) => ({ ...r, champions: readTierList(r.champions) }));
 }
 
 export async function saveIdentity(env: Env, ownerId: number, body: Body, id?: number): Promise<number> {
@@ -564,25 +577,43 @@ export async function saveIdentity(env: Env, ownerId: number, body: Body, id?: n
   const name = str(body.name, 'Název', 80);
   if (!name) throw new HttpError(400, 'invalid', 'Zadej název.');
   const note = str(body.note, 'Poznámka', 4000);
-  if (!Array.isArray(body.champions)) throw new HttpError(400, 'invalid', 'Championi: čekám seznam.');
+  const input = body.champions;
+  if (!input || typeof input !== 'object' || Array.isArray(input)) throw new HttpError(400, 'invalid', 'Championi: čekám {role: {tier: [...]}}.');
   const all = await getChampions(env).catch(() => []);
-  const champions: string[] = [];
-  for (const raw of body.champions) {
-    const n = String(raw ?? '').trim();
-    if (!n) continue;
-    const c = resolveChampion(all, n) ?? (all.length ? null : n);
-    if (!c) throw new HttpError(400, 'invalid', `Neznámý champion: ${n}`);
-    if (!champions.includes(c)) champions.push(c);
+  const out: TierList = {};
+  let total = 0;
+  for (const [role, tiers] of Object.entries(input as Record<string, unknown>)) {
+    if (!(IDENTITY_ROLES as readonly string[]).includes(role)) throw new HttpError(400, 'invalid', `Neznámá role: ${role}`);
+    if (!tiers || typeof tiers !== 'object') continue;
+    const seen = new Set<string>();
+    for (const [tier, list] of Object.entries(tiers as Record<string, unknown>)) {
+      if (!(IDENTITY_TIERS as readonly string[]).includes(tier)) throw new HttpError(400, 'invalid', `Neznámý tier: ${tier}`);
+      if (!Array.isArray(list)) continue;
+      const cell: string[] = [];
+      for (const raw of list) {
+        const n = String(raw ?? '').trim();
+        if (!n) continue;
+        const c = resolveChampion(all, n) ?? (all.length ? null : n);
+        if (!c) throw new HttpError(400, 'invalid', `Neznámý champion: ${n}`);
+        if (seen.has(c)) continue; // one tier per champion within a role
+        seen.add(c);
+        cell.push(c);
+      }
+      if (cell.length > MAX_IDENTITY_CELL) throw new HttpError(400, 'invalid', `Max ${MAX_IDENTITY_CELL} championů v jednom tieru.`);
+      if (cell.length) (out[role] ??= {})[tier] = cell;
+      total += cell.length;
+    }
   }
-  if (champions.length > MAX_IDENTITY_CHAMPS) throw new HttpError(400, 'invalid', `Max ${MAX_IDENTITY_CHAMPS} championů.`);
+  if (total > MAX_IDENTITY_CHAMPS) throw new HttpError(400, 'invalid', 'Moc championů.');
+  const json = JSON.stringify(out);
   if (id) {
     await db.prepare(`UPDATE private_identities SET name = ?, champions = ?, note = ?, updated_at = datetime('now') WHERE id = ? AND owner_user_id = ?`)
-      .bind(name, JSON.stringify(champions), note, id, ownerId).run();
+      .bind(name, json, note, id, ownerId).run();
     return id;
   }
   const next = await db.prepare('SELECT COALESCE(MAX(sort), 0) + 1 AS n FROM private_identities WHERE owner_user_id = ?').bind(ownerId).first<{ n: number }>();
   const res = await db.prepare('INSERT INTO private_identities (owner_user_id, name, champions, note, sort) VALUES (?, ?, ?, ?, ?)')
-    .bind(ownerId, name, JSON.stringify(champions), note, next?.n ?? 1).run();
+    .bind(ownerId, name, json, note, next?.n ?? 1).run();
   return res.meta.last_row_id;
 }
 

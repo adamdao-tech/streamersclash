@@ -45,24 +45,34 @@
     .pool-mini .tier-tag { min-width: 34px; }
     @media (max-width: 900px) { .pool-layout { grid-template-columns: 1fr; } }
 
-    /* identita – soukromý blok jen pro kouče */
-    .pid-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 12px; }
+    /* identita – soukromý blok jen pro kouče: tierlist po rolích */
+    .pid-grid { display: flex; flex-direction: column; gap: 14px; }
     .pid-card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 12px; display: flex; flex-direction: column; gap: 8px; cursor: pointer; }
     .pid-card:hover { border-color: var(--gold); }
-    .pid-card h3 { margin: 0; font-size: 1.1rem; }
-    .pid-champs { display: flex; flex-wrap: wrap; gap: 3px; }
+    .pid-card h3 { margin: 0; font-size: 1.15rem; }
     .pid-note { margin: 0; font-size: 0.85rem; color: var(--muted); white-space: pre-wrap; }
-    dialog.pid-dialog { width: min(1000px, calc(100vw - 24px)); }
-    .pid-sel { display: flex; flex-wrap: wrap; gap: 3px; min-height: 52px; padding: 5px; border-radius: 10px; background: var(--bg-2); align-items: center; }
-    .pid-sel .none { font-size: 0.82rem; color: var(--muted); padding: 0 6px; }
-    .pid-bank-head { display: flex; gap: 8px; align-items: center; margin: 12px 0 6px; }
-    .pid-bank-head input { max-width: 260px; }
-    .pid-bank { display: flex; flex-wrap: wrap; gap: 2px; max-height: 330px; overflow-y: auto; padding: 6px; border: 1px solid var(--line); border-radius: 10px; }
-    .pid-ch { background: none; border: 0; padding: 2px; border-radius: 8px; cursor: pointer; display: flex; flex-direction: column; align-items: center; gap: 2px; width: 58px; color: var(--text); font: inherit; }
+    .pid-tl-wrap { overflow-x: auto; }
+    .pid-tl { width: 100%; border-collapse: separate; border-spacing: 3px; table-layout: fixed; min-width: 640px; }
+    .pid-tl th { font-size: 0.78rem; color: var(--muted); font-weight: 600; text-align: left; padding: 2px 4px; }
+    .pid-tl th .role { width: 22px; height: 22px; font-size: 0.56rem; vertical-align: middle; margin-right: 4px; }
+    .pid-tl th.tier-col { width: 46px; }
+    .pid-tl td { background: var(--bg-2); border-radius: 8px; padding: 4px; vertical-align: top; }
+    .pid-tl td.tl-tier { color: #10131c; font: 700 1.2rem var(--display); text-align: center; vertical-align: middle; padding: 0; }
+    .pid-cell { display: flex; flex-wrap: wrap; gap: 3px; min-height: 32px; }
+    .pid-tl.edit td.cell { cursor: pointer; border: 2px solid transparent; }
+    .pid-tl.edit td.cell:hover { border-color: var(--line-2); }
+    .pid-tl.edit td.cell.active { border-color: var(--gold); background: color-mix(in srgb, var(--gold) 10%, var(--bg-2)); }
+    .pid-tl.edit .pid-cell { min-height: 46px; }
+    dialog.pid-dialog { width: min(1180px, calc(100vw - 24px)); }
+    .pid-bank-head { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin: 12px 0 6px; font-size: 0.86rem; }
+    .pid-bank-head input { max-width: 240px; }
+    .pid-target { font-weight: 700; color: var(--gold-2); }
+    .pid-bank { display: flex; flex-wrap: wrap; gap: 2px; max-height: 300px; overflow-y: auto; padding: 6px; border: 1px solid var(--line); border-radius: 10px; }
+    .pid-ch { position: relative; background: none; border: 0; padding: 2px; border-radius: 8px; cursor: pointer; display: flex; flex-direction: column; align-items: center; gap: 2px; width: 58px; color: var(--text); font: inherit; }
     .pid-ch:hover { background: var(--panel-2); }
     .pid-ch span.n { font-size: 0.62rem; max-width: 56px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .pid-ch.on { opacity: 0.3; }
-    .pid-sel .pid-ch { width: auto; }
+    .pid-ch .tb { position: absolute; top: 0; right: 4px; font: 700 0.62rem var(--display); color: #10131c; border-radius: 4px; padding: 0 3px; }
+    .pid-cell .pid-ch { width: auto; padding: 1px; }
     .pid-dialog textarea { width: 100%; }
   </style>
 </head>
@@ -238,15 +248,17 @@
       <h2 id="identity-title">Nová identita</h2>
       <label>Název *</label>
       <input name="name" required maxlength="80" placeholder="např. Engage, Pick comp, Plán na Dvorsona">
-      <label style="margin-top:12px">Championi <span class="muted" id="pid-count" style="font-weight:400"></span></label>
-      <div class="pid-sel" id="pid-sel"></div>
+      <label style="margin-top:12px">Tierlist</label>
+      <p class="muted" style="margin:0 0 6px;font-size:.82rem">Klikni do políčka (role + tier) a pak na championy dole – přidají se tam. Championa v tabulce odebereš kliknutím.</p>
+      <div class="pid-tl-wrap" id="pid-edit-tl"></div>
       <div class="pid-bank-head">
+        <span>Přidávám do: <span class="pid-target" id="pid-target"></span></span>
         <input id="pid-search" placeholder="Hledat championa…" autocomplete="off">
-        <span class="muted" style="font-size:.82rem">Klikni na championa – přidá se nahoru. Nahoře kliknutím odebereš.</span>
+        <span class="muted" style="font-size:.8rem">Enter = přidat prvního nalezeného</span>
       </div>
       <div class="pid-bank" id="pid-bank"></div>
       <label style="margin-top:12px">Poznámka</label>
-      <textarea name="note" rows="4" maxlength="4000" placeholder="Co s tím chceš, jak se to hraje, …"></textarea>
+      <textarea name="note" rows="3" maxlength="4000" placeholder="Co s tím chceš, jak se to hraje, …"></textarea>
       <p class="form-error"></p>
       <div class="dialog-actions">
         <button type="button" class="btn btn-danger" data-delete style="margin-right:auto">Smazat</button>
@@ -1094,7 +1106,32 @@
     });
 
 
-    // --- identita: soukromý blok jen pro kouče (superadmina) – nikdo jiný ho nevidí ------------
+    // --- identita: soukromý blok jen pro kouče (superadmina) – tierlist po rolích, nikdo jiný ho nevidí
+    const PID_ROLES = ['TOP', 'JUNGLE', 'MID', 'ADC', 'SUPPORT'];
+    const PID_TIERS = ['S', 'A', 'B', 'C'];
+    const PID_TIER_COLORS = { S: '#f0c75e', A: '#7fd18b', B: '#6fb2ff', C: '#b9c1d3' };
+    const pidRoleLabel = (r) => (r === 'ANY' ? 'Bez role' : ROLE_LABELS[r] || r);
+    const pidRoles = (tl) => (Object.values(tl.ANY || {}).some((l) => l.length) ? [...PID_ROLES, 'ANY'] : PID_ROLES);
+    const pidCount = (tl) => Object.values(tl || {}).reduce((n, t) => n + Object.values(t).reduce((m, l) => m + l.length, 0), 0);
+
+    /** The tier list table; edit = cells are clickable, active = [role, tier]. */
+    function tierTable(tl, { edit = false, active = null } = {}) {
+      const roles = pidRoles(tl);
+      return `<table class="pid-tl ${edit ? 'edit' : ''}">
+        <thead><tr><th class="tier-col"></th>${roles.map((r) => `<th><span class="role-${r}" style="color:var(--role, var(--muted));font-weight:700;font-size:.85rem">${esc(pidRoleLabel(r))}</span></th>`).join('')}</tr></thead>
+        <tbody>${PID_TIERS.map((t) => `<tr>
+          <td class="tl-tier" style="background:${PID_TIER_COLORS[t]}">${t}</td>
+          ${roles.map((r) => {
+            const list = tl[r]?.[t] || [];
+            const on = active && active[0] === r && active[1] === t;
+            return `<td class="cell ${on ? 'active' : ''}" ${edit ? `data-pid-cell="${r}|${t}"` : ''}><div class="pid-cell">${list.map((c) => edit
+              ? `<button type="button" class="pid-ch" data-pid-remove="${r}|${t}|${esc(c)}" title="${esc(c)} – kliknutím odebrat">${icon(champIcons.get(c), c, 'ri-lg ri-sq')}</button>`
+              : icon(champIcons.get(c), c, 'ri-md ri-sq')).join('')}</div></td>`;
+          }).join('')}
+        </tr>`).join('')}</tbody>
+      </table>`;
+    }
+
     function renderIdentity() {
       const el = document.getElementById('tab-identity');
       el.innerHTML = `
@@ -1104,12 +1141,12 @@
           <button type="button" class="btn btn-primary" data-new-identity>+ Nová identita</button>
         </div>
         <div class="pid-grid">${identities.length ? identities.map((i) => `
-          <article class="pid-card" data-edit-identity="${i.id}">
-            <h3>${esc(i.name)}</h3>
-            <div class="pid-champs">${i.champions.length ? i.champions.map((c) => icon(champIcons.get(c), c, 'ri-lg ri-sq')).join('') : '<span class="muted" style="font-size:.84rem">Zatím žádní championi</span>'}</div>
+          <article class="pid-card" data-edit-identity="${i.id}" title="Kliknutím upravit">
+            <h3>${esc(i.name)} <span class="muted" style="font:400 .8rem var(--font)">${pidCount(i.champions)} championů</span></h3>
+            <div class="pid-tl-wrap">${tierTable(i.champions)}</div>
             ${i.note ? `<p class="pid-note">${esc(i.note)}</p>` : ''}
           </article>`).join('')
-          : '<div class="empty" style="grid-column:1/-1">Zatím nic. Klikni na „+ Nová identita“ a naklikej si championy.</div>'}</div>`;
+          : '<div class="empty">Zatím nic. Klikni na „+ Nová identita“ a naklikej si championy do rolí a tierů.</div>'}</div>`;
     }
     document.getElementById('tab-identity').addEventListener('click', (e) => {
       const card = e.target.closest('[data-edit-identity]');
@@ -1120,53 +1157,76 @@
     const idDialog = document.getElementById('identity-dialog');
     const idForm = idDialog.querySelector('form');
     let idEditing = null;
-    let idChamps = [];
+    let idTl = {};
+    let idActive = ['TOP', 'S'];
     const allChamps = () => [...champIcons.keys()].sort((a, b) => a.localeCompare(b));
     const normC = (v) => String(v).toLowerCase().replace(/[^a-z0-9]/g, '');
+    /** Tier of a champion within a role, or null. */
+    const tierIn = (role, c) => PID_TIERS.find((t) => (idTl[role]?.[t] || []).includes(c)) || null;
 
     function openIdentity(item) {
       idEditing = item || null;
-      idChamps = [...(item?.champions || [])];
+      idTl = JSON.parse(JSON.stringify(item?.champions || {}));
+      idActive = ['TOP', 'S'];
       document.getElementById('identity-title').textContent = item ? 'Upravit identitu' : 'Nová identita';
       idForm.name.value = item?.name || '';
       idForm.note.value = item?.note || '';
       document.getElementById('pid-search').value = '';
       idForm.querySelector('[data-delete]').hidden = !item;
       idForm.querySelector('.form-error').textContent = '';
-      renderIdSel();
-      renderIdBank();
+      renderIdEditor();
       idDialog.showModal();
     }
-    function renderIdSel() {
-      document.getElementById('pid-sel').innerHTML = idChamps.length
-        ? idChamps.map((c) => `<button type="button" class="pid-ch" data-pid-remove="${esc(c)}" title="${esc(c)} – kliknutím odebrat">${icon(champIcons.get(c), c, 'ri-lg ri-sq')}</button>`).join('')
-        : '<span class="none">Zatím nic – klikni na championy dole.</span>';
-      document.getElementById('pid-count').textContent = idChamps.length ? `(${idChamps.length})` : '';
+    function renderIdEditor() {
+      document.getElementById('pid-edit-tl').innerHTML = tierTable(idTl, { edit: true, active: idActive });
+      document.getElementById('pid-target').textContent = `${pidRoleLabel(idActive[0])} · tier ${idActive[1]}`;
+      renderIdBank();
     }
     function renderIdBank() {
       const q = normC(document.getElementById('pid-search').value);
+      const role = idActive[0];
       const list = allChamps().filter((n) => !q || normC(n).includes(q));
       document.getElementById('pid-bank').innerHTML = list.length
-        ? list.map((n) => `<button type="button" class="pid-ch ${idChamps.includes(n) ? 'on' : ''}" data-pid-add="${esc(n)}" title="${esc(n)}">${icon(champIcons.get(n), n, 'ri-lg ri-sq')}<span class="n">${esc(n)}</span></button>`).join('')
+        ? list.map((n) => {
+            const t = tierIn(role, n);
+            return `<button type="button" class="pid-ch" data-pid-add="${esc(n)}" title="${esc(n)}${t ? ` – v roli ${pidRoleLabel(role)} je v tieru ${t}` : ''}" style="${t ? 'opacity:.45' : ''}">${icon(champIcons.get(n), n, 'ri-lg ri-sq')}<span class="n">${esc(n)}</span>${t ? `<span class="tb" style="background:${PID_TIER_COLORS[t]}">${t}</span>` : ''}</button>`;
+          }).join('')
         : '<span class="muted" style="padding:8px;font-size:.85rem">Nic nenalezeno.</span>';
+    }
+    function pidRemove(role, tier, c) {
+      const cell = idTl[role]?.[tier];
+      if (cell) idTl[role][tier] = cell.filter((x) => x !== c);
+    }
+    function pidAdd(c) {
+      const [role, tier] = idActive;
+      const cur = tierIn(role, c);
+      if (cur === tier) { pidRemove(role, tier, c); return; } // second click on the same tier = remove
+      if (cur) pidRemove(role, cur, c); // within a role a champion sits in one tier – move it
+      ((idTl[role] ??= {})[tier] ??= []).push(c);
     }
     document.getElementById('pid-search').addEventListener('input', renderIdBank);
     document.getElementById('pid-search').addEventListener('keydown', (e) => {
       if (e.key !== 'Enter') return;
       e.preventDefault();
-      const first = document.querySelector('#pid-bank [data-pid-add]:not(.on)');
-      if (first) first.click();
+      const first = document.querySelector('#pid-bank [data-pid-add]');
+      if (!first) return;
+      pidAdd(first.dataset.pidAdd);
+      e.target.value = '';
+      renderIdEditor();
+      e.target.focus();
     });
     idDialog.addEventListener('click', (e) => {
-      const add = e.target.closest('[data-pid-add]');
-      if (add) {
-        const c = add.dataset.pidAdd;
-        idChamps = idChamps.includes(c) ? idChamps.filter((x) => x !== c) : [...idChamps, c];
-        renderIdSel(); renderIdBank();
-        return;
-      }
       const rm = e.target.closest('[data-pid-remove]');
-      if (rm) { idChamps = idChamps.filter((x) => x !== rm.dataset.pidRemove); renderIdSel(); renderIdBank(); return; }
+      if (rm) {
+        const [r, t, ...c] = rm.dataset.pidRemove.split('|');
+        pidRemove(r, t, c.join('|'));
+        idActive = [r, t];
+        return renderIdEditor();
+      }
+      const cell = e.target.closest('[data-pid-cell]');
+      if (cell) { idActive = cell.dataset.pidCell.split('|'); return renderIdEditor(); }
+      const add = e.target.closest('[data-pid-add]');
+      if (add) { pidAdd(add.dataset.pidAdd); return renderIdEditor(); }
       if (e.target.closest('[data-cancel]')) idDialog.close();
     });
     async function loadIdentities() {
@@ -1177,7 +1237,7 @@
       const btn = idForm.querySelector('[type=submit]');
       btn.disabled = true;
       try {
-        const body = { name: idForm.name.value, note: idForm.note.value, champions: idChamps };
+        const body = { name: idForm.name.value, note: idForm.note.value, champions: idTl };
         if (idEditing) await api(`/api/coaching/identities/${idEditing.id}`, { method: 'PUT', body });
         else await api('/api/coaching/identities', { method: 'POST', body });
         idDialog.close();

@@ -201,7 +201,22 @@ export async function publicSchedule(env: Env): Promise<Response> {
     stage: m.stage ? m.stage.replace(/\s*\([^)]*\)\s*$/, '').replace(/\s+[–-]\s+/g, ' · ') : null,
     score: m.our_score != null && m.their_score != null ? [m.our_score, m.their_score] : null,
   }));
-  return new Response(JSON.stringify({ team: own ? { name: own.name, tag: own.tag } : null, matches }), {
+  // Everything in the schedule – tournament matches, scrims, training and free days – for the panel (version 2+).
+  // Only the public bits: no notes, no location.
+  const { results: all } = await env.DB.prepare(
+    `SELECT s.kind, s.title, s.starts_at, s.format, s.stage, s.our_score, s.their_score, COALESCE(t.name, s.opponent_name) AS opponent
+       FROM schedule s LEFT JOIN teams t ON t.id = s.opponent_team_id ORDER BY s.starts_at`,
+  ).all<{ kind: string; title: string | null; starts_at: string; format: string; stage: string | null; our_score: number | null; their_score: number | null; opponent: string | null }>();
+  const events = all.map((e) => ({
+    kind: e.kind,
+    starts_at: e.starts_at,
+    opponent: e.kind === 'match' || e.kind === 'scrim' ? e.opponent || '?' : null,
+    title: e.kind === 'other' || e.kind === 'off' ? e.title : null,
+    format: e.kind === 'match' || e.kind === 'scrim' ? e.format : null,
+    stage: e.kind === 'match' && e.stage ? e.stage.replace(/\s*\([^)]*\)\s*$/, '').replace(/\s+[–-]\s+/g, ' · ') : null,
+    score: e.our_score != null && e.their_score != null ? [e.our_score, e.their_score] : null,
+  }));
+  return new Response(JSON.stringify({ team: own ? { name: own.name, tag: own.tag } : null, matches, events }), {
     headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'public, max-age=300', 'Access-Control-Allow-Origin': '*' },
   });
 }

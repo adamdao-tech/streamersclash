@@ -4,12 +4,12 @@
 * { box-sizing: border-box; }
 html, body { margin: 0; background: var(--bg); color: var(--text); font: 13px/1.35 Inter, system-ui, sans-serif; }
 body { border-top: 4px solid var(--gold); min-height: 100vh; display: flex; flex-direction: column; }
-header { padding: 12px 16px 10px; }
+header { padding: 9px 14px 8px; }
 .kicker { color: var(--muted); font-weight: 600; font-size: 10.5px; letter-spacing: 0.04em; }
-h1 { margin: 0; font: 700 27px/1.1 Rajdhani, sans-serif; }
+h1 { margin: 0; font: 700 24px/1.1 Rajdhani, sans-serif; }
 .team { color: var(--gold); font-weight: 600; margin-top: 2px; }
 ol { list-style: none; margin: 0; padding: 0; flex: 1; }
-li { display: grid; grid-template-columns: 54px 1fr auto; align-items: center; gap: 10px; padding: 9px 16px; border-top: 1px solid var(--line); }
+li { display: grid; grid-template-columns: 50px minmax(0, 1fr) auto; align-items: center; gap: 10px; padding: 6px 14px; border-top: 1px solid var(--line); }
 li:nth-child(odd) { background: var(--card); }
 li.next { box-shadow: inset 3px 0 0 var(--gold); }
 li.empty { display: block; color: var(--muted); }
@@ -25,3 +25,11 @@ li.empty { display: block; color: var(--muted); }
 .live { color: #fff; background: #e5484d; border-radius: 4px; padding: 1px 5px; font: 700 10px Inter, sans-serif; }
 footer { display: flex; justify-content: space-between; padding: 8px 16px; border-top: 1px solid var(--line); color: var(--muted); font-size: 10.5px; }
 footer a { color: var(--gold); text-decoration: none; }
+.tag { display: inline-block; font: 700 9.5px Inter, sans-serif; letter-spacing: 0.04em; padding: 0 4px; border-radius: 3px; vertical-align: 1px; }
+.k-match .tag { background: rgba(232, 184, 74, 0.18); color: var(--gold); }
+.k-scrim .tag { background: rgba(110, 168, 254, 0.16); color: #8fbaff; }
+.k-other .tag { background: rgba(142, 154, 179, 0.18); color: var(--text); }
+.k-off .tag { background: rgba(91, 227, 162, 0.14); color: var(--green); }
+.k-off .vs { color: var(--muted); }
+.when.off { color: var(--muted); }
+.k-scrim .when { color: #8fbaff; }

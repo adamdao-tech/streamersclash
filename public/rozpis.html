@@ -35,6 +35,7 @@
       <p>Twitch panely pod streamem jsou obrázky široké 320 px. Stáhni PNG a nahraj ho v nastavení kanálu (Upravit panely → Obrázek), jako odkaz panelu dej tuhle stránku – ta se aktualizuje sama, i s výsledky.</p>
       <div class="row">
         <label>Název týmu <input type="text" id="team" maxlength="24"></label>
+        <label><input type="checkbox" id="scrims" checked> i scrimy a volno</label>
         <label><input type="checkbox" id="past"> i odehrané zápasy</label>
         <label><input type="checkbox" id="hd" checked> ostřejší (2×)</label>
       </div>
@@ -60,6 +61,7 @@
     const $ = (id) => document.getElementById(id);
     $('team').value = qs.get('tym') || '';
     $('past').checked = qs.has('vse');
+    if (qs.has('turnaj')) $('scrims').checked = false;
     const link = location.origin + '/rozpis';
     $('link').textContent = link;
 
@@ -79,9 +81,10 @@
 
     function draw(canvas, scale) {
       const now = Date.now();
-      const all = data.matches;
-      // upcoming = until 3 h after the start; played ones only when asked (or when everything is played)
-      let list = $('past').checked ? all : all.filter((m) => new Date(m.starts_at).getTime() + 3 * 3600e3 > now);
+      const all = $('scrims').checked ? (data.events || data.matches) : data.matches.map((m) => ({ ...m, kind: 'match' }));
+      const endOf = (m) => new Date(m.starts_at).getTime() + (m.kind === 'off' ? 24 : 3) * 3600e3;
+      // upcoming = until 3 h after the start (a free day the whole day); played ones only when asked
+      let list = $('past').checked ? all : all.filter((m) => endOf(m) > now);
       if (!list.length) list = all.slice(-6);
       list = list.slice(0, 8);
 
@@ -123,14 +126,27 @@
         ctx.textAlign = 'left';
         ctx.fillStyle = C.line; ctx.fillRect(70, y + 12, 1, ROW - 24);
 
-        // opponent + stage
+        // opponent (or title) + type tag + stage
         const right = 74; // room for time / score
+        const kind = m.kind || 'match';
+        if (m.opponent) {
+          ctx.fillStyle = C.muted; ctx.font = '500 11px Inter';
+          ctx.fillText('vs', 84, y + 25);
+          ctx.fillStyle = C.text; ctx.font = '600 15px Inter';
+          ctx.fillText(fit(ctx, m.opponent, W - 84 - 20 - right), 102, y + 25);
+        } else {
+          ctx.fillStyle = kind === 'off' ? C.muted : C.text; ctx.font = '600 15px Inter';
+          ctx.fillText(fit(ctx, m.title || (kind === 'off' ? 'Volno' : 'Akce'), W - 84 - right), 84, y + 25);
+        }
+        const TAG = { match: ['TURNAJ', C.gold], scrim: ['SCRIM', '#8fbaff'], other: ['AKCE', C.text], off: ['VOLNO', C.green] }[kind] || ['', C.muted];
+        ctx.font = '700 9.5px Inter';
+        const tw = ctx.measureText(TAG[0]).width + 8;
+        ctx.globalAlpha = 0.18; ctx.fillStyle = TAG[1]; ctx.fillRect(84, y + 34, tw, 13); ctx.globalAlpha = 1;
+        ctx.fillStyle = TAG[1]; ctx.fillText(TAG[0], 88, y + 44.5);
+        const stage = m.stage ? m.stage.replace(/^Skupina \S+ · /, '') : null;
+        const extra = kind === 'match' ? [stage, m.format] : kind === 'scrim' ? [m.format] : [];
         ctx.fillStyle = C.muted; ctx.font = '500 11px Inter';
-        ctx.fillText('vs', 84, y + 25);
-        ctx.fillStyle = C.text; ctx.font = '600 15px Inter';
-        ctx.fillText(fit(ctx, m.opponent, W - 84 - 20 - right), 102, y + 25);
-        ctx.fillStyle = C.muted; ctx.font = '500 11px Inter';
-        ctx.fillText(fit(ctx, [m.stage, m.format].filter(Boolean).join(' · '), W - 84 - right - 6), 84, y + 44);
+        ctx.fillText(fit(ctx, extra.filter(Boolean).join(' · '), W - 84 - tw - right - 10), 84 + tw + 6, y + 44.5);
 
         // time or result
         ctx.textAlign = 'right';
@@ -140,8 +156,11 @@
           ctx.fillText(`${m.score[0]}:${m.score[1]}`, W - 16, y + 30);
           ctx.font = '600 10px Inter';
           ctx.fillText(win ? 'VÝHRA' : 'PROHRA', W - 16, y + 45);
+        } else if (kind === 'off') {
+          ctx.fillStyle = C.muted; ctx.font = '700 22px Rajdhani';
+          ctx.fillText('—', W - 16, y + 36);
         } else {
-          ctx.fillStyle = C.gold; ctx.font = '700 22px Rajdhani';
+          ctx.fillStyle = kind === 'scrim' ? '#8fbaff' : C.gold; ctx.font = '700 22px Rajdhani';
           ctx.fillText(time(d), W - 16, y + 36);
         }
         ctx.textAlign = 'left';
@@ -181,7 +200,7 @@
       }
     }
 
-    ['team', 'past'].forEach((id) => $(id).addEventListener('input', render));
+    ['team', 'past', 'scrims'].forEach((id) => $(id).addEventListener('input', render));
     $('dl').addEventListener('click', () => {
       const c = draw(document.createElement('canvas'), $('hd').checked ? 2 : 1);
       const a = document.createElement('a');

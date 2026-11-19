@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="cs">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Harmonogram</title>
+  <link rel="stylesheet" href="panel.css">
+</head>
+<body>
+  <header>
+    <div class="kicker">STREAMERS CLASH</div>
+    <h1>HARMONOGRAM</h1>
+    <div class="team" id="team"></div>
+  </header>
+  <ol id="list" aria-live="polite"><li class="empty">Načítám…</li></ol>
+  <footer>
+    <span>Časy jsou pražské</span>
+    <a href="https://sc.daotech.dev/rozpis" target="_blank" rel="noopener">celý rozpis</a>
+  </footer>
+  <script src="https://extension-files.twitch.tv/helper/v1/twitch-ext.min.js"></script>
+  <script src="panel.js"></script>
+</body>
+</html>

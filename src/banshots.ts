@@ -50,23 +50,24 @@ export async function storeBanShots(
 const at = (t: number) => `${Math.floor(t / 3600)}h${Math.floor((t % 3600) / 60)}m${t % 60}s`;
 
 /** Games waiting for bans from their kept frames, newest first. */
-export async function gamesMissingBans(env: Env, limit = 10) {
+export async function gamesMissingBans(env: Env, limit = 10, checked = false) {
   const db = env.DB;
   // frames of games that got their bans some other way (drafter.lol import, a rescan) aren't needed any more
   await db
     .prepare(
-      `DELETE FROM ban_shots WHERE match_id IN (SELECT m.id FROM matches m WHERE m.bans_checked = 1
-          OR EXISTS (SELECT 1 FROM draft_actions a WHERE a.match_id = m.id AND a.action = 'BAN'))`,
+      `DELETE FROM ban_shots WHERE match_id IN (SELECT m.id FROM matches m
+          WHERE EXISTS (SELECT 1 FROM draft_actions a WHERE a.match_id = m.id AND a.action = 'BAN'))
+          OR (created_at < datetime('now', '-3 days') AND match_id IN (SELECT id FROM matches WHERE bans_checked = 1))`,
     )
     .run();
   const { results } = await db
     .prepare(
       `SELECT m.id, m.played_at, m.result, m.game_type, m.duration_s, m.vod_timestamp_s, v.url AS vod_url, p.nickname AS pov_player
          FROM matches m JOIN vods v ON v.id = m.vod_id LEFT JOIN players p ON p.id = m.pov_player_id
-        WHERE EXISTS (SELECT 1 FROM ban_shots s WHERE s.match_id = m.id)
+        WHERE EXISTS (SELECT 1 FROM ban_shots s WHERE s.match_id = m.id) AND m.bans_checked = ?
         ORDER BY COALESCE(m.played_at, m.created_at) DESC LIMIT ?`,
     )
-    .bind(Math.min(Math.max(limit, 1), 30))
+    .bind(checked ? 1 : 0, Math.min(Math.max(limit, 1), 30))
     .all<{ id: number; played_at: string | null; result: string | null; game_type: string | null; duration_s: number | null; vod_timestamp_s: number | null; vod_url: string; pov_player: string | null }>();
   if (!results.length) return [];
   const ids = results.map((r) => r.id);
@@ -124,9 +125,10 @@ export async function resolveBans(env: Env, matchId: number, allyBans: string[],
     if (!ally.length && !enemy.length) throw new HttpError(400, 'invalid', 'Give the bans, or no_bans: true when none are visible');
     await saveBans(env, matchId, ally, enemy);
   }
+  // "none visible" keeps the frames for 3 days so a person (or Claude) can take a second look
   await db.batch([
     db.prepare('UPDATE matches SET bans_checked = 1 WHERE id = ?').bind(matchId),
-    db.prepare('DELETE FROM ban_shots WHERE match_id = ?').bind(matchId),
+    ...(none ? [] : [db.prepare('DELETE FROM ban_shots WHERE match_id = ?').bind(matchId)]),
   ]);
   return { saved: !none, ally, enemy };
 }

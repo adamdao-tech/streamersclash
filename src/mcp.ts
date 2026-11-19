@@ -363,10 +363,16 @@ const TOOLS: Tool[] = [
     name: 'list_games_missing_bans',
     description:
       "Saved games without bans that have frames kept from just before the game (blind-pick customs drafted on drafter.lol or elsewhere on stream, which the reader didn't read). For each: picks of both sides, an overview image of the frames (overview_shot_id) and the single frames (shots). Open them with get_ban_shot, then save_game_bans.",
-    inputSchema: { type: 'object', properties: { limit: { type: 'integer', maximum: 30 } } },
+    inputSchema: {
+      type: 'object',
+      properties: {
+        limit: { type: 'integer', maximum: 30 },
+        checked: { type: 'boolean', description: 'Games already marked "no bans visible" (frames are kept 3 days) – for a second look' },
+      },
+    },
     annotations: { readOnlyHint: true },
     async run(a, { env }) {
-      const games = await gamesMissingBans(env, a.limit ? int(a.limit, 'limit') : 10);
+      const games = await gamesMissingBans(env, a.limit ? int(a.limit, 'limit') : 10, !!a.checked);
       return text({ waiting: games.length, games });
     },
   },

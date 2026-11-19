@@ -360,6 +360,38 @@ const TOOLS: Tool[] = [
     },
   },
   {
+    name: 'update_match',
+    description:
+      "Corrects a saved game: result (from the ally/POV side), game type (Custom = scrim, Ranked Flex, …), length in seconds, notes (replace). Only the fields given change. Use it when the reader misread the post-game screen (e.g. VICTORY read as DEFEAT). Admin only.",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        match_id: { type: 'integer' },
+        result: { type: 'string', enum: ['WIN', 'LOSS'] },
+        game_type: { type: 'string' },
+        duration_s: { type: 'integer' },
+        notes: { type: 'string' },
+      },
+      required: ['match_id'],
+    },
+    async run(a, { env, user }) {
+      if (user.role !== 'admin') throw new HttpError(403, 'forbidden', 'Admins only');
+      const id = int(a.match_id, 'match_id');
+      const sets: string[] = [];
+      const vals: unknown[] = [];
+      if (a.result === 'WIN' || a.result === 'LOSS') { sets.push('result = ?'); vals.push(a.result); }
+      if (typeof a.game_type === 'string' && a.game_type.trim()) { sets.push('game_type = ?'); vals.push(a.game_type.trim().slice(0, 40)); }
+      if (a.duration_s != null) { sets.push('duration_s = ?'); vals.push(int(a.duration_s, 'duration_s')); }
+      if (typeof a.notes === 'string') { sets.push('notes = ?'); vals.push(a.notes.slice(0, 4000) || null); }
+      if (!sets.length) throw new HttpError(400, 'invalid', 'Nothing to change');
+      const r = await env.DB.prepare(`UPDATE matches SET ${sets.join(', ')} WHERE id = ?`).bind(...vals, id).run();
+      if (!r.meta.changes) throw new HttpError(404, 'not_found', 'Game not found');
+      const changed = Object.fromEntries(['result', 'game_type', 'duration_s', 'notes'].filter((k) => a[k] != null).map((k) => [k, a[k]]));
+      await logActivity(env.DB, { kind: 'claude', userId: user.id }, 'match.update', 'match', id, changed);
+      return text({ ok: true, match_id: id, changed });
+    },
+  },
+  {
     name: 'list_games_missing_bans',
     description:
       "Saved games without bans that have frames kept from just before the game (blind-pick customs drafted on drafter.lol or elsewhere on stream, which the reader didn't read). For each: picks of both sides, an overview image of the frames (overview_shot_id) and the single frames (shots). Open them with get_ban_shot, then save_game_bans.",

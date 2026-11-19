@@ -7,6 +7,7 @@ import { handleOAuth, isOAuthPath } from './oauth';
 import { COMMENTATOR_PAGES, isCommentator } from './commentator';
 import { handleReader } from './reader';
 import { syncTwitchVods } from './vods';
+import { publicSchedule } from './schedule';
 import { syncProfiles, syncQueue } from './queue';
 
 export interface Env {
@@ -27,7 +28,7 @@ export interface Env {
 }
 
 /** Paths reachable without logging in. */
-const PUBLIC_PATHS = new Set(['/login', '/login.html']);
+const PUBLIC_PATHS = new Set(['/login', '/login.html', '/rozpis', '/rozpis.html']);
 
 /** Pages only superadmins may open. */
 const SUPERADMIN_PAGES = new Set(['/plan', '/plan.html']);
@@ -109,6 +110,8 @@ async function route(req: Request, env: Env, url: URL): Promise<Response> {
     if (url.pathname.startsWith('/api/reader/')) return handleReader(req, env, url);
     if (isOAuthPath(url.pathname)) return handleOAuth(req, env, url);
     if (url.pathname === '/mcp' || url.pathname === '/mcp/') return handleMcp(req, env, url);
+    // Public schedule of our tournament matches (page /rozpis, Twitch panel picture): no login.
+    if (url.pathname === '/rozpis.json' && req.method === 'GET') return publicSchedule(env);
 
     const user = await getSessionUser(req, env);
 
@@ -125,7 +128,7 @@ async function route(req: Request, env: Env, url: URL): Promise<Response> {
     // Plán koučování is the coach's private page: not even admins get the HTML.
     if (user && SUPERADMIN_PAGES.has(url.pathname) && !canSeePlan(env, user)) return redirect('/');
     // Komentátor sees only the team list, team pages and player pages (the API keeps our team out of them).
-    if (user && isCommentator(user) && !COMMENTATOR_PAGES.has(url.pathname) && !url.pathname.endsWith('.js')) return redirect('/');
+    if (user && isCommentator(user) && !COMMENTATOR_PAGES.has(url.pathname) && !PUBLIC_PATHS.has(url.pathname) && !url.pathname.endsWith('.js')) return redirect('/');
 
     const res = await env.ASSETS.fetch(req);
     // Pages behind login must not be cached by the browser or shared caches.

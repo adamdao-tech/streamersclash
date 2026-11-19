@@ -180,3 +180,28 @@ export function matchResult(m: { our_score: number | null; their_score: number |
   if (m.our_score === null || m.their_score === null) return null;
   return m.our_score > m.their_score ? 'WIN' : m.our_score < m.their_score ? 'LOSS' : 'DRAW';
 }
+
+/** Our tournament matches for the public schedule page (/rozpis) and the Twitch panel picture made from it:
+ *  no notes, no scrims, nothing internal – only what's on the tournament site anyway. */
+export async function publicSchedule(env: Env): Promise<Response> {
+  const [own, { results }] = await Promise.all([
+    env.DB.prepare('SELECT name, tag FROM teams WHERE is_own_team = 1 LIMIT 1').first<{ name: string; tag: string | null }>(),
+    env.DB.prepare(
+      `SELECT s.starts_at, s.format, s.stage, s.our_score, s.their_score, COALESCE(t.name, s.opponent_name) AS opponent, t.tag AS opponent_tag
+         FROM schedule s LEFT JOIN teams t ON t.id = s.opponent_team_id
+        WHERE s.kind = 'match' ORDER BY s.starts_at`,
+    ).all<{ starts_at: string; format: string; stage: string | null; our_score: number | null; their_score: number | null; opponent: string | null; opponent_tag: string | null }>(),
+  ]);
+  const matches = results.map((m) => ({
+    starts_at: m.starts_at,
+    opponent: m.opponent || '?',
+    opponent_tag: m.opponent_tag,
+    format: m.format,
+    // "Skupina B – 1. hrací den (D1G2)" → "Skupina B · 1. hrací den" (the internal game code stays out)
+    stage: m.stage ? m.stage.replace(/\s*\([^)]*\)\s*$/, '').replace(/\s+[–-]\s+/g, ' · ') : null,
+    score: m.our_score != null && m.their_score != null ? [m.our_score, m.their_score] : null,
+  }));
+  return new Response(JSON.stringify({ team: own ? { name: own.name, tag: own.tag } : null, matches }), {
+    headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'public, max-age=300', 'Access-Control-Allow-Origin': '*' },
+  });
+}

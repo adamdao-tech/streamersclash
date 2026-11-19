@@ -1,0 +1,199 @@
+<!doctype html>
+<html lang="cs">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Harmonogram zápasů · Streamers Clash</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="preload" href="/fonts/rajdhani-700.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="/fonts/inter-var.woff2" as="font" type="font/woff2" crossorigin>
+  <style>
+    @font-face { font-family: 'Inter'; src: url('/fonts/inter-var.woff2') format('woff2'); font-weight: 400 700; }
+    @font-face { font-family: 'Rajdhani'; src: url('/fonts/rajdhani-700.woff2') format('woff2'); font-weight: 600 700; }
+    :root { --bg: #0a0f1c; --panel: #121a2b; --line: #1f2a42; --text: #e8ecf4; --muted: #8e9ab3; --gold: #e8b84a; }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.45 Inter, system-ui, sans-serif; }
+    main { max-width: 760px; margin: 0 auto; padding: 32px 16px 48px; display: grid; gap: 28px; justify-items: center; }
+    #panel { width: 320px; max-width: 100%; height: auto; border-radius: 10px; box-shadow: 0 10px 40px rgba(0, 0, 0, 0.45); }
+    .tools { width: 100%; max-width: 520px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); padding: 16px 18px; display: grid; gap: 12px; }
+    .tools h2 { margin: 0; font: 700 18px Rajdhani, sans-serif; letter-spacing: 0.04em; text-transform: uppercase; color: var(--gold); }
+    .tools p { margin: 0; color: var(--muted); font-size: 13.5px; }
+    .row { display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center; }
+    label { display: inline-flex; gap: 6px; align-items: center; font-size: 13.5px; }
+    input[type=text] { background: var(--bg); color: var(--text); border: 1px solid var(--line); border-radius: 8px; padding: 6px 9px; font: inherit; width: 150px; }
+    button { background: var(--gold); color: var(--bg); border: 0; border-radius: 8px; padding: 9px 14px; font: 600 14px Inter, sans-serif; cursor: pointer; }
+    button.ghost { background: transparent; color: var(--text); border: 1px solid var(--line); }
+    code { background: var(--bg); padding: 2px 6px; border-radius: 5px; font-size: 12.5px; }
+    .err { color: #ff8f93; }
+  </style>
+</head>
+<body>
+  <main>
+    <canvas id="panel" width="320" height="200" role="img" aria-label="Harmonogram zápasů"></canvas>
+    <section class="tools" id="tools">
+      <h2>Obrázek na Twitch panel</h2>
+      <p>Twitch panely pod streamem jsou obrázky široké 320 px. Stáhni PNG a nahraj ho v nastavení kanálu (Upravit panely → Obrázek), jako odkaz panelu dej tuhle stránku – ta se aktualizuje sama, i s výsledky.</p>
+      <div class="row">
+        <label>Název týmu <input type="text" id="team" maxlength="24"></label>
+        <label><input type="checkbox" id="past"> i odehrané zápasy</label>
+        <label><input type="checkbox" id="hd" checked> ostřejší (2×)</label>
+      </div>
+      <div class="row">
+        <button id="dl">Stáhnout PNG</button>
+        <button class="ghost" id="copy">Zkopírovat odkaz</button>
+        <span id="msg" class="err" aria-live="polite"></span>
+      </div>
+      <p>Odkaz panelu: <code id="link"></code></p>
+    </section>
+  </main>
+  <script>
+    const qs = new URLSearchParams(location.search);
+    const W = 320;
+    const C = { bg: '#0b1222', card: '#121a2b', line: '#1f2a42', text: '#e8ecf4', muted: '#8e9ab3', gold: '#e8b84a', green: '#5be3a2', red: '#ff8f93' };
+    const tz = 'Europe/Prague';
+    const fmt = (o) => new Intl.DateTimeFormat('cs-CZ', { timeZone: tz, ...o });
+    const dayName = (d) => fmt({ weekday: 'short' }).format(d).replace('.', '').toUpperCase();
+    const dayDate = (d) => fmt({ day: 'numeric', month: 'numeric' }).format(d).replace(/\s/g, '');
+    const time = (d) => fmt({ hour: '2-digit', minute: '2-digit' }).format(d);
+    let data = null;
+
+    const $ = (id) => document.getElementById(id);
+    $('team').value = qs.get('tym') || '';
+    $('past').checked = qs.has('vse');
+    const link = location.origin + '/rozpis';
+    $('link').textContent = link;
+
+    function teamName() {
+      const custom = $('team').value.trim();
+      if (custom) return custom;
+      const n = data?.team?.name || '';
+      return n.toLowerCase() === 'sgoob' ? 'SGooB' : n;
+    }
+
+    function fit(ctx, text, max) {
+      if (ctx.measureText(text).width <= max) return text;
+      let t = text;
+      while (t.length > 1 && ctx.measureText(t + '…').width > max) t = t.slice(0, -1);
+      return t + '…';
+    }
+
+    function draw(canvas, scale) {
+      const now = Date.now();
+      const all = data.matches;
+      // upcoming = until 3 h after the start; played ones only when asked (or when everything is played)
+      let list = $('past').checked ? all : all.filter((m) => new Date(m.starts_at).getTime() + 3 * 3600e3 > now);
+      if (!list.length) list = all.slice(-6);
+      list = list.slice(0, 8);
+
+      const HEAD = 92, ROW = 58, FOOT = 34;
+      const H = HEAD + Math.max(list.length, 1) * ROW + FOOT;
+      canvas.width = W * scale; canvas.height = H * scale;
+      const ctx = canvas.getContext('2d');
+      ctx.scale(scale, scale);
+
+      // background + gold edge
+      ctx.fillStyle = C.bg; ctx.fillRect(0, 0, W, H);
+      const g = ctx.createLinearGradient(0, 0, W, 0);
+      g.addColorStop(0, C.gold); g.addColorStop(1, '#f2c85b');
+      ctx.fillStyle = g; ctx.fillRect(0, 0, W, 4);
+
+      // header
+      ctx.textBaseline = 'alphabetic';
+      ctx.fillStyle = C.muted; ctx.font = '600 11px Inter';
+      ctx.fillText('STREAMERS CLASH', 18, 26);
+      ctx.fillStyle = C.text; ctx.font = '700 30px Rajdhani';
+      ctx.fillText('HARMONOGRAM', 18, 56);
+      ctx.fillStyle = C.gold; ctx.font = '600 13px Inter';
+      ctx.fillText(fit(ctx, 'Tým ' + teamName(), W - 36), 18, 77);
+
+      // rows
+      list.forEach((m, i) => {
+        const y = HEAD + i * ROW;
+        const d = new Date(m.starts_at);
+        ctx.fillStyle = i % 2 ? C.bg : C.card;
+        ctx.fillRect(0, y, W, ROW);
+        ctx.fillStyle = C.line; ctx.fillRect(0, y, W, 1);
+
+        // date block
+        ctx.textAlign = 'center';
+        ctx.fillStyle = C.gold; ctx.font = '700 13px Rajdhani';
+        ctx.fillText(dayName(d), 38, y + 24);
+        ctx.fillStyle = C.text; ctx.font = '700 18px Rajdhani';
+        ctx.fillText(dayDate(d), 38, y + 44);
+        ctx.textAlign = 'left';
+        ctx.fillStyle = C.line; ctx.fillRect(70, y + 12, 1, ROW - 24);
+
+        // opponent + stage
+        const right = 74; // room for time / score
+        ctx.fillStyle = C.muted; ctx.font = '500 11px Inter';
+        ctx.fillText('vs', 84, y + 25);
+        ctx.fillStyle = C.text; ctx.font = '600 15px Inter';
+        ctx.fillText(fit(ctx, m.opponent, W - 84 - 20 - right), 102, y + 25);
+        ctx.fillStyle = C.muted; ctx.font = '500 11px Inter';
+        ctx.fillText(fit(ctx, [m.stage, m.format].filter(Boolean).join(' · '), W - 84 - right - 6), 84, y + 44);
+
+        // time or result
+        ctx.textAlign = 'right';
+        if (m.score) {
+          const win = m.score[0] > m.score[1];
+          ctx.fillStyle = win ? C.green : C.red; ctx.font = '700 20px Rajdhani';
+          ctx.fillText(`${m.score[0]}:${m.score[1]}`, W - 16, y + 30);
+          ctx.font = '600 10px Inter';
+          ctx.fillText(win ? 'VÝHRA' : 'PROHRA', W - 16, y + 45);
+        } else {
+          ctx.fillStyle = C.gold; ctx.font = '700 22px Rajdhani';
+          ctx.fillText(time(d), W - 16, y + 36);
+        }
+        ctx.textAlign = 'left';
+      });
+      if (!list.length) {
+        ctx.fillStyle = C.muted; ctx.font = '500 13px Inter';
+        ctx.fillText('Termíny zatím nejsou.', 18, HEAD + 34);
+      }
+
+      // footer
+      const fy = HEAD + Math.max(list.length, 1) * ROW;
+      ctx.fillStyle = C.line; ctx.fillRect(0, fy, W, 1);
+      ctx.fillStyle = C.muted; ctx.font = '500 10.5px Inter';
+      ctx.fillText('Časy jsou v našem čase (Praha)', 18, fy + 21);
+      ctx.textAlign = 'right'; ctx.fillStyle = C.gold;
+      ctx.fillText('streamersclash.cz', W - 16, fy + 21);
+      ctx.textAlign = 'left';
+      return canvas;
+    }
+
+    function render() {
+      if (!data) return;
+      const c = $('panel');
+      draw(c, window.devicePixelRatio > 1 ? 2 : 1);
+      c.style.width = W + 'px';
+    }
+
+    async function load() {
+      try {
+        const r = await fetch('/rozpis.json');
+        data = await r.json();
+        await document.fonts.load('700 30px Rajdhani');
+        await document.fonts.load('600 15px Inter');
+        render();
+      } catch (e) {
+        $('msg').textContent = 'Harmonogram se nepodařilo načíst.';
+      }
+    }
+
+    ['team', 'past'].forEach((id) => $(id).addEventListener('input', render));
+    $('dl').addEventListener('click', () => {
+      const c = draw(document.createElement('canvas'), $('hd').checked ? 2 : 1);
+      const a = document.createElement('a');
+      a.download = 'harmonogram-panel.png';
+      a.href = c.toDataURL('image/png');
+      a.click();
+    });
+    $('copy').addEventListener('click', async () => {
+      try { await navigator.clipboard.writeText(link); $('msg').textContent = ''; $('copy').textContent = 'Zkopírováno'; }
+      catch { $('msg').textContent = 'Zkopíruj odkaz ručně.'; }
+    });
+    load();
+  </script>
+</body>
+</html>

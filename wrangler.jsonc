@@ -19,7 +19,7 @@
   "vars": {
     "TWITCH_CLIENT_ID": "jfq4y3dpmayp3srqtylgpjtz7hn9oa",
     // Superadmins (Twitch logins, comma-separated): the only ones who see the activity log.
-    "SUPERADMINS": "ddddddao",
+    "SUPERADMINS": "ddddddao,sgooob",
     // Besides the superadmins, these Twitch logins see Plán koučování (not the activity log).
     "PLAN_USERS": "kryst1f",
     // Start of data collection from VODs (UTC): older VODs/games are not read. 2026-11-16 20:00 Prague time.

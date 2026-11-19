@@ -184,7 +184,8 @@ def read_drafters(streams: video.Streams, scan: S.ScanResult, db: ChampionDB, de
 # minutes before catch its finished state. Claude reads the bans from them later (connector: list_games_missing_bans).
 BAN_SHOT_OFFSETS = {
     # from the game's start (end of the post-game screen minus the game length): loading + lobby sit in between
-    "postgame": [-150, -210, -270, -330, -420, -540],
+    # (drafter.lol seen 3–10 min before the start, the lobby/loading screen in the last ~3 min)
+    "postgame": [-180, -230, -280, -340, -420, -520],
     # from the start of the client's champ select (blind pick without bans in the client)
     "champselect": [-20, -60, -120, -180, -270, -390],
 }
@@ -206,8 +207,8 @@ def keep_ban_shots(app: AppClient, streams: video.Streams, match_id: int, start:
             log.debug("  ban shot at %s failed: %s", S.fmt(t), e)
             continue
         h, w = frame.shape[:2]
-        big = cv2.resize(frame, (1280, round(h * 1280 / w)), interpolation=cv2.INTER_AREA) if w > 1280 else frame
-        ok, jpg = cv2.imencode(".jpg", big, [cv2.IMWRITE_JPEG_QUALITY, 82])
+        # full resolution: ban icons on a full-screen drafter.lol are only ~20 px wide at 1280
+        ok, jpg = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 88])
         if ok:
             shots.append((t, jpg.tobytes(), "frame"))
         tile = cv2.resize(frame, (640, 360), interpolation=cv2.INTER_AREA)

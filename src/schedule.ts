@@ -217,6 +217,6 @@ export async function publicSchedule(env: Env): Promise<Response> {
     score: e.our_score != null && e.their_score != null ? [e.our_score, e.their_score] : null,
   }));
   return new Response(JSON.stringify({ team: own ? { name: own.name, tag: own.tag } : null, matches, events }), {
-    headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'public, max-age=300', 'Access-Control-Allow-Origin': '*' },
+    headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'public, max-age=60', 'Access-Control-Allow-Origin': '*' },
   });
 }

@@ -188,17 +188,24 @@
       c.style.width = W + 'px';
     }
 
+    // The page stays open (Twitch panel link, a tab on stream): reload the schedule every minute
+    // and whenever the tab comes back, so new matches, changed times and results show up without F5.
     async function load() {
       try {
-        const r = await fetch('/rozpis.json');
+        const r = await fetch('/rozpis.json', { cache: 'no-store' });
+        if (!r.ok) throw new Error('HTTP ' + r.status);
         data = await r.json();
         await document.fonts.load('700 30px Rajdhani');
         await document.fonts.load('600 15px Inter');
+        $('msg').textContent = '';
         render();
       } catch (e) {
-        $('msg').textContent = 'Harmonogram se nepodařilo načíst.';
+        // keep showing the last good schedule; complain only when there's nothing to show
+        if (!data) $('msg').textContent = 'Harmonogram se nepodařilo načíst.';
       }
     }
+    setInterval(() => { if (!document.hidden) load(); }, 60 * 1000);
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) load(); });
 
     ['team', 'past', 'scrims'].forEach((id) => $(id).addEventListener('input', render));
     $('dl').addEventListener('click', () => {

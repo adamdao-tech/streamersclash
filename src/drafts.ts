@@ -470,12 +470,22 @@ export async function applyPostgame(env: Env, matchId: number, pg: PostGameInput
   const db = env.DB;
   const champions = await getChampions(env);
   const raw = String(pg.result ?? '').toUpperCase();
-  const result = raw === 'WIN' || raw === 'VICTORY' ? 'WIN' : raw === 'LOSS' || raw === 'DEFEAT' ? 'LOSS' : null;
+  let result = raw === 'WIN' || raw === 'VICTORY' ? 'WIN' : raw === 'LOSS' || raw === 'DEFEAT' ? 'LOSS' : null;
   const { results: actions } = await db
     .prepare(`SELECT id, side, champion, player_id FROM draft_actions WHERE match_id = ? AND action = 'PICK'`)
     .bind(matchId)
     .all<{ id: number; side: string; champion: string; player_id: number | null }>();
   if (!actions.length) return false;
+  // The same game read on another stream (an opponent's POV): its "ally" is this game's enemy and its
+  // VICTORY/DEFEAT is from the other side. Work out the orientation from the champions and turn it around –
+  // before, the opponent's result was written over the right one and the K/D/A rows found no champions.
+  const sideOf = (rows: { champion?: string | null }[] | undefined, side: string) =>
+    (rows ?? []).filter((r) => {
+      const c = resolveChampion(champions, String(r?.champion ?? ''));
+      return c && actions.some((a) => a.side === side && a.champion === c);
+    }).length;
+  const flipped = sideOf(pg.ally, 'ENEMY') + sideOf(pg.enemy, 'ALLY') > sideOf(pg.ally, 'ALLY') + sideOf(pg.enemy, 'ENEMY');
+  if (flipped) result = result === 'WIN' ? 'LOSS' : result === 'LOSS' ? 'WIN' : null;
   const players = await loadPlayerNames(db);
   // A game saved by a person (or Claude from a checked screenshot) keeps what it has – a later automatic read
   // only fills in what's missing. A game the reader saved itself takes newer values, but never loses one to a
@@ -494,7 +504,7 @@ export async function applyPostgame(env: Env, matchId: number, pg: PostGameInput
       )
       .bind(result, pg.game_type ? String(pg.game_type).slice(0, 40) : null, num(pg.duration_s, 6 * 3600), num(pg.ts_s, 24 * 3600), matchId),
   ];
-  for (const [side, rows] of [['ALLY', pg.ally], ['ENEMY', pg.enemy]] as const) {
+  for (const [side, rows] of (flipped ? [['ALLY', pg.enemy], ['ENEMY', pg.ally]] : [['ALLY', pg.ally], ['ENEMY', pg.enemy]]) as [string, typeof pg.ally][]) {
     for (const row of rows ?? []) {
       const champ = resolveChampion(champions, String(row?.champion ?? ''));
       const action = actions.find((a) => a.side === side && a.champion === champ);

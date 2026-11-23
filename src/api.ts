@@ -13,10 +13,13 @@ import {
   mapVersion, renameFolder, resetMapImage, saveMap, saveNote, savePool, saveRunePage, setMapImage, updateShot, saveIdentity, deleteIdentity, listIdentities,
 } from './coaching';
 import { getRuneData } from './runes';
-import { handleQueueApi } from './queue';
+import { handleQueueApi, streamGuard } from './queue';
 import { handlePlanApi } from './plan';
 import { handleDraftBoardsApi } from './draftboards';
 import { handleCommentatorApi, isCommentator } from './commentator';
+
+/** API paths that carry no scouting data: allowed even while live on Twitch without permission. */
+const STREAM_FREE = new Set(['/api/me', '/api/me/theme', '/api/live', '/api/champions']);
 
 const ROLES = ['TOP', 'JUNGLE', 'MID', 'ADC', 'SUPPORT', 'SUB'] as const;
 const REGIONS = ['EUNE', 'EUW'] as const;
@@ -25,6 +28,16 @@ export async function handleApi(req: Request, env: Env, url: URL, user: User): P
   try {
     // Everyone picks his own look of the web, commentators included (their API is otherwise read-only).
     if (url.pathname === '/api/me/theme' && req.method === 'PUT') return await setTheme(req, env, user);
+    // Stream guard for the whole app: a user live on Twitch without the "Smí streamovat" permission gets no
+    // scouting data (teams, players, stats, drafts, VODs, coaching…). Queue scouting has its own guard.
+    const path = url.pathname.replace(/\/+$/, '');
+    if (path === '/api/stream') return json({ stream: await streamGuard(env, user) });
+    if (!STREAM_FREE.has(path) && !path.startsWith('/api/queue')) {
+      const guard = await streamGuard(env, user);
+      if (guard.hidden) {
+        throw new HttpError(423, 'live', 'Jsi live na Twitchi – bez povolení se statistiky na streamu nezobrazují. Povolení dává kouč v Uživatelích („Smí streamovat“).');
+      }
+    }
     if (isCommentator(user)) return await handleCommentatorApi(req, env, url, () => route(req, env, url, user));
     return await route(req, env, url, user);
   } catch (err) {

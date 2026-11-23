@@ -11,6 +11,7 @@ export async function api(path, { method = 'GET', body } = {}) {
     throw new Error('unauthorized');
   }
   const data = await res.json().catch(() => ({}));
+  if (res.status === 423 && data.error === 'live') showLiveShield(data.message);
   if (!res.ok) throw new Error(data.message || data.error || `HTTP ${res.status}`);
   return data;
 }
@@ -631,4 +632,40 @@ export function blobToBase64(blob) {
     r.onerror = rej;
     r.readAsDataURL(blob);
   });
+}
+
+
+// --- stream guard -----------------------------------------------------------------
+// While a user is live on Twitch without the "Smí streamovat" permission, the API sends no scouting data
+// (423 live) and the page goes black. Pages that were already open are checked every 20 s, so going live
+// with the app open hides it too; when the stream ends the page reloads by itself.
+const GUARD_FREE_PAGES = new Set(['/login', '/login.html', '/rozpis', '/rozpis.html', '/soukromi', '/soukromi.html']);
+let liveShield = null;
+
+function showLiveShield(message) {
+  if (liveShield) return;
+  liveShield = document.createElement('div');
+  liveShield.setAttribute('role', 'alert');
+  liveShield.style.cssText = 'position:fixed;inset:0;z-index:2147483647;background:#000;color:#fff;display:grid;place-items:center;text-align:center;padding:24px';
+  liveShield.innerHTML = `<div style="max-width:460px"><h2 style="font-size:1.6rem;margin:0 0 10px">Jsi live na Twitchi</h2>
+    <p style="color:#9aa3b2;margin:0">${esc(message || 'Bez povolení se statistiky na streamu nezobrazují.')}</p>
+    <p style="color:#9aa3b2;margin:14px 0 0;font-size:.85rem">Po konci streamu se stránka sama obnoví.</p></div>`;
+  (document.body || document.documentElement).append(liveShield);
+  // nothing of the page stays in the DOM behind the black screen (a capture of a single window, devtools…)
+  for (const el of [...document.body.children]) if (el !== liveShield) el.remove();
+}
+
+async function checkStream() {
+  try {
+    const res = await fetch('/api/stream');
+    if (!res.ok) return;
+    const { stream } = await res.json();
+    if (stream?.hidden) showLiveShield();
+    else if (liveShield) location.reload();
+  } catch { /* offline – try again next time */ }
+}
+
+if (typeof location !== 'undefined' && !GUARD_FREE_PAGES.has(location.pathname)) {
+  checkStream();
+  setInterval(checkStream, 20_000);
 }

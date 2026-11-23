@@ -179,12 +179,14 @@ def read_kda(img: np.ndarray) -> tuple[int, int, int] | None:
 def normalize_game_type(raw: str) -> str:
     """The subtitle's game type in one spelling, English or Czech client, without OCR junk ("y Custom", "Vlastní")."""
     key = letters(raw)
-    if "CUSTOM" in key or "VLASTN" in key or fuzz.partial_ratio(key, "VLASTNI") >= 85:
+    # the first letter is often cut off or misread ("ustom")
+    if "CUSTOM" in key or "USTOM" in key or "VLASTN" in key or fuzz.partial_ratio(key, "VLASTNI") >= 85:
         return "Custom"
-    if "FLEX" in key or "FIEX" in key or "FLEXIBIL" in key:
-        return "Ranked Flex"
     if "SOLO" in key or "DUO" in key:
         return "Ranked Solo/Duo"
+    # Ranked Flex is called "Ranked 5s" in the current client (OCR: "RankedSs"; letters() drops the 5)
+    if "FLEX" in key or "FIEX" in key or "FLEXIBIL" in key or key.startswith("RANKEDS"):
+        return "Ranked Flex"
     return raw
 
 

@@ -3,7 +3,7 @@ import { logActivity, type User } from './db';
 import { HttpError, json } from './http';
 import { getChampions, resolveChampion } from './champions';
 
-// Draft (page /drafty): drafts the admins prepare for different situations – 5 bans and 5 picks per side
+// Draft (former page /drafty, removed for Draft strom – the data and API are kept): drafts the admins prepare for different situations – 5 bans and 5 picks per side
 // (with roles), which side is ours, the opponent and notes. Shared by all admins; Claude can make them via MCP.
 
 export const BOARD_ROLES = ['TOP', 'JUNGLE', 'MID', 'ADC', 'SUPPORT'] as const;

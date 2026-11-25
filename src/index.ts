@@ -131,6 +131,9 @@ function secure(res: Response): Response {
 async function route(req: Request, env: Env, url: URL): Promise<Response> {
     await ensureSchema(env.DB);
 
+    // The old Draft page (prepared draft boards) was replaced by Draft strom (Recvrve); old links land there.
+    // The boards stay in the draft_boards table and the /api/draft-boards API.
+    if (url.pathname === '/drafty' || url.pathname === '/drafty.html') return redirect('/strom');
     if (url.pathname.startsWith('/auth/')) return handleAuth(req, env, url);
     if (url.pathname.startsWith('/api/reader/')) return handleReader(req, env, url);
     if (isOAuthPath(url.pathname)) return handleOAuth(req, env, url);

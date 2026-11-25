@@ -45,6 +45,14 @@ Limit 1800 requests/hour; the cron uses ~3–8 per run (players, active games, g
 First run: *Queue scouting → Načíst historii z API* downloads the full history once (the page parses the ~8 MB and sends it back in chunks).
 API players (Discord names) are paired with streamersclash.cz players by Discord ID, name, and from games known from both sources.
 
+## Draft strom (Recvrve)
+`/strom` (admins) shows **Recvrve** – draft preparation as a tree, by [odparovacc](https://github.com/odparovacc), GNU GPL v2 or later
+(`public/recvrve/LICENSE`, fonts and libraries in `public/recvrve/THIRD-PARTY-NOTICES.txt`). It's the browser build from
+[adamdao-tech/draft](https://github.com/adamdao-tech/draft) (`dist/`, commit 81a6203) that used to run on draft2.daotech.dev; source and build steps are there.
+The files live in `public/recvrve/` and are served without login or database (`serveRecvrve` in `src/index.ts`) – they hold no data of ours.
+Recvrve keeps its settings and autosaves in the browser (IndexedDB) per web address, so trees from draft2 move over as a saved `.dts` file.
+To update: rebuild `dist/` in adamdao-tech/draft (`web/build.sh`) and copy it over `public/recvrve/` (without `_headers`).
+
 ## Draft reader
 See [`reader/README.md`](reader/README.md). Needs the `READER_TOKEN` secret in Cloudflare.
 

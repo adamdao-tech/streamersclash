@@ -51,10 +51,35 @@ async function serveStatic(req: Request, env: Env, url: URL): Promise<Response> 
   return out;
 }
 
+/**
+ * Recvrve (draft tree by odparovacc, GPL v2+; browser build from adamdao-tech/draft, formerly draft2.daotech.dev).
+ * Its files hold no data of ours – it's the same app that was public on draft2 – so they skip the login and the
+ * database (about 190 requests per open, mostly champion icons). The page with it in the menu is /strom (login).
+ */
+const RECVRVE = '/recvrve';
+
+async function serveRecvrve(req: Request, env: Env, url: URL): Promise<Response> {
+  if (url.pathname === RECVRVE) return redirect(`${RECVRVE}/`);
+  const res = await env.ASSETS.fetch(req);
+  const out = new Response(res.body, res);
+  // only our own page (/strom) may show it in a frame
+  out.headers.set('X-Frame-Options', 'SAMEORIGIN');
+  out.headers.set('X-Content-Type-Options', 'nosniff');
+  if (res.ok) {
+    const p = url.pathname.slice(RECVRVE.length);
+    if (p.startsWith('/champion_icons/')) out.headers.set('Cache-Control', 'public, max-age=604800');
+    else if (p.startsWith('/fonts/')) out.headers.set('Cache-Control', 'public, max-age=31536000, immutable');
+    // the app code (~7 MB wasm) keeps its name across versions: check with the server, re-download only when changed
+    else out.headers.set('Cache-Control', 'public, max-age=0, must-revalidate');
+  }
+  return out;
+}
+
 export default {
   async fetch(req, env): Promise<Response> {
     const url = new URL(req.url);
     if (STATIC_PATHS.has(url.pathname) || url.pathname.startsWith('/fonts/')) return serveStatic(req, env, url);
+    if (url.pathname === RECVRVE || url.pathname.startsWith(`${RECVRVE}/`)) return serveRecvrve(req, env, url);
 
     try {
       return secure(await route(req, env, url));

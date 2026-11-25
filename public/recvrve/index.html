@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Recvrve</title>
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<style>
+  html, body { margin: 0; height: 100%; background: #12141b; color: #c9ccd6; overflow: hidden; }
+  #main { height: 100%; }
+  #boot { position: fixed; inset: 0; display: grid; place-items: center; font: 15px system-ui, sans-serif; }
+</style>
+</head>
+<body>
+<div id="boot">Loading Recvrve…</div>
+<div id="main"></div>
+<script type="module">
+  import init from './pkg/draftree.js';
+  const main = document.getElementById('main');
+  new MutationObserver((_, o) => { document.getElementById('boot')?.remove(); o.disconnect(); })
+    .observe(main, { childList: true });
+  addEventListener('beforeunload', (e) => { if (window.__recvrveDirty) e.preventDefault(); });
+  init({ module_or_path: './pkg/draftree_bg.wasm' }).catch((e) => {
+    document.getElementById('boot').textContent = 'Recvrve could not start: ' + e;
+    console.error(e);
+  });
+</script>
+</body>
+</html>

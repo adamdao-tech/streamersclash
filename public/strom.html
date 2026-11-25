@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="cs">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Draft strom · SGooBovo šedl scouting</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="preload" href="/fonts/inter-var.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="/fonts/rajdhani-700.woff2" as="font" type="font/woff2" crossorigin>
+  <script>try{var t=localStorage.getItem('sc-theme');if(t&&t!=='default')document.documentElement.dataset.theme=t}catch(e){}</script>
+  <link rel="stylesheet" href="/app.css">
+  <style>
+    /* Recvrve fills everything under the top bar; the page itself doesn't scroll. */
+    html, body { height: 100%; }
+    body { display: flex; flex-direction: column; overflow: hidden; }
+    .strom-bar { display: flex; gap: 14px; align-items: center; flex-wrap: wrap; padding: 6px 24px; font-size: .8rem; color: var(--muted); border-bottom: 1px solid var(--line); }
+    .strom-bar .sp { flex: 1; }
+    .strom-bar a { color: var(--text-2); }
+    #recvrve { flex: 1; width: 100%; border: 0; display: block; background: #12141b; }
+  </style>
+</head>
+<body>
+  <div class="strom-bar">
+    <span><b>Recvrve</b> – příprava draftu jako strom (autor <a href="https://github.com/odparovacc" target="_blank" rel="noopener">odparovacc</a>, GPL v2+)</span>
+    <span class="sp"></span>
+    <span title="Recvrve si data drží v prohlížeči podle adresy webu. Stromy z draft2.daotech.dev ulož tam (stáhne se .dts) a tady je načti.">Stromy z draft2: tam Uložit → tady Načíst</span>
+    <a href="/recvrve/" target="_blank" rel="noopener">Otevřít samostatně ↗</a>
+  </div>
+  <iframe id="recvrve" src="/recvrve/" title="Recvrve – draft strom" allow="clipboard-read; clipboard-write"></iframe>
+
+  <script type="module">
+    import { initPage } from '/app.js';
+    const me = await initPage('strom');
+    if (me.role !== 'admin') location.href = '/';
+    // the top bar is added above everything: keep the info strip and the app below it
+    document.querySelector('.topbar')?.style.setProperty('flex', 'none');
+    // keyboard shortcuts belong to the app as soon as the page opens
+    const frame = document.getElementById('recvrve');
+    frame.addEventListener('load', () => frame.contentWindow?.focus());
+  </script>
+</body>
+</html>
